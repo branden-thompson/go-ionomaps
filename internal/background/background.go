@@ -11,13 +11,8 @@ import (
 
 	"github.com/branden-thompson/go-ionomaps/internal/climatology"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
+	"github.com/branden-thompson/go-ionomaps/internal/grid"
 	"github.com/branden-thompson/go-ionomaps/internal/magcoords"
-)
-
-// The grid (R-1.1): rows from 89°N, columns from 179°W, 2° apart.
-const (
-	Cols = 180
-	Rows = 90
 )
 
 // Source is what a background was made from.
@@ -40,27 +35,28 @@ type Fields struct {
 }
 
 // Build is the hour's backgrounds at a moment for an F10.7 mean: foF2 from
-// grid, regridded, when one is given, else the climatology (D-101, FR-5.2).
+// g, regridded, when one is given, else the climatology (D-101, FR-5.2).
 //
 // Source: watchpost D-101; the climatology (PyIRI's method); NOAA SWPC
 // GloTEC.
-func Build(at time.Time, f107 float64, grid *glotec.Grid) Fields {
-	f := Fields{FoF2: make([]float32, Cols*Rows), M3000: make([]float32, Cols*Rows), FoF2From: Climatology, M3000From: Climatology}
+func Build(at time.Time, f107 float64, g *glotec.Grid) Fields {
+	f := Fields{FoF2: make([]float32, grid.Cells), M3000: make([]float32, grid.Cells), FoF2From: Climatology, M3000From: Climatology}
 	hour := climatology.NewHour(climatology.Refits(), at, f107)
 	sub := magcoords.SubsolarQD(at)
-	usable := grid != nil && len(grid.FoF2) == grid.Cols*grid.Rows && len(grid.NoData) == len(grid.FoF2)
+	coords := magcoords.Cells(at)
+	f.CoordsExtrapolated = coords.Extrapolated()
+	usable := g != nil && len(g.FoF2) == g.Cols*g.Rows && len(g.NoData) == len(g.FoF2)
 	fromGloTEC := 0
 	for i := range f.FoF2 {
-		lat, lon := 89-2*float64(i/Cols), -179+2*float64(i%Cols)
-		qdlat, qdlon, extrapolated := magcoords.QD(lat, lon, at)
-		f.CoordsExtrapolated = f.CoordsExtrapolated || extrapolated
+		qdlat, qdlon := coords.At(i)
 		fo, m3 := hour.At(qdlat, magcoords.MLTFrom(qdlon, sub))
 		f.M3000[i] = float32(m3)
 		f.FoF2[i] = float32(fo)
 		if !usable {
 			continue
 		}
-		if v, ok := regrid(grid, lat, lon); ok {
+		lat, lon := grid.Centre(i)
+		if v, ok := regrid(g, lat, lon); ok {
 			f.FoF2[i] = v
 			fromGloTEC++
 			continue

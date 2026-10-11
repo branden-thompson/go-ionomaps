@@ -33,25 +33,6 @@ type Field struct {
 	NoData                   Bitset
 }
 
-// The global grid (R-1.1): 2° cells over the whole globe, edges at -180..180
-// and -90..90, no antimeridian crossing; the only step in v0.1.0 (D-138).
-const (
-	gridStep = 2
-	gridCols = 360 / gridStep
-	gridRows = 180 / gridStep
-)
-
-// globalField is an empty field over the global grid: every value zero and
-// every cell without data.
-func globalField() Field {
-	f := Field{West: -180, South: -90, East: 180, North: 90, Cols: gridCols, Rows: gridRows,
-		Values: make([]float32, gridCols*gridRows), NoData: newBitset(gridCols * gridRows)}
-	for i := range f.Values {
-		f.NoData.Set(i)
-	}
-	return f
-}
-
 // CellCentre is the longitude and latitude of a cell's centre, the place its
 // value is for; false for a cell outside the field.
 //

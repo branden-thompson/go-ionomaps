@@ -434,3 +434,31 @@ func TestAnUpdateIsSafeForConcurrentUse(t *testing.T) {
 		t.Errorf("eight updates at once asked %d times; once each of index, grid and solar file", len(a))
 	}
 }
+
+// TestASolarFileNotReadKeepsNoValidators: a solar file that answers but does
+// not read gives no mean, and its validators are not kept, so the next ask
+// is a whole one - never a 304 against a file that gave nothing.
+func TestASolarFileNotReadKeepsNoValidators(t *testing.T) {
+	l, n, c := library(t)
+	n.list(t, start.Add(-30*time.Minute), 7)
+	good := n.solar
+	n.solar = []byte("not the solar file")
+	if _, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err == nil {
+		t.Fatal("a solar file that does not read gave a field")
+	}
+	n.solar = good
+	c.Add(10 * time.Minute)
+	n.take()
+	n.mu.Lock()
+	n.validator = nil
+	n.mu.Unlock()
+	s, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	if err != nil || s.Inputs.F107Mean != 140 {
+		t.Fatalf("the next update: mean %v, error %v", s.Inputs.F107Mean, err)
+	}
+	for i, url := range n.take() {
+		if url == solarURL && n.validator[i] != (ionomaps.Validators{}) {
+			t.Errorf("the solar file was asked again with %+v, the validators of a file that gave nothing", n.validator[i])
+		}
+	}
+}

@@ -16,3 +16,7 @@ Every run of `scripts/gate` adds a row: when, HEAD, the git tree that was tested
 | 2026-10-09T03:20:31Z | de4063c | 4c860598e767 | full | green | 125 | - |
 | 2026-10-09T14:01:40Z | 89375d1 | 5880d3ea21aa | full | green | 125 | - |
 | 2026-10-09T14:32:17Z | 029dc87 | 2c538bca8e96 | full | green | 170 | - |
+| 2026-10-11T16:58:37Z | ef97f06 | 48ab09ac581a | quick | FAILED: P10, a2dh p10 check | 71 | - |
+| 2026-10-11T16:59:50Z | ef97f06 | 48ab09ac581a | quick | FAILED: P10, a2dh p10 check | 68 | - |
+| 2026-10-11T17:01:20Z | ef97f06 | 7a1aeed333ce | quick | green | 69 | - |
+| 2026-10-11T17:06:04Z | ef97f06 | 993c2d00202b | full | green | 184 | - |

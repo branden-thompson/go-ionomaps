@@ -3,6 +3,7 @@ package glotec
 import (
 	"encoding/json"
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -257,14 +258,34 @@ func TestTheNewestGridIsReadFromTheIndex(t *testing.T) {
 	}
 }
 
-// FuzzGloTECIndex: no index panics the reading; a name read is a grid's, at
-// a time no later than the clock allows.
+// newestRef is Newest by the name's pattern, the reading Newest must equal.
+func newestRef(index []byte, now time.Time) (name string, valid time.Time, ok bool) {
+	if len(index) > maxIndexBytes {
+		return "", time.Time{}, false
+	}
+	for _, m := range regexp.MustCompile(`glotec_icao_(\d{8}T\d{6}Z)\.geojson`).FindAllSubmatch(index, -1) {
+		t, err := time.Parse("20060102T150405Z", string(m[1]))
+		if err == nil && !t.After(now.Add(clockSkew)) && t.After(valid) {
+			name, valid = string(m[0]), t
+		}
+	}
+	return name, valid, name != ""
+}
+
+// FuzzGloTECIndex: no index panics the reading; it reads as the name's
+// pattern does; a name read is a grid's, at a time no later than the clock
+// allows.
 func FuzzGloTECIndex(f *testing.F) {
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 	f.Add(listing("glotec_icao_20261009T113500Z.geojson"))
 	f.Add([]byte("glotec_icao_99999999T999999Z.geojson"))
+	f.Add([]byte("glotec_icao_glotec_icao_20261009T113500Z.geojson glotec_icao_20261009T113500Z.geojso glotec_icao_2026100９T113500Z.geojson"))
+	f.Add(indexOfSize(now, 4<<10))
 	f.Fuzz(func(t *testing.T, idx []byte) {
 		name, valid, ok := Newest(idx, now)
+		if rn, rv, rok := newestRef(idx, now); name != rn || !valid.Equal(rv) || ok != rok {
+			t.Fatalf("read %q at %v (%v); the pattern reads %q at %v (%v)", name, valid, ok, rn, rv, rok)
+		}
 		if !ok {
 			return
 		}
@@ -272,4 +293,25 @@ func FuzzGloTECIndex(f *testing.F) {
 			t.Errorf("read %q at %v", name, valid)
 		}
 	})
+}
+
+// indexOfSize is a listing of grids ten minutes apart, ending before now,
+// about n bytes long: the measured index is 505 KB (watchpost W0.0).
+func indexOfSize(now time.Time, n int) []byte {
+	var names []string
+	for at := now.Add(-10 * time.Minute); len(listing(names...)) < n; at = at.Add(-10 * time.Minute) {
+		names = append(names, "glotec_icao_"+at.UTC().Format("20060102T150405Z")+".geojson")
+	}
+	return listing(names...)
+}
+
+func BenchmarkGloTECNewest(b *testing.B) {
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	idx := indexOfSize(now, 505<<10)
+	b.SetBytes(int64(len(idx)))
+	for b.Loop() {
+		if _, _, ok := Newest(idx, now); !ok {
+			b.Fatal("no grid named")
+		}
+	}
 }

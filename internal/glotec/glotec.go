@@ -66,7 +66,7 @@ type document struct {
 
 type feature struct {
 	Geometry struct {
-		Coordinates [2]float64 `json:"coordinates"` // fixed: one allocation a grid, not a point; a short array reads as 0, 0, no cell centre
+		Coordinates [2]float64 `json:"coordinates"` // an array: no allocation a point; a short array reads as 0, 0, no cell centre
 	} `json:"geometry"`
 	Properties struct {
 		NmF2    float64 `json:"NmF2"`

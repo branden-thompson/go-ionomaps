@@ -10,6 +10,16 @@ import (
 	"time"
 )
 
+// globalField is an empty field over the global grid: every value zero and
+// every cell without data.
+func globalField() Field {
+	f := newField()
+	for i := range f.Values {
+		f.NoData.Set(i)
+	}
+	return f
+}
+
 // TestTheGridIsTwoDegrees is R-1.1: 180 cells by 90, each 2° on a side, the
 // first cell's centre at 179°W, 89°N; no grid-step option (D-138).
 func TestTheGridIsTwoDegrees(t *testing.T) {

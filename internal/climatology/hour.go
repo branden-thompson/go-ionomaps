@@ -64,7 +64,7 @@ func fold(out *[Harmonics]float64, c func(int, Level) Coefficients, m1, m2 int, 
 // off the sphere, or an hour whose tables were not whole.
 //
 // Source: as Values.
-func (h Hour) At(qdlat, mlt float64) (foF2, m3000 float64) {
+func (h *Hour) At(qdlat, mlt float64) (foF2, m3000 float64) {
 	if !h.ok {
 		return 0, 0
 	}
@@ -72,7 +72,8 @@ func (h Hour) At(qdlat, mlt float64) (foF2, m3000 float64) {
 	if !finite || !(qdlat >= -90 && qdlat <= 90) {
 		return 0, 0
 	}
-	sh := harmonics((90-qdlat)*math.Pi/180, mlt*15*math.Pi/180)
+	var sh [Harmonics]float64
+	harmonics(&sh, (90-qdlat)*math.Pi/180, mlt*15*math.Pi/180)
 	for k, y := range sh {
 		foF2 += h.fo[k] * y
 		m3000 += h.m3[k] * y

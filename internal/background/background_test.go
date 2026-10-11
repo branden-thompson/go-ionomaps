@@ -7,6 +7,7 @@ import (
 
 	"github.com/branden-thompson/go-ionomaps/internal/climatology"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
+	"github.com/branden-thompson/go-ionomaps/internal/grid"
 	"github.com/branden-thompson/go-ionomaps/internal/magcoords"
 )
 
@@ -18,7 +19,8 @@ var noon = time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 func expected(row, col int) (fo, m3 float64) {
 	lat, lon := 89-2*float64(row), -179+2*float64(col)
 	qdlat, qdlon, _ := magcoords.QD(lat, lon, noon)
-	return climatology.NewHour(climatology.Refits(), noon, 150).At(qdlat, magcoords.MLT(qdlon, noon))
+	h := climatology.NewHour(climatology.Refits(), noon, 150)
+	return h.At(qdlat, magcoords.MLT(qdlon, noon))
 }
 
 // flatGloTEC is a GloTEC grid whose foF2 rises with latitude, 5 MHz at the
@@ -45,7 +47,7 @@ func TestTheFallbackIsUsedAndNamed(t *testing.T) {
 	}
 	for _, rc := range [][2]int{{0, 0}, {20, 33}, {44, 90}, {70, 150}, {89, 179}} {
 		fo, _ := expected(rc[0], rc[1])
-		if got := b.FoF2[rc[0]*Cols+rc[1]]; math.Abs(float64(got)-fo) > 1e-4 {
+		if got := b.FoF2[rc[0]*grid.Cols+rc[1]]; math.Abs(float64(got)-fo) > 1e-4 {
 			t.Errorf("cell %v: foF2 %v; the climatology gives %v", rc, got, fo)
 		}
 	}
@@ -55,9 +57,37 @@ func TestTheFallbackIsUsedAndNamed(t *testing.T) {
 	}
 	for _, row := range []int{1, 22, 45, 67, 88} {
 		lat := 89 - 2*float64(row)
-		if got, want := float64(g.FoF2[row*Cols+50]), 5+lat/30; math.Abs(got-want) > 1e-4 {
+		if got, want := float64(g.FoF2[row*grid.Cols+50]), 5+lat/30; math.Abs(got-want) > 1e-4 {
 			t.Errorf("row %d (%v°): foF2 %v; GloTEC regridded gives %v", row, lat, got, want)
 		}
+	}
+}
+
+// TestEveryCellIsTheClimatologyAtItsCentre: without GloTEC, every cell is
+// the climatology read at its centre's quasi-dipole coordinates and MLT,
+// exactly as one place is read.
+func TestEveryCellIsTheClimatologyAtItsCentre(t *testing.T) {
+	b := Build(noon, 150, nil)
+	h := climatology.NewHour(climatology.Refits(), noon, 150)
+	for i := range grid.Cells {
+		lat, lon := 89-2*float64(i/180), -179+2*float64(i%180)
+		qdlat, qdlon, _ := magcoords.QD(lat, lon, noon)
+		fo, m3 := h.At(qdlat, magcoords.MLT(qdlon, noon))
+		if b.FoF2[i] != float32(fo) || b.M3000[i] != float32(m3) {
+			t.Fatalf("cell %d: %v, %v; the climatology at its centre gives %v, %v", i, b.FoF2[i], b.M3000[i], float32(fo), float32(m3))
+		}
+	}
+}
+
+// TestExtrapolatedCoordinatesAreSaidOfTheHour is R-9.7: an hour outside
+// the coordinate table's years says its coordinates were extrapolated; one
+// inside them does not.
+func TestExtrapolatedCoordinatesAreSaidOfTheHour(t *testing.T) {
+	if Build(noon, 150, nil).CoordsExtrapolated {
+		t.Error("an hour inside the table's years says its coordinates were extrapolated")
+	}
+	if !Build(time.Date(2031, 6, 1, 12, 0, 0, 0, time.UTC), 150, nil).CoordsExtrapolated {
+		t.Error("an hour past the table's years does not say its coordinates were extrapolated")
 	}
 }
 
@@ -67,7 +97,7 @@ func TestM3000BackgroundIsTheClimatology(t *testing.T) {
 	b := Build(noon, 150, flatGloTEC())
 	for _, rc := range [][2]int{{3, 7}, {30, 100}, {45, 0}, {60, 60}, {86, 170}} {
 		_, m3 := expected(rc[0], rc[1])
-		if got := b.M3000[rc[0]*Cols+rc[1]]; math.Abs(float64(got)-m3) > 1e-4 {
+		if got := b.M3000[rc[0]*grid.Cols+rc[1]]; math.Abs(float64(got)-m3) > 1e-4 {
 			t.Errorf("cell %v: M(3000)F2 %v; the climatology gives %v", rc, got, m3)
 		}
 	}
@@ -98,7 +128,7 @@ func TestARefusedGloTECCellIsFilled(t *testing.T) {
 	for i := range all.NoData {
 		all.NoData[i] = true
 	}
-	if b := Build(noon, 150, all); b.FoF2From != Climatology || b.Filled != Cols*Rows {
+	if b := Build(noon, 150, all); b.FoF2From != Climatology || b.Filled != grid.Cells {
 		t.Errorf("a GloTEC grid with no valid cell: background %v, %d filled", b.FoF2From, b.Filled)
 	}
 }
@@ -113,7 +143,7 @@ func TestAGridTooSmallToRegridIsTheClimatology(t *testing.T) {
 		for i := range g.FoF2 {
 			g.FoF2[i] = 7
 		}
-		if b := Build(noon, 150, g); b.FoF2From != Climatology || b.Filled != Cols*Rows {
+		if b := Build(noon, 150, g); b.FoF2From != Climatology || b.Filled != grid.Cells {
 			t.Errorf("a %d by %d grid: background %v, %d filled", cr[0], cr[1], b.FoF2From, b.Filled)
 		}
 	}

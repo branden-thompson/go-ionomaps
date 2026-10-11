@@ -13,6 +13,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"math"
+	"sync"
 )
 
 // The tables' shape: 11 real Fourier terms in universal time and 900 real
@@ -65,7 +66,8 @@ func Monthly(c Coefficients, ut, qdlat, mlt float64) float64 {
 		return 0 // off the sphere, or no number
 	}
 	fs := fourier(ut)
-	sh := harmonics((90-qdlat)*math.Pi/180, mlt*15*math.Pi/180)
+	var sh [Harmonics]float64
+	harmonics(&sh, (90-qdlat)*math.Pi/180, mlt*15*math.Pi/180)
 	total := 0.0
 	for j, f := range fs {
 		row := c[j*Harmonics : (j+1)*Harmonics]
@@ -90,13 +92,15 @@ func fourier(ut float64) [Terms]float64 {
 	return f
 }
 
-// harmonics is the real spherical-harmonic basis at a colatitude and
-// longitude in radians, 4π-normalised with the Condon-Shortley phase, the
-// mode of degree l and order m at l(l+1)+m and its sine twin at l(l+1)-m.
-func harmonics(theta, phi float64) [Harmonics]float64 {
-	var out [Harmonics]float64
+// harmonics writes the real spherical-harmonic basis at a colatitude and
+// longitude in radians into out, 4π-normalised with the Condon-Shortley
+// phase, the mode of degree l and order m at l(l+1)+m and its sine twin at
+// l(l+1)-m. Every element is written. The arrays are filled in place, never
+// returned, so a place costs no 14 KB copy.
+func harmonics(out *[Harmonics]float64, theta, phi float64) {
 	z := math.Cos(theta)
-	p := legendre(z)
+	var p [lmax + 1][lmax + 1]float64
+	legendre(&p, z)
 	// cos(mφ) and sin(mφ) for every order, stepped by the angle-sum rule.
 	var cm, sm [lmax + 1]float64
 	c1, s1 := math.Cos(phi), math.Sin(phi)
@@ -113,7 +117,6 @@ func harmonics(theta, phi float64) [Harmonics]float64 {
 			out[base-m] = pn * sm[m]
 		}
 	}
-	return out
 }
 
 // norms is each degree and order's 4π normalisation: √(2l+1) for order 0,
@@ -137,11 +140,10 @@ func ratio(l, m int) float64 {
 	return r
 }
 
-// legendre is the associated Legendre functions P_l^m(z), with the
-// Condon-Shortley phase, for every degree and order up to lmax, by the
-// standard recurrences.
-func legendre(z float64) [lmax + 1][lmax + 1]float64 {
-	var p [lmax + 1][lmax + 1]float64
+// legendre writes the associated Legendre functions P_l^m(z) into p, with
+// the Condon-Shortley phase, for every degree and order up to lmax (m <= l),
+// by the standard recurrences.
+func legendre(p *[lmax + 1][lmax + 1]float64, z float64) {
 	s := math.Sqrt(math.Max(0, 1-z*z))
 	p[0][0] = 1
 	for m := 1; m <= lmax; m++ {
@@ -155,7 +157,6 @@ func legendre(z float64) [lmax + 1][lmax + 1]float64 {
 			p[l][m] = (float64(2*l-1)*z*p[l-1][m] - float64(l+m-1)*p[l-2][m]) / float64(l-m)
 		}
 	}
-	return p
 }
 
 // The refits, converted by tools/tables from the one-time export (watchpost
@@ -168,8 +169,12 @@ var (
 	m3000Table []byte
 )
 
-// tableHeader is the compact form's magic and four-number shape.
-const tableHeader = 8 + 16
+// The compact form opens with its magic, the format's name and version, and
+// its shape as four little-endian uint32s: levels, months, terms, harmonics.
+const (
+	tableMagic  = "IONOTAB1"
+	tableHeader = len(tableMagic) + 16
+)
 
 // refits reads the embedded tables.
 type refits struct{}
@@ -181,15 +186,56 @@ type refits struct{}
 // NRL's refits (Forsythe et al. 2024), exported once (watchpost D-114).
 func Refits() Tables { return refits{} }
 
-// FoF2 is foF2's coefficients for a month and solar level.
+// FoF2 is foF2's coefficients for a month and solar level, decoded once and
+// shared: read them, never write them.
 //
 // Source: as Refits.
-func (refits) FoF2(month int, solar Level) Coefficients { return slice(fof2Table, month, solar) }
+func (refits) FoF2(month int, solar Level) Coefficients {
+	return decoded(&fof2Decoded, fof2Table, month, solar)
+}
 
-// M3000 is M(3000)F2's coefficients for a month and solar level.
+// M3000 is M(3000)F2's coefficients for a month and solar level, decoded
+// once and shared: read them, never write them.
 //
 // Source: as Refits.
-func (refits) M3000(month int, solar Level) Coefficients { return slice(m3000Table, month, solar) }
+func (refits) M3000(month int, solar Level) Coefficients {
+	return decoded(&m3000Decoded, m3000Table, month, solar)
+}
+
+// onceTable is a table's coefficients, decoded the first time each month
+// and level is asked: an hour folds eight of them, and the same eight again
+// the next hour.
+type onceTable [levels][months]struct {
+	once sync.Once
+	c    Coefficients
+}
+
+var fof2Decoded, m3000Decoded onceTable
+
+// decoded is a month and level's coefficients from a table, decoded once;
+// none for a month or level the table does not hold.
+func decoded(cache *onceTable, table []byte, month int, solar Level) Coefficients {
+	if month < 1 || month > months || solar > Max {
+		return nil
+	}
+	e := &cache[solar][month-1]
+	e.once.Do(func() { e.c = slice(table, month, solar) })
+	return e.c
+}
+
+// shaped is whether a compact table is the one this package reads: its
+// magic, its shape and its length.
+func shaped(table []byte) bool {
+	if len(table) != tableHeader+8*levels*months*Terms*Harmonics || string(table[:len(tableMagic)]) != tableMagic {
+		return false
+	}
+	for i, want := range [4]int{levels, months, Terms, Harmonics} {
+		if int(binary.LittleEndian.Uint32(table[len(tableMagic)+4*i:])) != want {
+			return false
+		}
+	}
+	return true
+}
 
 // slice decodes one month and level from a compact table; none for a month
 // or level the table does not hold, or a table of another shape.
@@ -197,10 +243,10 @@ func slice(table []byte, month int, solar Level) Coefficients {
 	if month < 1 || month > months || solar > Max {
 		return nil
 	}
-	n := Terms * Harmonics
-	if len(table) != tableHeader+8*levels*months*n {
+	if !shaped(table) {
 		return nil
 	}
+	n := Terms * Harmonics
 	start := tableHeader + 8*((int(solar)*months+month-1)*n)
 	out := make(Coefficients, n)
 	for i := range out {

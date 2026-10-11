@@ -42,9 +42,10 @@ func All() []Source {
 
 // Datasets is every third-party dataset committed (R-4.3), each with its
 // NOTICE entry: NRL's refits from PyIRI as exported once (watchpost D-114)
-// and as converted for the library, and PyIRI's own values at fixed inputs,
-// the climatology's test oracle. IGRF-14's coefficients and the Apex sample
-// are added as they are committed (G3.5).
+// and as converted for the library; PyIRI's own values at fixed inputs, the
+// climatology's test oracle; IGRF-14's coefficients, their golden values and
+// the coordinate table traced from them; and the Apex sample the coordinates
+// are tested against.
 //
 // Source: this library.
 func Datasets() []Dataset {

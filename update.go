@@ -9,6 +9,7 @@ import (
 
 	"github.com/branden-thompson/go-ionomaps/internal/background"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
+	"github.com/branden-thompson/go-ionomaps/internal/grid"
 	"github.com/branden-thompson/go-ionomaps/internal/solar"
 )
 
@@ -24,12 +25,13 @@ const (
 // publishes at; grids at most six an hour; after a refusal or no answer, 60 s
 // doubling to 15 minutes.
 const (
-	noaaEvery     = 10 * time.Minute
-	gridsAnHour   = 6
-	firstBackOff  = time.Minute
-	longestPause  = 15 * time.Minute
-	statusOK      = 200
-	statusRefused = 429
+	noaaEvery         = 10 * time.Minute
+	gridsAnHour       = 6
+	firstBackOff      = time.Minute
+	longestPause      = 15 * time.Minute
+	statusOK          = 200
+	statusNotModified = 304
+	statusRefused     = 429
 )
 
 // gridMaxAge is how old a grid may be and still be the background: GloTEC
@@ -37,9 +39,8 @@ const (
 // hour old means several missed, and foF2 has moved with the hour (A-5).
 const gridMaxAge = time.Hour
 
-// UpdateOptions are one update's settings, the host's to give each time.
-// G4.2's update has none; each comes with its task (the no-readings
-// correction with G5.2, D-105).
+// UpdateOptions are one update's settings, the host's to give each time;
+// none yet (the no-readings correction is planned with G5.2, D-105).
 type UpdateOptions struct{}
 
 // Update asks NOAA for what is new and returns the hour's snapshot (G4.2,
@@ -118,7 +119,7 @@ func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response
 	if r.Status == statusRefused {
 		return r, false, true
 	}
-	return r, r.Status == statusOK || r.Status == 304 && v != (Validators{}), false
+	return r, r.Status == statusOK || r.Status == statusNotModified && v != (Validators{}), false
 }
 
 // refreshGrid asks the index and, when it names a grid not held, that grid,
@@ -163,9 +164,9 @@ func (l *Library) mayAskGrid(now time.Time) bool {
 	return true
 }
 
-// refreshSolar reads the solar file once a UTC day, with its validators; a
-// failed ask is tried at the next update. refused is whether it was refused
-// or unanswered.
+// refreshSolar reads the solar file once a UTC day, with the validators of
+// the file the held mean was taken from; a failed ask is tried at the next
+// update. refused is whether it was refused or unanswered.
 func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool) {
 	today := now.Truncate(24 * time.Hour)
 	readToday := l.solar.OK && l.solarDay.Equal(today)
@@ -176,11 +177,14 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 	if !ok {
 		return refused
 	}
-	l.solarDay, l.solarVal = today, r.Validators
+	l.solarDay = today
 	if r.Status != statusOK {
 		return false // unchanged since it was read: the mean held stands
 	}
 	l.solar = solar.Hold(l.solar, r.Body, now)
+	if l.solar.Taken.Equal(now) {
+		l.solarVal = r.Validators // the mean is this file's
+	}
 	return false
 }
 
@@ -220,11 +224,12 @@ func backgroundOf(s background.Source) Background {
 	return NoBackground
 }
 
-// newField is an empty field over the global grid with every cell's data
-// to be put.
+// newField is an empty field over the global grid (R-1.1): 2° cells over the
+// whole globe, edges at -180..180 and -90..90, no antimeridian crossing, the
+// only step in v0.1.0 (D-138); every cell's data to be put.
 func newField() Field {
-	return Field{West: -180, South: -90, East: 180, North: 90, Cols: gridCols, Rows: gridRows,
-		Values: make([]float32, gridCols*gridRows), NoData: newBitset(gridCols * gridRows)}
+	return Field{West: -180, South: -90, East: 180, North: 90, Cols: grid.Cols, Rows: grid.Rows,
+		Values: make([]float32, grid.Cells), NoData: newBitset(grid.Cells)}
 }
 
 // put sets a cell's value; one not finite and above zero is marked as no

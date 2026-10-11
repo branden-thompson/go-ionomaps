@@ -12,14 +12,15 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/grid"
 )
 
-// The table's grid, the library's own (R-1.1): rows from 89°N, columns from
-// 179°W, 2° apart.
+// The table's grid is the library's own (R-1.1).
 const (
-	cols  = 180
-	rows  = 90
-	cells = cols * rows
+	cols  = grid.Cols
+	rows  = grid.Rows
+	cells = grid.Cells
 	magic = "IONOQD01"
 )
 
@@ -39,32 +40,44 @@ var (
 	loadOnce sync.Once
 )
 
-// load reads the embedded table once; an empty table where it is not whole.
+// load reads the embedded table once.
 func load() years {
-	loadOnce.Do(func() {
-		head := len(magic) + 12
-		if len(table) < head || string(table[:len(magic)]) != magic {
-			return
-		}
-		n := int(binary.LittleEndian.Uint32(table[len(magic):]))
-		whole := n > 0 && n <= 100 && len(table) == head+4*n+8*n*cells
-		if !whole {
-			return
-		}
-		y := years{first: int(binary.LittleEndian.Uint32(table[head:]))}
-		at := head + 4*n
-		for range n {
-			lat, lon := make([]float32, cells), make([]float32, cells)
-			for i := range cells {
-				lat[i] = math.Float32frombits(binary.LittleEndian.Uint32(table[at+4*i:]))
-				lon[i] = math.Float32frombits(binary.LittleEndian.Uint32(table[at+4*(cells+i):]))
-			}
-			at += 8 * cells
-			y.lat, y.lon = append(y.lat, lat), append(y.lon, lon)
-		}
-		loaded = y
-	})
+	loadOnce.Do(func() { loaded = read(table) })
 	return loaded
+}
+
+// read is a table read: the magic, the number of years, the grid's columns
+// and rows, the years, consecutive, then each year's latitudes and
+// longitudes by cell; an empty table where it is not whole or not the
+// library's grid.
+func read(b []byte) years {
+	head := len(magic) + 12
+	if len(b) < head || string(b[:len(magic)]) != magic {
+		return years{}
+	}
+	u32 := func(at int) int { return int(binary.LittleEndian.Uint32(b[at:])) }
+	n := u32(len(magic))
+	whole := n > 0 && n <= 100 && u32(len(magic)+4) == cols && u32(len(magic)+8) == rows && len(b) == head+4*n+8*n*cells
+	if !whole {
+		return years{}
+	}
+	y := years{first: u32(head)}
+	for k := range n {
+		if u32(head+4*k) != y.first+k {
+			return years{}
+		}
+	}
+	at := head + 4*n
+	for range n {
+		lat, lon := make([]float32, cells), make([]float32, cells)
+		for i := range cells {
+			lat[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[at+4*i:]))
+			lon[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[at+4*(cells+i):]))
+		}
+		at += 8 * cells
+		y.lat, y.lon = append(y.lat, lat), append(y.lon, lon)
+	}
+	return y
 }
 
 // QD is a geographic place's quasi-dipole latitude and longitude in degrees
@@ -83,15 +96,7 @@ func QD(lat, lon float64, at time.Time) (qdlat, qdlon float64, extrapolated bool
 	if !place {
 		return 0, 0, true
 	}
-	t := yearFraction(at) - float64(y.first)
-	last := float64(len(y.lat) - 1)
-	extrapolated = t < 0 || t > last
-	t = math.Max(0, math.Min(last, t))
-	i := int(math.Min(t, last-1))
-	if last == 0 {
-		i = 0
-	}
-	w := t - float64(i)
+	i, w, extrapolated := span(y, at)
 	la0, lo0 := cellValues(y.lat[i], y.lon[i], lat, lon)
 	if w == 0 || i+1 >= len(y.lat) {
 		return la0, lo0, extrapolated
@@ -99,6 +104,99 @@ func QD(lat, lon float64, at time.Time) (qdlat, qdlon float64, extrapolated bool
 	la1, lo1 := cellValues(y.lat[i+1], y.lon[i+1], lat, lon)
 	return la0 + w*(la1-la0), blendLongitude(lo0, lo1, w), extrapolated
 }
+
+// span is where a moment falls in the table's years: the year at or before
+// it, the part of the way to the next, and whether it is outside them, held
+// to the first or last year.
+func span(y years, at time.Time) (i int, w float64, extrapolated bool) {
+	t := yearFraction(at) - float64(y.first)
+	last := float64(len(y.lat) - 1)
+	extrapolated = t < 0 || t > last
+	t = math.Max(0, math.Min(last, t))
+	i = int(math.Min(t, last-1))
+	if last == 0 {
+		i = 0
+	}
+	return i, t - float64(i), extrapolated
+}
+
+// node is one year's coordinates at a cell's centre.
+type node struct{ lat, lon float64 }
+
+// centres are each year's coordinates at every cell's centre, as QD reads
+// them, each year worked out the first time a moment needs it.
+var (
+	centres []struct {
+		once  sync.Once
+		nodes []node
+	}
+	centresOnce sync.Once
+)
+
+// yearCentres is year k's coordinates at every cell's centre.
+func yearCentres(y years, k int) []node {
+	centresOnce.Do(func() {
+		centres = make([]struct {
+			once  sync.Once
+			nodes []node
+		}, len(y.lat))
+	})
+	c := &centres[k]
+	c.once.Do(func() {
+		c.nodes = make([]node, cells)
+		for i := range c.nodes {
+			lat, lon := grid.Centre(i)
+			c.nodes[i].lat, c.nodes[i].lon = cellValues(y.lat[k], y.lon[k], lat, lon)
+		}
+	})
+	return c.nodes
+}
+
+// Moment is the table read for one moment over the library's grid: every
+// cell's coordinates at its centre, as QD gives them, the table read once
+// for them all.
+type Moment struct {
+	from, to     []node
+	w            float64
+	extrapolated bool
+}
+
+// Cells is the table read for a moment over the library's grid.
+//
+// Source: as QD.
+func Cells(at time.Time) Moment {
+	y := load()
+	if len(y.lat) == 0 {
+		return Moment{extrapolated: true} // no table: nothing known
+	}
+	i, w, extrapolated := span(y, at)
+	m := Moment{from: yearCentres(y, i), w: w, extrapolated: extrapolated}
+	if w != 0 && i+1 < len(y.lat) {
+		m.to = yearCentres(y, i+1)
+	}
+	return m
+}
+
+// At is cell i's quasi-dipole latitude and longitude in degrees, as QD
+// gives them at the cell's centre.
+//
+// Source: as QD.
+func (m Moment) At(i int) (qdlat, qdlon float64) {
+	if m.from == nil {
+		return 0, 0
+	}
+	a := m.from[i]
+	if m.to == nil {
+		return a.lat, a.lon
+	}
+	b := m.to[i]
+	return a.lat + m.w*(b.lat-a.lat), blendLongitude(a.lon, b.lon, m.w)
+}
+
+// Extrapolated is whether the moment is outside the table's years.
+//
+// Source: as QD.
+func (m Moment) Extrapolated() bool { return m.extrapolated }
 
 // yearFraction is a moment as a year and the part of it past.
 func yearFraction(at time.Time) float64 {
