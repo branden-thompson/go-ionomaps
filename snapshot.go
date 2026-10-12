@@ -21,6 +21,7 @@ type Hour struct {
 	At      time.Time
 	MUF3000 Field
 	FoF2    Field
+	Typical bool // an hour ahead: the climatology's, typical, never a forecast (R-1.3)
 }
 
 // Field is a value a cell over a box: rows from the north, each west to east,

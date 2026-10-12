@@ -112,7 +112,12 @@ func readCompact(b []byte) ([]float64, error) {
 
 func main() {
 	root := flag.String("root", "../..", "the repository's root")
+	gyroOnly := flag.Bool("gyro", false, "write the gyrofrequency table alone")
 	flag.Parse()
+	if *gyroOnly {
+		writeGyroTable(*root)
+		return
+	}
 	for _, c := range []struct{ from, to string }{{"foF2_CCIR.txt", "fof2_ccir.bin"}, {"M3000F2.txt", "m3000f2.bin"}} {
 		f, err := os.Open(filepath.Join("export", c.from))
 		if err != nil {
@@ -143,6 +148,7 @@ func main() {
 		fail(err)
 	}
 	fmt.Printf("igrf14coeffs.txt -> %s (%v)\n", out, years)
+	writeGyroTable(*root)
 	sample, err := os.ReadFile(filepath.Join("apex", "apex-sample.txt"))
 	if err != nil {
 		fail(err)
@@ -161,6 +167,21 @@ func main() {
 		}
 		fmt.Printf("%s -> %s\n", c.from, out)
 	}
+}
+
+// writeGyroTable writes the gyrofrequency table from IGRF-14's
+// coefficients, the coordinate table's years.
+func writeGyroTable(root string) {
+	model, err := loadIGRF(filepath.Join("igrf", "igrf14coeffs.txt"))
+	if err != nil {
+		fail(err)
+	}
+	years := []int{2025, 2026, 2027, 2028, 2029, 2030}
+	out := filepath.Join(root, "internal", "magcoords", "gyro.bin")
+	if err := os.WriteFile(out, writeGyro(years, generateGyro(model, years)), 0o644); err != nil {
+		fail(err)
+	}
+	fmt.Printf("igrf14coeffs.txt -> %s (%v)\n", out, years)
 }
 
 func fail(err error) {

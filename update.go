@@ -206,6 +206,7 @@ func (l *Library) build(now time.Time) Snapshot {
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
 			CoordsExtrapolated: b.CoordsExtrapolated},
+		TypicalError: typicalError(),
 	}
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid = g.Valid

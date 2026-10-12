@@ -41,8 +41,10 @@ Sources the library reads, or will read, and their terms:
    kept as the evaluation's test oracle:
      tools/tables/igrf/igrf14coeffs.txt (IAGA's coefficient file, as fetched 2026-10-09)
      tools/tables/igrf/golden-igrf.txt (ppigrf's values)
-   The library's own quasi-dipole coordinates are generated from it at build time:
+   The library's own quasi-dipole coordinates and the gyrofrequency at 300 km are generated from it at
+   build time:
      internal/magcoords/coords.bin
+     internal/magcoords/gyro.bin
    Cite: IAGA Working Group V-MOD, the International Geomagnetic Reference Field, 14th generation.
 
 5. ITU-R P.533 and P.1239: methods implemented from the published recommendations; no recommendation
