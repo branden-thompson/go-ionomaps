@@ -5,15 +5,16 @@ import "time"
 // A Snapshot is immutable: every update returns fresh slices (P-6). Hours[0]
 // is now; then up to 24 hours ahead, typical (R-1.3, watchpost D-109).
 type Snapshot struct {
-	Computed     time.Time    // the age is the host's clock minus this
-	Hours        []Hour       // Hours[0] is now; then the hours ahead, typical
-	NearestKm    []float32    // per cell: distance to the nearest assimilated station (R-2.11); measured within 500 km (R-3.2)
-	Background   Backgrounds  // per field (watchpost D-101)
-	Inputs       Inputs       // what fed it, and when (R-3.3, R-9.5, R-9.7)
-	Early        Reason       // why this is not from new data (R-5.4)
-	Scales       Scales       // NOAA's space-weather levels (watchpost D-88)
-	Offset       Offset       // stations against GloTEC (watchpost D-105)
-	TypicalError TypicalError // the hours ahead's error, with its basis (watchpost D-109)
+	Computed        time.Time    // the age is the host's clock minus this
+	Hours           []Hour       // Hours[0] is now; then the hours ahead, typical
+	NearestKm       []float32    // per cell: distance to the nearest assimilated station (R-2.11); measured within 500 km (R-3.2)
+	NearestUnscored Bitset       // per cell: whether that nearest station's readings are unscored - verify on air (D-61)
+	Background      Backgrounds  // per field (watchpost D-101)
+	Inputs          Inputs       // what fed it, and when (R-3.3, R-9.5, R-9.7)
+	Early           Reason       // why this is not from new data (R-5.4)
+	Scales          Scales       // NOAA's space-weather levels (watchpost D-88)
+	Offset          Offset       // stations against GloTEC (watchpost D-105)
+	TypicalError    TypicalError // the hours ahead's error, with its basis (watchpost D-109)
 }
 
 // Hour is one hour's fields: valid from At, for the hour that starts there.

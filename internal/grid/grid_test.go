@@ -25,3 +25,36 @@ func TestTheGridIsTwoDegreeCellCentres(t *testing.T) {
 		}
 	}
 }
+
+// TestASampleIsBilinearBetweenCentres is the grid's sampler (G5): between
+// cell centres a value is bilinear, across the antimeridian too, and held to
+// the outermost rows past them.
+func TestASampleIsBilinearBetweenCentres(t *testing.T) {
+	v := make([]float32, Cells)
+	for i := range v {
+		lat, lon := Centre(i)
+		v[i] = float32(lat + 0.5*lon)
+	}
+	for _, p := range [][2]float64{{10, 20}, {11, 21.3}, {-45.5, -100.7}, {0, 0}} {
+		got, ok := Sample(v, p[0], p[1])
+		if want := p[0] + 0.5*p[1]; !ok || math.Abs(got-want) > 1e-4 {
+			t.Errorf("at %v: %v (%v); a linear field gives %v", p, got, ok, want)
+		}
+	}
+	w := make([]float32, Cells)
+	for i := range w {
+		_, lon := Centre(i)
+		w[i] = float32(math.Cos(lon * math.Pi / 180))
+	}
+	east, _ := Sample(w, 0, 179.9)
+	west, _ := Sample(w, 0, -179.9)
+	if math.Abs(east-west) > 1e-3 {
+		t.Errorf("across the antimeridian: %v east and %v west", east, west)
+	}
+	if pole, ok := Sample(v, 90, 0); !ok || math.Abs(pole-89) > 1e-4 {
+		t.Errorf("at the pole: %v; held to the 89° row", pole)
+	}
+	if _, ok := Sample(v[:10], 0, 0); ok {
+		t.Error("a field of the wrong size was sampled")
+	}
+}

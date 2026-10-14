@@ -2,6 +2,7 @@ package ionomaps_test
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"runtime"
 	"strings"
@@ -19,6 +20,8 @@ type giroSide struct {
 	refuse int                    // the ask, counting from 1, answered 429
 	cancel func()                 // called at the ask refuse names, in place of refusing
 	silent map[string]bool        // stations that answer with no reading
+	speak  bool                   // stations answer with readings; NOAA's own tests leave it off
+	score  map[string]string      // a station's confidence score, 95 when unset
 }
 
 // giroAnswer answers one GIRO ask: the station's reply in FastChar's
@@ -38,18 +41,43 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 	}
 	u, _ := url.Parse(raw)
 	code := u.Query().Get("ursiCode")
-	body := "# Location: " + "GEO" + " ( 40.0 N   260.0 E ), URSI-Code " + code + ", A STATION\n" +
+	body := "# Location: " + "GEO" + " ( " + placeOf(code) + " ), URSI-Code " + code + ", A STATION\n" +
 		"# Time                    " + "CS" + "   foF2 " + "QD M(D) QD\n"
 	times := []time.Time{n.clock.Now().Add(-5 * time.Minute)}
 	if t, ok := g.rows[code]; ok {
 		times = t
 	}
-	if !g.silent[code] {
+	score := "95"
+	if v, ok := g.score[code]; ok {
+		score = v
+	}
+	if g.speak && !g.silent[code] {
 		for _, at := range times {
-			body += at.UTC().Format("2006-01-02T15:04:05.000Z") + "  95  7.500 // 3.40 //\n"
+			body += at.UTC().Format("2006-01-02T15:04:05.000Z") + "  " + score + "  7.500 // 3.40 //\n"
 		}
 	}
 	return ionomaps.Response{Status: 200, Body: []byte(body)}, nil
+}
+
+// placeOf is where the fake says a station is, in FastChar's form: Alpena
+// and Dourbes where they are, every other station spread by its code.
+func placeOf(code string) string {
+	switch code {
+	case "AL945":
+		return "45.1 N   276.4 E"
+	case "DB049":
+		return "50.1 N     4.6 E"
+	}
+	h := 0
+	for _, r := range code {
+		h = h*31 + int(r)
+	}
+	lat, lon := h%120-60, (h/7)%360
+	ns := "N"
+	if lat < 0 {
+		ns, lat = "S", -lat
+	}
+	return fmt.Sprintf("%d.0 %s   %d.0 E", lat, ns, lon)
 }
 
 // giroLibrary is the library with NOAA serving a grid, ready to update.
@@ -57,6 +85,7 @@ func giroLibrary(t *testing.T) (*ionomaps.Library, *noaa, *clock) {
 	t.Helper()
 	l, n, c := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
+	n.giro.speak = true
 	return l, n, c
 }
 
@@ -217,5 +246,69 @@ func TestOldReadingsAreLetGo(t *testing.T) {
 	}
 	if held, _ := ionomaps.HeldReadings(l); held != 0 {
 		t.Errorf("%d readings three days old still held", held)
+	}
+}
+
+// seededAt is a seeded live station's place: Alpena, AL945.
+var seededAt = ionomaps.LatLon{Lat: 45.1, Lon: -83.6}
+
+// TestStationsAreAssimilatedIntoTheField is R-9.2 (D-101): after GIRO's
+// burst the field moves toward the stations' readings - foF2 7.5 over
+// GloTEC's 7 - the snapshot says how many were used and how old the oldest
+// is, and every cell how far its nearest station is.
+func TestStationsAreAssimilatedIntoTheField(t *testing.T) {
+	l, _, c := giroLibrary(t)
+	before := update(t, l)
+	after := update(t, l)
+	b, _ := before.At([]ionomaps.LatLon{seededAt}, c.Now())
+	a, _ := after.At([]ionomaps.LatLon{seededAt}, c.Now())
+	if !(a[0].FoF2 > b[0].FoF2+0.2) {
+		t.Errorf("foF2 at Alpena is %v before the burst and %v after; its reading is 7.5 over GloTEC's 7", b[0].FoF2, a[0].FoF2)
+	}
+	if after.Inputs.Stations != 40 || after.Inputs.OldestReading.IsZero() || len(after.NearestKm) != len(after.Hours[0].FoF2.Values) {
+		t.Errorf("after the burst: %d stations, oldest %v, %d distances", after.Inputs.Stations, after.Inputs.OldestReading, len(after.NearestKm))
+	}
+	if before.Inputs.Stations != 0 || before.NearestKm != nil {
+		t.Error("NOAA's snapshot before the burst says stations")
+	}
+}
+
+// TestOnlyReadingsAnHourOldAreAssimilated is D-64 (watchpost D-184): a
+// reading over an hour old is not assimilated - the field is the
+// background alone, said with no stations - though it is still held.
+func TestOnlyReadingsAnHourOldAreAssimilated(t *testing.T) {
+	l, n, c := giroLibrary(t)
+	update(t, l)
+	update(t, l)
+	c.Add(61 * time.Minute)
+	n.list(t, c.Now().Add(-30*time.Minute), 7)
+	s := update(t, l) // NOAA's, GIRO due: built before the burst, the readings 66 minutes old
+	if s.Inputs.Stations != 0 || s.NearestKm != nil {
+		t.Errorf("readings 66 minutes old: %d stations assimilated", s.Inputs.Stations)
+	}
+	if held, _ := ionomaps.HeldReadings(l); held == 0 {
+		t.Error("the readings were let go; they are kept until three days")
+	}
+}
+
+// TestAnUnscoredStationIsSaid is R-2.11 (D-61, watchpost D-181): a cell
+// whose nearest station's readings are unscored is marked, so the host can
+// tell the operator to verify; one whose nearest is scored is not.
+func TestAnUnscoredStationIsSaid(t *testing.T) {
+	l, n, _ := giroLibrary(t)
+	n.giro.score = map[string]string{"AL945": "-1"}
+	update(t, l)
+	s := update(t, l)
+	cell := func(p ionomaps.LatLon) int {
+		f := s.Hours[0].FoF2
+		row := int((f.North - p.Lat) / (f.North - f.South) * float64(f.Rows))
+		col := int((p.Lon - f.West) / (f.East - f.West) * float64(f.Cols))
+		return row*f.Cols + col
+	}
+	if !s.NearestUnscored.Has(cell(seededAt)) {
+		t.Error("Alpena's cell, its nearest station unscored, is not marked")
+	}
+	if s.NearestUnscored.Has(cell(ionomaps.LatLon{Lat: 50.1, Lon: 4.6})) {
+		t.Error("Dourbes' cell, its nearest station scored, is marked")
 	}
 }

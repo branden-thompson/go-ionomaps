@@ -479,3 +479,51 @@ for lo, hi in ((0, 500), (500, 1000), (1000, 2000), (2000, 20000)):
     fo, mf = errors(C, ks)
     print(f"   {lo:5d}-{hi:5d} km (n={len(ks):3d})  {rms(fo):.2f} | {rms(mf):.2f}")
 
+
+# ---------- the readings' age (go-ionomaps G5: how old a held reading may be and still be assimilated) ----------
+def lagged(age):
+    """{(t, st): (fo, muf, m3)} from each station's sounding nearest t minus age minutes, within 10 minutes of it."""
+    out = {}
+    for t in times:
+        want = t - timedelta(minutes=age)
+        for st in STS:
+            near = [r for r in sound[st] if abs(r[0] - want) <= timedelta(minutes=10)]
+            if near:
+                out[(t, st)] = min(near, key=lambda r: abs(r[0] - want))[1:]
+    return out
+
+
+def gp_aged(back, L, noise, train, k, bk):
+    """One characteristic (k: 0 foF2, 2 M(3000)F2) at each held-out station at t, from the other stations' aged
+    readings over the background at t: gp_loo's method, the inputs older."""
+    pred = {}
+    for t in times:
+        for held in [s for s in STS if (t, s) in obs]:
+            rest = [s for s in STS if s != held and (t, s) in train]
+            if len(rest) < 3:
+                continue
+            res = np.array([train[(t, s)][k] - back[(t, s)][bk] for s in rest])
+            mu = res.mean(); y = res - mu; var = max(float(y.var()), 1e-4)
+            K = np.array([[var * math.exp(-DIST[(a, b)] / L) for b in rest] for a in rest])
+            K += noise * var * np.eye(len(rest))
+            kv = np.array([var * math.exp(-DIST[(held, b)] / L) for b in rest])
+            pred[(t, held)] = back[(t, held)][bk] + mu + kv @ np.linalg.solve(K, y)
+    return pred
+
+
+print("\n12. The readings' age: the hybrid held out on the test days, the other stations' readings N minutes older than "
+      "the grid (foF2 | MUF(3000) RMS, MHz), beside GloTEC alone and the climatology alone, on the same pairs")
+AGES = (0, 15, 30, 45, 60, 75, 90, 120)
+aged = {}
+for age in AGES:
+    tr = lagged(age)
+    fo, m3 = gp_aged(glo, Lg, Ng, tr, 0, 0), gp_aged(C, Lc, Nc, tr, 2, 1)
+    aged[age] = {k: (fo[k], m3[k]) for k in fo if k in m3}
+SAME = [k for k in COMMON_TEST if all(k in aged[a] for a in AGES)]
+if not SAME:
+    sys.exit("week.py: no test pair is scored at every age")
+gfo, gmf = errors(glo, SAME); cfo, cmf = errors(C, SAME)
+print(f"   (n={len(SAME)} pairs)  GloTEC alone {rms(gfo):.2f} | {rms(gmf):.2f}   the climatology alone {rms(cfo):.2f} | {rms(cmf):.2f}")
+for age in AGES:
+    efo, emf = errors(aged[age], SAME)
+    print(f"   {age:3d} min   hybrid {rms(efo):.2f} | {rms(emf):.2f}")

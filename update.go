@@ -47,12 +47,15 @@ type UpdateOptions struct{}
 // watchpost D-151): GloTEC's newest grid, found through its index, and the
 // daily solar file, at most once a day; foF2 from GloTEC (the climatology,
 // named, without it or past an hour old), M(3000)F2 from the climatology,
-// MUF(3000) their product. No stations are assimilated yet, so NearestKm is
-// empty. Within ten minutes of the last ask, or while backing off, the last
-// snapshot comes back said too soon (R-5.4). With nothing held and no F10.7
-// mean to be had there is no field: the error says when NOAA is asked again.
+// MUF(3000) their product, with GIRO's readings up to an hour old
+// assimilated onto both (G5, D-64), NearestKm and NearestUnscored saying
+// where. When GIRO is due it returns NOAA's snapshot said StationsNext, and
+// the next call makes GIRO's burst (D-63). Within ten minutes of the last
+// ask, or while backing off, the last snapshot comes back said too soon
+// (R-5.4). With nothing held and no F10.7 mean to be had there is no field:
+// the error says when NOAA is asked again.
 //
-// Source: watchpost D-39, D-101, D-104, D-111, D-151; this library.
+// Source: watchpost D-39, D-63, D-64, D-101, D-104, D-111, D-151; this library.
 func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -61,8 +64,7 @@ func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error)
 		l.stationsNext = false
 		l.giro.Burst(ctx, now, l.giroFetch())
 		l.giro.LetGo(now)
-		s := l.last.clone()
-		s.Early = Fresh // the readings are held; G5 assimilates them, and the snapshot then says so
+		s := l.build(now) // NOAA's fields held, the stations' readings now on them
 		l.last = s
 		return s.clone(), nil
 	}
@@ -208,18 +210,21 @@ func (l *Library) build(now time.Time) Snapshot {
 		g = nil
 	}
 	b := background.Build(now, l.solar.Mean, g)
+	res, oldest := l.assimilated(b, now)
 	fo, muf := newField(), newField()
-	for i, f := range b.FoF2 {
+	for i, f := range res.FoF2 {
 		fo.put(i, f)
-		muf.put(i, f*b.M3000[i])
+		muf.put(i, f*res.M3000[i])
 	}
 	s := Snapshot{
 		Computed:   now,
 		Hours:      []Hour{{At: now, FoF2: fo, MUF3000: muf}},
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
-			CoordsExtrapolated: b.CoordsExtrapolated},
-		TypicalError: typicalError(),
+			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected},
+		NearestKm:       res.NearestKm,
+		NearestUnscored: unscoredCells(res.NearestUnscored),
+		TypicalError:    typicalError(),
 	}
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid = g.Valid
@@ -265,6 +270,7 @@ func (s Snapshot) clone() Snapshot {
 		c.Hours[i] = Hour{At: h.At, MUF3000: h.MUF3000.owned(), FoF2: h.FoF2.owned()}
 	}
 	c.NearestKm = slices.Clone(s.NearestKm)
+	c.NearestUnscored = Bitset{bits: slices.Clone(s.NearestUnscored.bits), n: s.NearestUnscored.n}
 	c.Scales.Outlook = slices.Clone(s.Scales.Outlook)
 	c.TypicalError.Bands = slices.Clone(s.TypicalError.Bands)
 	return c
