@@ -53,6 +53,10 @@ type noaa struct {
 	status    map[string]int // a status in place of 200
 	down      map[string]bool
 	giro      giroSide
+
+	drap           []byte // D-RAP's table; none served when nil
+	drapAsks       []string
+	drapValidators []ionomaps.Validators
 }
 
 func newNOAA(c *clock) *noaa {
@@ -64,6 +68,9 @@ func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (io
 	defer n.mu.Unlock()
 	if strings.Contains(url, "lgdc.uml.edu") {
 		return n.giroAnswer(ctx, url)
+	}
+	if url == drapURL {
+		return n.drapAnswer(ctx, v)
 	}
 	n.asked = append(n.asked, url)
 	n.validator = append(n.validator, v)
@@ -91,6 +98,23 @@ func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (io
 		return ionomaps.Response{Status: 404}, nil
 	}
 	return ionomaps.Response{Status: 200, Body: body}, nil
+}
+
+// drapAnswer answers D-RAP's ask, recorded apart from GloTEC's and the solar
+// file's: the table when one is set, with its validators, else 404.
+func (n *noaa) drapAnswer(ctx context.Context, v ionomaps.Validators) (ionomaps.Response, error) {
+	n.drapAsks = append(n.drapAsks, drapURL)
+	n.drapValidators = append(n.drapValidators, v)
+	if err := ctx.Err(); err != nil {
+		return ionomaps.Response{}, err
+	}
+	if s, ok := n.status[drapURL]; ok {
+		return ionomaps.Response{Status: s}, nil
+	}
+	if n.drap == nil {
+		return ionomaps.Response{Status: 404}, nil
+	}
+	return ionomaps.Response{Status: 200, Body: n.drap, Validators: ionomaps.Validators{ETag: `"drap-1"`}}, nil
 }
 
 // list puts a grid valid at t in the index and serves it.
@@ -243,8 +267,8 @@ func TestAnUpdateTooSoonAnswersFromTheLast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := n.take(); len(a) != 0 {
-		t.Errorf("asked %v within ten minutes", a)
+	if a := n.take(); len(a) != 0 || len(n.drapAsks) != 1 {
+		t.Errorf("asked %v and D-RAP %d times within ten minutes; want D-RAP's first ask alone", a, len(n.drapAsks))
 	}
 	if second.Early != ionomaps.TooSoon || !second.Computed.Equal(first.Computed) {
 		t.Errorf("early %v, computed %v", second.Early, second.Computed)

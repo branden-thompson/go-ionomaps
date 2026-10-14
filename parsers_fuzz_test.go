@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/branden-thompson/go-ionomaps/internal/drap"
 	"github.com/branden-thompson/go-ionomaps/internal/giro"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/solar"
@@ -17,6 +18,7 @@ func FuzzEveryInputParser(f *testing.F) {
 	f.Add([]byte("#\n2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //\n"))
 	f.Add([]byte(`{"time_tag":"2026-10-05T12:05:00Z","features":[]}`))
 	f.Add([]byte("2026 10 05  150  140  1  2  0  0  0  0  0  0  0\n"))
+	f.Add([]byte("# Product Valid At : 2026-10-05 22:18 UTC\n 89 |  0.0\n"))
 	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
 	f.Fuzz(func(t *testing.T, body []byte) {
 		finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
@@ -38,6 +40,13 @@ func FuzzEveryInputParser(f *testing.F) {
 			for _, d := range days {
 				if !finite(d.F107) {
 					t.Fatalf("the solar indices: a day that is no number: %+v", d)
+				}
+			}
+		}
+		if g, err := drap.ParseTable(body, now); err == nil {
+			for _, v := range g.MHz {
+				if !finite(float64(v)) {
+					t.Fatal("D-RAP: a cell that is no number")
 				}
 			}
 		}

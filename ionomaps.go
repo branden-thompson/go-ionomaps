@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/branden-thompson/go-ionomaps/internal/drap"
 	"github.com/branden-thompson/go-ionomaps/internal/giro"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/solar"
@@ -66,6 +67,8 @@ type Library struct {
 	solar     solar.Held
 	solarDay  time.Time // the UTC day the solar file was last read
 	solarVal  Validators
+	drap      *drap.Grid // D-RAP's last table read (R-2.5)
+	drapVal   Validators
 
 	giro         giro.Asker // GIRO's throttle, stations and readings held (G9)
 	stationsNext bool       // the last update was NOAA's, GIRO due: the next makes the burst (D-63)

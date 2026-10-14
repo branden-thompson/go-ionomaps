@@ -17,6 +17,7 @@ type Snapshot struct {
 	Early           Reason       // why this is not from new data (R-5.4)
 	Scales          Scales       // NOAA's space-weather levels (watchpost D-88)
 	Offset          Offset       // stations against GloTEC (watchpost D-105)
+	Disturbance     Field        // D-RAP's highest frequency absorbed by 1 dB, MHz a cell (R-2.5); no cells without D-RAP
 	TypicalError    TypicalError // the hours ahead's error, with its basis (watchpost D-109)
 }
 

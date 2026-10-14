@@ -9,6 +9,7 @@ import (
 
 	"github.com/branden-thompson/go-ionomaps/internal/assimilate"
 	"github.com/branden-thompson/go-ionomaps/internal/background"
+	"github.com/branden-thompson/go-ionomaps/internal/drap"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
 	"github.com/branden-thompson/go-ionomaps/internal/solar"
@@ -20,6 +21,7 @@ import (
 const (
 	glotecIndex = "https://services.swpc.noaa.gov/products/glotec/geojson_2d_urt/"
 	solarFile   = "https://services.swpc.noaa.gov/text/daily-solar-indices.txt"
+	drapTable   = "https://services.swpc.noaa.gov/text/drap_global_frequencies.txt"
 )
 
 // NOAA's limits (D-39): asked at most every ten minutes, the interval GloTEC
@@ -39,6 +41,11 @@ const (
 // publishes every ten minutes about half an hour behind, so a grid over an
 // hour old means several missed, and foF2 has moved with the hour (A-5).
 const gridMaxAge = time.Hour
+
+// drapMaxAge is how old D-RAP's table may be and still say a disturbance:
+// it is remade every few minutes, and a flare's absorption lasts about an
+// hour (A-9).
+const drapMaxAge = time.Hour
 
 // UpdateOptions are one update's settings, the host's to give each time,
 // so a change needs no new library and no new burst (R-9.6, A-30).
@@ -82,6 +89,9 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	answered, refused := l.refreshGrid(ctx, now)
 	if !refused {
 		refused = l.refreshSolar(ctx, now) // a refusal stops the update (D-39)
+	}
+	if !refused {
+		refused = l.refreshDRAP(ctx, now)
 	}
 	cancelled := ctx.Err() != nil
 	if cancelled {
@@ -215,6 +225,22 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 	return false
 }
 
+// refreshDRAP asks for D-RAP's table at each update, with the validators of
+// the table held (R-2.5, R-5.7); a table that cannot be read leaves the one
+// held, its age saying so. refused is whether it was refused or unanswered.
+func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool) {
+	r, ok, refused := l.ask(ctx, drapTable, l.drapVal)
+	if !ok || r.Status != statusOK {
+		return refused
+	}
+	g, err := drap.ParseTable(r.Body, now)
+	if err != nil {
+		return false
+	}
+	l.drap, l.drapVal = &g, r.Validators
+	return false
+}
+
 // build is the snapshot at now from what is held, with the options asked:
 // the typical offset learns from a live offset over readings not yet
 // learned from, and the no-readings correction moves GloTEC's foF2 when no
@@ -258,6 +284,11 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid = g.Valid
 	}
+	if d := l.drap; d != nil && now.Sub(d.Valid) <= drapMaxAge {
+		s.Disturbance = newField()
+		copy(s.Disturbance.Values, d.MHz)
+		s.Inputs.DRAPValid = d.Valid
+	}
 	return s
 }
 
@@ -298,6 +329,7 @@ func (s Snapshot) clone() Snapshot {
 	for i, h := range s.Hours {
 		c.Hours[i] = Hour{At: h.At, MUF3000: h.MUF3000.owned(), FoF2: h.FoF2.owned()}
 	}
+	c.Disturbance = s.Disturbance.owned()
 	c.NearestKm = slices.Clone(s.NearestKm)
 	c.NearestUnscored = Bitset{bits: slices.Clone(s.NearestUnscored.bits), n: s.NearestUnscored.n}
 	c.Scales.Outlook = slices.Clone(s.Scales.Outlook)

@@ -50,8 +50,8 @@ func AllBands() []Band {
 	return []Band{Band160m, Band80m, Band60m, Band40m, Band30m, Band20m, Band17m, Band15m, Band12m, Band10m}
 }
 
-// Status is a band's state on a path or over an area (R-2.6). The lower
-// limit's states - absorbed, disturbed - come with UAT-3 (watchpost D-175).
+// Status is a band's state on a path or over an area (R-2.6). Absorbed,
+// the regular daytime lower limit, comes with G6.2.
 type Status uint8
 
 // The statuses.
@@ -59,6 +59,7 @@ const (
 	StatusNoData Status = iota // no value where it was asked
 	Open                       // below the upper limit
 	AboveUpper                 // its lower edge at or past the upper limit
+	Disturbed                  // below the upper limit, its lower edge under D-RAP's 1 dB frequency: degraded, not closed (watchpost D-73)
 )
 
 // Limit is which limit decided a band's status.
@@ -69,6 +70,7 @@ const (
 	LimitNone Limit = iota
 	LimitMUF        // the path's basic MUF (P.533)
 	LimitFoF2       // foF2, for the near-vertical area
+	LimitDRAP       // D-RAP's 1 dB frequency (R-2.5)
 )
 
 // BandStatus is one band's answer: its status and the limit that decided
@@ -156,7 +158,9 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([]Ans
 	out := make([]Answer, len(origins))
 	for i, p := range origins {
 		fo, ok := cellAt(h.FoF2, p)
-		out[i] = Answer{Bands: withOpenHours(statuses(float64(fo), ok, LimitFoF2), openHours(day, areaLimit(p))), Nearest: s.nearestAt(h.FoF2, p)}
+		mhz, disturbed := cellAt(s.Disturbance, p)
+		bands := disturb(statuses(float64(fo), ok, LimitFoF2), float64(mhz), disturbed)
+		out[i] = Answer{Bands: withOpenHours(bands, openHours(day, areaLimit(p))), Nearest: s.nearestAt(h.FoF2, p)}
 	}
 	return out, nil
 }
@@ -177,7 +181,10 @@ func (s Snapshot) Path(from LatLon, to []LatLon, at time.Time) ([]Answer, error)
 	out := make([]Answer, len(to))
 	for i, p := range to {
 		muf, frac, ok := s.pathMUF(hourReader(h), from, p, sun)
-		out[i] = Answer{Bands: withOpenHours(statuses(muf, ok, LimitMUF), openHours(day, s.pathLimit(from, p))), Nearest: s.pathNearest(h.FoF2, from, p, frac)}
+		places := controlPlaces(from, p, frac)
+		mhz, disturbed := s.pathDisturbance(places)
+		bands := disturb(statuses(muf, ok, LimitMUF), mhz, disturbed)
+		out[i] = Answer{Bands: withOpenHours(bands, openHours(day, s.pathLimit(from, p))), Nearest: s.pathNearest(h.FoF2, places)}
 	}
 	return out, nil
 }
@@ -203,18 +210,54 @@ func (s Snapshot) pathMUF(read reader, from, to LatLon, sun *sunTrack) (muf, fra
 	return muf, frac, muf == muf
 }
 
+// controlPlaces are where a path's control points lie: frac of the way
+// from each end, and the middle.
+func controlPlaces(from, to LatLon, frac float64) [3]LatLon {
+	var out [3]LatLon
+	for i, at := range [...]float64{frac, 0.5, 1 - frac} {
+		lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, at)
+		out[i] = LatLon{Lat: lat, Lon: lon}
+	}
+	return out
+}
+
 // pathNearest is a path's nearest station: that of its control point
 // furthest from any (D-65); none known when no station was assimilated.
-func (s Snapshot) pathNearest(f Field, from, to LatLon, frac float64) Nearest {
+func (s Snapshot) pathNearest(f Field, places [3]LatLon) Nearest {
 	var worst Nearest
-	for _, at := range [...]float64{frac, 0.5, 1 - frac} {
-		lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, at)
-		n := s.nearestAt(f, LatLon{Lat: lat, Lon: lon})
+	for _, p := range places {
+		n := s.nearestAt(f, p)
 		if n.Known && (!worst.Known || n.Km > worst.Km) {
 			worst = n
 		}
 	}
 	return worst
+}
+
+// pathDisturbance is D-RAP's highest 1 dB frequency at a path's control
+// points (A-9); false when the snapshot holds no D-RAP.
+func (s Snapshot) pathDisturbance(places [3]LatLon) (float64, bool) {
+	most, held := 0.0, false
+	for _, p := range places {
+		if v, ok := cellAt(s.Disturbance, p); ok {
+			most, held = max(most, float64(v)), true
+		}
+	}
+	return most, held
+}
+
+// disturb marks each band open under its upper limit whose lower edge is
+// under D-RAP's 1 dB frequency as disturbed, named as D-RAP's (R-2.5).
+func disturb(bands []BandStatus, mhz float64, held bool) []BandStatus {
+	if !held {
+		return bands
+	}
+	for i, b := range bands {
+		if b.Status == Open && b.Band.LowMHz() < mhz {
+			bands[i] = BandStatus{Band: b.Band, Status: Disturbed, Limit: LimitDRAP, LimitMHz: float32(mhz)}
+		}
+	}
+	return bands
 }
 
 // nearestAt is a place's nearest station, from the cell of f it falls in;

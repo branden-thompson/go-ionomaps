@@ -23,12 +23,12 @@ flowchart TB
   ST["internal/stations<br/>seed list, rotation, dark-station drop (D-51)"]
   GIRO["internal/giro<br/>FastChar requests, parsing, ranges"]
   GT["internal/glotec<br/>typed GeoJSON, foF2 from NmF2"]
-  DR["internal/drap<br/>D-RAP table"]
+  DR["internal/drap<br/>D-RAP table: the 1 dB frequency<br/>on the 2° grid (R-2.5)"]
   SC["internal/scales<br/>NOAA R, S, G (D-88)"]
   CL["internal/climatology<br/>PyIRI method over Tables;<br/>the day's hours cached by (UTC hour, F10.7 mean, month)"]
   MC["internal/magcoords<br/>QD latitude and MLT from IGRF-14 (D-107)"]
   AS["internal/assimilate<br/>GP on the sphere: foF2 over GloTEC,<br/>M(3000)F2 over the climatology (D-101)"]
-  LIM["internal/limits<br/>P.533 MUF, daytime absorption, disturbed"]
+  LIM["internal/limits<br/>P.533 MUF, daytime absorption"]
   TM["internal/terms<br/>sources, terms, citations"]
   API --> THR --> ST --> GIRO
   API --> GT
@@ -62,7 +62,7 @@ flowchart TB
    - else the climatology (named, FR-5.2).
 6. **Assimilate** (R-9.2): station residuals for foF2 (over GloTEC) and M(3000)F2 (over the climatology), a GP on the sphere each, added to its background. **The offset** (R-9.6, D-105): with five or more readings over GloTEC, the live offset is their mean residual, and the typical offset (seeded at -0.5 MHz) learns from it once per burst's readings; with none assimilated and the host asking (`UpdateOptions.CorrectNoReadings`), GloTEC's foF2 is moved by the typical offset, and the snapshot says so.
 7. **Hours ahead** (R-1.3, watchpost D-109): each hour ahead is the climatology's hour from the day's cache, marked typical, with the typical error and its basis.
-8. **Snapshot:** fields, computed time, the inputs' own times (GloTEC's valid time, the oldest reading, D-RAP's), backgrounds per field, the offset, sources. NOAA comes first, so a first snapshot without stations precedes the GIRO burst (watchpost architecture, "Opening the mode").
+8. **Snapshot:** fields, computed time, the inputs' own times (GloTEC's valid time, the oldest reading, D-RAP's), backgrounds per field, the offset, D-RAP's 1 dB frequency a cell and its valid time (a band open under its upper limit with its lower edge under it is disturbed, R-2.5), sources. NOAA comes first, so a first snapshot without stations precedes the GIRO burst (watchpost architecture, "Opening the mode").
 
 Every point answer carries its nearest station, how far and whether unscored: a place's from its cell, a path's from its control point furthest from any (R-2.11, D-65). The answers (`Bands`, `Path`, `Reach`) are pure functions of a snapshot (R-2), so a host can call them off
 its UI goroutine without touching the network.
