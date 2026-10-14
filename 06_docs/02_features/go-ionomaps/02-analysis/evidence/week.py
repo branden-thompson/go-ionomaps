@@ -14,7 +14,8 @@ Usage: week.py DIR DSI DISTURBED
 
 Method:
 - A sounding is paired with a grid when within 10 minutes of the grid's time and its confidence score is
-  at least 70 (or 999, manual).
+  at least 70 (or 999, manual). With WEEK_TAKE_UNKNOWN=1 in the environment, a score of -1 (GIRO's
+  "unknown") is taken as well (go-ionomaps G2.1's confidence question).
 - GloTEC: foF2 = 8.98e-6 sqrt(NmF2); M(3000)F2 = 1490 / (hmF2 + 176) (Shimazaki 1955, first order).
   MUF(3000) = foF2 x M(3000)F2 for every method.
 - Climatology: PyIRI 0.1.7 (MIT). main_library on the raw CCIR or URSI tables, and sh_library on the
@@ -32,7 +33,7 @@ Method:
 
 Exits 1 when it finds no grid, no station or no pair, so an empty run never reads as a result.
 """
-import bisect, glob, json, math, re, sys, warnings
+import bisect, glob, json, math, os, re, sys, warnings
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -49,6 +50,7 @@ bad = {datetime.strptime(d, "%Y-%m-%d").date() for d in sys.argv[3].split(",")} 
 MIN_F107_DAYS = 20   # the 30-day mean is refused below this many observed days
 PACIFIC = {"EA653", "LL721", "WA619", "GU513"}
 CS_MIN = 70
+TAKE_UNKNOWN = os.environ.get("WEEK_TAKE_UNKNOWN") == "1"  # GIRO's -1, "unknown", taken too
 
 
 # ---------- inputs ----------
@@ -78,7 +80,7 @@ def station(path):
             cs, fo, muf, m3 = int(p[1]), float(p[2]), float(p[4]), float(p[6])
         except (ValueError, IndexError):
             continue
-        if (cs >= CS_MIN or cs == 999) and 0.5 < fo < 20 and 1.5 < m3 < 5:
+        if (cs >= CS_MIN or cs == 999 or (TAKE_UNKNOWN and cs == -1)) and 0.5 < fo < 20 and 1.5 < m3 < 5:
             rows.append((t, fo, muf, m3))
     return (lat, lon), rows
 

@@ -3,6 +3,7 @@ package ionomaps_test
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,7 +56,7 @@ func TestTheTypicalErrorCarriesItsBasis(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := s.TypicalError
-	if len(e.Bands) != 4 || e.Bands[0] != (ionomaps.BandError{UpToKm: 500, FoF2MHz: 0.77, MUF3000MHz: 2.91}) || e.Bands[3].UpToKm != 0 || e.Basis == "" {
+	if len(e.Bands) != 4 || e.Bands[0] != (ionomaps.BandError{UpToKm: 500, FoF2MHz: 0.77, MUF3000MHz: 2.91}) || e.Bands[3] != (ionomaps.BandError{UpToKm: 0, FoF2MHz: 1.37, MUF3000MHz: 4.73}) || !strings.Contains(e.Basis, "D-181") { // D-61: re-measured with the unknown scores taken
 		t.Errorf("the typical error is %+v", e)
 	}
 }

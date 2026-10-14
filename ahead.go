@@ -37,12 +37,13 @@ func (s Snapshot) Ahead(k int) (Hour, error) {
 }
 
 // typicalError is the hours ahead's typical error by distance to the
-// nearest reporting station, and where it was measured (watchpost D-134).
+// nearest reporting station, and where it was measured (watchpost D-134),
+// with the stations whose scores are unknown taken (D-61).
 func typicalError() TypicalError {
 	return TypicalError{Bands: []BandError{
 		{UpToKm: 500, FoF2MHz: 0.77, MUF3000MHz: 2.91},
-		{UpToKm: 1000, FoF2MHz: 0.91, MUF3000MHz: 3.24},
-		{UpToKm: 2000, FoF2MHz: 1.20, MUF3000MHz: 4.49},
-		{UpToKm: 0, FoF2MHz: 1.36, MUF3000MHz: 4.58},
-	}, Basis: "the climatology against GIRO's stations over PLAN's week (watchpost D-134, go-ionomaps 02-analysis/evidence/week.py section 11)"}
+		{UpToKm: 1000, FoF2MHz: 0.87, MUF3000MHz: 3.25},
+		{UpToKm: 2000, FoF2MHz: 1.22, MUF3000MHz: 4.33},
+		{UpToKm: 0, FoF2MHz: 1.37, MUF3000MHz: 4.73},
+	}, Basis: "the climatology against GIRO's stations over PLAN's week, readings of unknown score taken (watchpost D-134, D-181; go-ionomaps 02-analysis/evidence/week.py section 11, WEEK_TAKE_UNKNOWN=1)"}
 }
