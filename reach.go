@@ -70,7 +70,8 @@ func (s Snapshot) reachLimit(read reader, origin, to LatLon, sun *sunTrack) (flo
 		fo, _, ok := read(origin)
 		return fo, ok
 	}
-	return s.pathMUF(read, origin, to, sun)
+	muf, _, ok := s.pathMUF(read, origin, to, sun)
+	return muf, ok
 }
 
 // nearKm is the distance within which the reach takes foF2 at the origin:

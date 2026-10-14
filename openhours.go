@@ -95,7 +95,7 @@ func withOpenHours(bands []BandStatus, open [][]Span) []BandStatus {
 // none.
 func (s Snapshot) pathLimit(from, to LatLon) func(typicalHour) float64 {
 	return func(t typicalHour) float64 {
-		muf, ok := s.pathMUF(t.read, from, to, t.sun)
+		muf, _, ok := s.pathMUF(t.read, from, to, t.sun)
 		if !ok {
 			return math.NaN()
 		}

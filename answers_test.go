@@ -45,14 +45,14 @@ func TestEachBandsStatusForAPath(t *testing.T) {
 	from := LatLon{Lat: 40, Lon: -100}
 	to := LatLon{Lat: 40, Lon: -64.8} // about 3000 km east along the parallel's great circle
 	got, err := s.Path(from, []LatLon{to}, noonUTC)
-	if err != nil || len(got) != 1 || len(got[0]) != len(AllBands()) {
+	if err != nil || len(got) != 1 || len(got[0].Bands) != len(AllBands()) {
 		t.Fatalf("%v, %v", got, err)
 	}
-	muf := float64(got[0][0].LimitMHz)
+	muf := float64(got[0].Bands[0].LimitMHz)
 	if muf < 20.5 || muf > 22.5 {
 		t.Errorf("the path MUF at about 3000 km is %.2f MHz; the MUF(3000) is 21", muf)
 	}
-	for _, b := range got[0] {
+	for _, b := range got[0].Bands {
 		want := AboveUpper
 		if b.Band.LowMHz() < muf {
 			want = Open
@@ -62,8 +62,8 @@ func TestEachBandsStatusForAPath(t *testing.T) {
 		}
 	}
 	near, _ := s.Path(from, []LatLon{{Lat: 40, Lon: -94}}, noonUTC) // about 500 km: its own hop, far shorter
-	if float64(near[0][0].LimitMHz) > 0.6*muf {
-		t.Errorf("a 500 km path's MUF %.2f is not well below the 3000 km path's %.2f", near[0][0].LimitMHz, muf)
+	if float64(near[0].Bands[0].LimitMHz) > 0.6*muf {
+		t.Errorf("a 500 km path's MUF %.2f is not well below the 3000 km path's %.2f", near[0].Bands[0].LimitMHz, muf)
 	}
 }
 
@@ -75,7 +75,7 @@ func TestShortPathsUseFoF2(t *testing.T) {
 	if err != nil || len(got) != 1 {
 		t.Fatalf("%v, %v", got, err)
 	}
-	for _, b := range got[0] {
+	for _, b := range got[0].Bands {
 		want := AboveUpper
 		if b.Band.LowMHz() < 7 {
 			want = Open
@@ -117,7 +117,7 @@ func TestAPlaceWithNoDataHasNoStatus(t *testing.T) {
 		s.Hours[0].FoF2.NoData.Set(i)
 	}
 	got, err := s.Bands([]LatLon{{0, 0}}, 400, noonUTC)
-	if err != nil || got[0][0].Status != StatusNoData {
+	if err != nil || got[0].Bands[0].Status != StatusNoData {
 		t.Errorf("a place with no foF2: %+v, %v", got, err)
 	}
 }
@@ -139,7 +139,7 @@ func TestTheDaysOpenHours(t *testing.T) {
 		t.Fatal(err)
 	}
 	total := map[string]time.Duration{}
-	for name, bands := range map[string][]BandStatus{"near-vertical": near[0], "a path": path[0]} {
+	for name, bands := range map[string][]BandStatus{"near-vertical": near[0].Bands, "a path": path[0].Bands} {
 		last := 25 * time.Hour
 		for _, b := range bands {
 			open := time.Duration(0)
@@ -181,4 +181,73 @@ func partly(bands []BandStatus) bool {
 		}
 	}
 	return false
+}
+
+// withStations is a snapshot whose nearest station is near everywhere west
+// of 35°W and far, and unscored, east of it.
+func withStations(s Snapshot) Snapshot {
+	f := s.Hours[0].FoF2
+	s.NearestKm, s.NearestUnscored = make([]float32, len(f.Values)), newBitset(len(f.Values))
+	for i := range s.NearestKm {
+		s.NearestKm[i] = 100
+		if lon, _, _ := f.CellCentre(i%f.Cols, i/f.Cols); lon > -35 {
+			s.NearestKm[i] = 3000
+			s.NearestUnscored.Set(i)
+		}
+	}
+	return s
+}
+
+// TestAnswersCarryTheNearestStationDistance is R-2.11 (D-65, watchpost
+// D-185): every point answer says how far its nearest assimilated station
+// is and whether that station is unscored - a path, the control point
+// furthest from one, so a path whose far end lies far from every station
+// says so though its middle is near one; with no station assimilated, none
+// is known.
+func TestAnswersCarryTheNearestStationDistance(t *testing.T) {
+	s := withStations(flatSnapshot(noonUTC, 7, 21))
+	near, far := LatLon{40, -100}, LatLon{40, 0}
+	at, err := s.At([]LatLon{near, far}, noonUTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at[0].Nearest != (Nearest{Km: 100, Known: true}) || at[1].Nearest != (Nearest{Km: 3000, Unscored: true, Known: true}) {
+		t.Errorf("At: %+v and %+v; want 100 km scored, 3000 km unscored", at[0].Nearest, at[1].Nearest)
+	}
+	bands, err := s.Bands([]LatLon{near, far}, 400, noonUTC)
+	if err != nil || bands[0].Nearest.Km != 100 || bands[1].Nearest != at[1].Nearest || len(bands[0].Bands) != len(AllBands()) {
+		t.Errorf("Bands: %+v, %+v (%v); want each origin's own", bands[0].Nearest, bands[1].Nearest, err)
+	}
+	paths, err := s.Path(near, []LatLon{{40, -64.8}, far}, noonUTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paths[0].Nearest.Km != 100 || paths[0].Nearest.Unscored {
+		t.Errorf("a path wholly west of 35°W: %+v; want 100 km, scored", paths[0].Nearest)
+	}
+	if mid, _ := s.At([]LatLon{{56, -50}}, noonUTC); mid[0].Nearest.Km != 100 { // the long path's middle, near a station
+		t.Fatalf("the long path's middle reads %+v; the test needs it near a station", mid[0].Nearest)
+	}
+	if paths[1].Nearest != (Nearest{Km: 3000, Unscored: true, Known: true}) {
+		t.Errorf("a path whose far control point is 3000 km from any station: %+v; want that point's", paths[1].Nearest)
+	}
+	blank := withStations(flatSnapshot(noonUTC, 7, 21))
+	for i := range blank.Hours[0].FoF2.Values {
+		blank.Hours[0].FoF2.NoData.Set(i)
+	}
+	if p, _ := blank.Path(near, []LatLon{far}, noonUTC); p[0].Nearest.Km != 100 || p[0].Bands[0].Status != StatusNoData {
+		t.Errorf("a path with no value at its middle: %+v, %v; want its middle's nearest, 100 km, and no data", p[0].Nearest, p[0].Bands[0].Status)
+	}
+	on := withStations(flatSnapshot(noonUTC, 7, 21))
+	clear(on.NearestKm) // a station at every cell's centre
+	if p, _ := on.Path(near, []LatLon{far}, noonUTC); p[0].Nearest != (Nearest{Km: 0, Unscored: p[0].Nearest.Unscored, Known: true}) {
+		t.Errorf("a path whose control points each sit on a station: %+v; want known, 0 km", p[0].Nearest)
+	}
+	plain := flatSnapshot(noonUTC, 7, 21)
+	a, _ := plain.At([]LatLon{near}, noonUTC)
+	b, _ := plain.Bands([]LatLon{near}, 400, noonUTC)
+	p, _ := plain.Path(near, []LatLon{far}, noonUTC)
+	if a[0].Nearest != (Nearest{}) || b[0].Nearest != (Nearest{}) || p[0].Nearest != (Nearest{}) {
+		t.Errorf("no station assimilated, and one is known: %+v, %+v, %+v", a[0].Nearest, b[0].Nearest, p[0].Nearest)
+	}
 }

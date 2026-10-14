@@ -82,10 +82,30 @@ type BandStatus struct {
 }
 
 // Reading is foF2 and MUF(3000) at a place, MHz; NoData where the field has
-// no value there (R-2.1).
+// no value there (R-2.1); and its nearest station (R-2.11).
 type Reading struct {
 	FoF2, MUF3000 float32
 	NoData        bool
+	Nearest       Nearest
+}
+
+// Nearest is how far an answer's place is from the nearest station whose
+// readings were assimilated, from the cell it falls in, and whether that
+// station's readings are unscored (R-2.11, D-65): the host says its
+// confidence, and tells the operator to verify on air where they are
+// unscored (watchpost D-181).
+type Nearest struct {
+	Km       float32
+	Unscored bool
+	Known    bool // false when no station was assimilated
+}
+
+// Answer is each band's status at one place or on one path, and its
+// nearest station: a path's, from its control point furthest from any
+// (D-65, watchpost D-185).
+type Answer struct {
+	Bands   []BandStatus
+	Nearest Nearest
 }
 
 // The answers' refusals (R-3.5): each says what was wrong, never what to do
@@ -113,17 +133,18 @@ func (s Snapshot) At(points []LatLon, at time.Time) ([]Reading, error) {
 	for i, p := range points {
 		fo, okF := cellAt(h.FoF2, p)
 		muf, okM := cellAt(h.MUF3000, p)
-		out[i] = Reading{FoF2: fo, MUF3000: muf, NoData: !okF || !okM}
+		out[i] = Reading{FoF2: fo, MUF3000: muf, NoData: !okF || !okM, Nearest: s.nearestAt(h.FoF2, p)}
 	}
 	return out, nil
 }
 
 // Bands is each band's status over the near-vertical area around each place,
 // within the radius (km), its upper limit foF2 there, and the hours of the
-// UTC day each is typically open, from the climatology (R-2.2, R-2.8).
+// UTC day each is typically open, from the climatology (R-2.2, R-2.8); and
+// the place's nearest station (R-2.11).
 //
-// Source: watchpost D-24, D-73, D-135; this library's foF2; the climatology.
-func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([][]BandStatus, error) {
+// Source: watchpost D-24, D-73, D-135, D-185; this library's foF2; the climatology.
+func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([]Answer, error) {
 	if !(radiusKm > 0) || radiusKm > 2000 {
 		return nil, errBadRadius
 	}
@@ -132,51 +153,79 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([][]B
 		return nil, err
 	}
 	day := s.typicalDay(at)
-	out := make([][]BandStatus, len(origins))
+	out := make([]Answer, len(origins))
 	for i, p := range origins {
 		fo, ok := cellAt(h.FoF2, p)
-		out[i] = withOpenHours(statuses(float64(fo), ok, LimitFoF2), openHours(day, areaLimit(p)))
+		out[i] = Answer{Bands: withOpenHours(statuses(float64(fo), ok, LimitFoF2), openHours(day, areaLimit(p))), Nearest: s.nearestAt(h.FoF2, p)}
 	}
 	return out, nil
 }
 
 // Path is each band's status on the path from one place to each other, its
 // upper limit the path's basic MUF by ITU-R P.533-14, and the hours of the
-// UTC day each is typically open, from the climatology (R-2.2, R-2.7, R-2.8).
+// UTC day each is typically open, from the climatology (R-2.2, R-2.7, R-2.8);
+// and the nearest station to the control point furthest from any (R-2.11).
 //
 // Source: ITU-R P.533-14 §3.5 (02-analysis/evidence/p533-equations.md);
-// foE from P.1239-4 §4; the gyrofrequency from IGRF-14; watchpost D-135.
-func (s Snapshot) Path(from LatLon, to []LatLon, at time.Time) ([][]BandStatus, error) {
+// foE from P.1239-4 §4; the gyrofrequency from IGRF-14; watchpost D-135, D-185.
+func (s Snapshot) Path(from LatLon, to []LatLon, at time.Time) ([]Answer, error) {
 	h, err := s.hourFor(append([]LatLon{from}, to...), at)
 	if err != nil {
 		return nil, err
 	}
 	day, sun := s.typicalDay(at), newSunTrack(at)
-	out := make([][]BandStatus, len(to))
+	out := make([]Answer, len(to))
 	for i, p := range to {
-		muf, ok := s.pathMUF(hourReader(h), from, p, sun)
-		out[i] = withOpenHours(statuses(muf, ok, LimitMUF), openHours(day, s.pathLimit(from, p)))
+		muf, frac, ok := s.pathMUF(hourReader(h), from, p, sun)
+		out[i] = Answer{Bands: withOpenHours(statuses(muf, ok, LimitMUF), openHours(day, s.pathLimit(from, p))), Nearest: s.pathNearest(h.FoF2, from, p, frac)}
 	}
 	return out, nil
 }
 
-// pathMUF is one path's basic MUF from what a reader gives: control points
-// at the middle and d₀/2 from each end.
-func (s Snapshot) pathMUF(read reader, from, to LatLon, sun *sunTrack) (float64, bool) {
+// pathMUF is one path's basic MUF from what a reader gives, and where its
+// control points lie: at the middle, and frac (d₀/2) of the way from each
+// end - the middle too on a path of one hop; frac is a half where the
+// middle has no value.
+func (s Snapshot) pathMUF(read reader, from, to LatLon, sun *sunTrack) (muf, frac float64, ok bool) {
 	km := limits.Distance(from.Lat, from.Lon, to.Lat, to.Lon)
 	middle, ok := s.controlPoint(read, from, to, 0.5, sun)
 	if !ok || !(km > 0) {
-		return 0, false
+		return 0, 0.5, false
 	}
-	frac := limits.Hops(km, limits.Dmax(middle.FoF2, middle.M3000, middle.FoE))
+	frac = limits.Hops(km, limits.Dmax(middle.FoF2, middle.M3000, middle.FoE))
 	frac = 1 / (2 * frac) // d₀/2 of the path, as a part of it
 	near, okN := s.controlPoint(read, from, to, frac, sun)
 	far, okF := s.controlPoint(read, from, to, 1-frac, sun)
 	if !okN || !okF {
-		return 0, false
+		return 0, frac, false
 	}
-	muf := limits.PathMUF(km, middle, near, far)
-	return muf, muf == muf
+	muf = limits.PathMUF(km, middle, near, far)
+	return muf, frac, muf == muf
+}
+
+// pathNearest is a path's nearest station: that of its control point
+// furthest from any (D-65); none known when no station was assimilated.
+func (s Snapshot) pathNearest(f Field, from, to LatLon, frac float64) Nearest {
+	var worst Nearest
+	for _, at := range [...]float64{frac, 0.5, 1 - frac} {
+		lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, at)
+		n := s.nearestAt(f, LatLon{Lat: lat, Lon: lon})
+		if n.Known && (!worst.Known || n.Km > worst.Km) {
+			worst = n
+		}
+	}
+	return worst
+}
+
+// nearestAt is a place's nearest station, from the cell of f it falls in;
+// none known when the snapshot holds no distances on f's grid.
+func (s Snapshot) nearestAt(f Field, p LatLon) Nearest {
+	i, ok := cellIndex(f, p)
+	held := len(s.NearestKm) == len(f.Values)
+	if !ok || !held {
+		return Nearest{}
+	}
+	return Nearest{Km: s.NearestKm[i], Unscored: s.NearestUnscored.Has(i), Known: true}
 }
 
 // controlPoint is what the basic MUF reads at a part of the way along a
@@ -267,6 +316,16 @@ func (s Snapshot) hourFor(places []LatLon, at time.Time) (Hour, error) {
 // cellAt is a field's value at a place, from the cell it falls in; false
 // where the field has no cells or no value there.
 func cellAt(f Field, p LatLon) (float32, bool) {
+	i, ok := cellIndex(f, p)
+	if !ok || f.NoData.Has(i) {
+		return 0, false
+	}
+	return f.Values[i], true
+}
+
+// cellIndex is the cell of a field a place falls in; false where the field
+// has no cells.
+func cellIndex(f Field, p LatLon) (int, bool) {
 	if f.Cols <= 0 || f.Rows <= 0 || len(f.Values) != f.Cols*f.Rows {
 		return 0, false
 	}
@@ -274,9 +333,5 @@ func cellAt(f Field, p LatLon) (float32, bool) {
 	col := int((lon - f.West) / (f.East - f.West) * float64(f.Cols))
 	row := int((f.North - p.Lat) / (f.North - f.South) * float64(f.Rows))
 	col, row = min(max(col, 0), f.Cols-1), min(max(row, 0), f.Rows-1)
-	i := row*f.Cols + col
-	if f.NoData.Has(i) {
-		return 0, false
-	}
-	return f.Values[i], true
+	return row*f.Cols + col, true
 }

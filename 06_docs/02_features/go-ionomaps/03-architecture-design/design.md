@@ -64,7 +64,7 @@ flowchart TB
 7. **Hours ahead** (R-1.3, watchpost D-109): each hour ahead is the climatology's hour from the day's cache, marked typical, with the typical error and its basis.
 8. **Snapshot:** fields, computed time, the inputs' own times (GloTEC's valid time, the oldest reading, D-RAP's), backgrounds per field, the offset, sources. NOAA comes first, so a first snapshot without stations precedes the GIRO burst (watchpost architecture, "Opening the mode").
 
-The answers (`Bands`, `Path`, `Reach`) are pure functions of a snapshot (R-2), so a host can call them off
+Every point answer carries its nearest station, how far and whether unscored: a place's from its cell, a path's from its control point furthest from any (R-2.11, D-65). The answers (`Bands`, `Path`, `Reach`) are pure functions of a snapshot (R-2), so a host can call them off
 its UI goroutine without touching the network.
 
 ## Provenance (watchpost D-53)

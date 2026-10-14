@@ -293,8 +293,9 @@ func TestOnlyReadingsAnHourOldAreAssimilated(t *testing.T) {
 }
 
 // TestAnUnscoredStationIsSaid is R-2.11 (D-61, watchpost D-181): a cell
-// whose nearest station's readings are unscored is marked, so the host can
-// tell the operator to verify; one whose nearest is scored is not.
+// whose nearest station's readings are unscored is marked, and an answer
+// there says so, so the host can tell the operator to verify; one whose
+// nearest is scored is not.
 func TestAnUnscoredStationIsSaid(t *testing.T) {
 	l, n, _ := giroLibrary(t)
 	n.giro.score = map[string]string{"AL945": "-1"}
@@ -311,5 +312,9 @@ func TestAnUnscoredStationIsSaid(t *testing.T) {
 	}
 	if s.NearestUnscored.Has(cell(ionomaps.LatLon{Lat: 50.1, Lon: 4.6})) {
 		t.Error("Dourbes' cell, its nearest station scored, is marked")
+	}
+	r, err := s.At([]ionomaps.LatLon{seededAt, {Lat: 50.1, Lon: 4.6}}, s.Computed)
+	if err != nil || !r[0].Nearest.Unscored || r[1].Nearest.Unscored || !r[0].Nearest.Known || r[0].Nearest.Km > 200 {
+		t.Errorf("the answers at Alpena and Dourbes: %+v, %+v (%v); want Alpena's unscored and near, Dourbes' scored", r[0].Nearest, r[1].Nearest, err)
 	}
 }
