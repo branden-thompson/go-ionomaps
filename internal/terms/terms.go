@@ -63,6 +63,7 @@ func Datasets() []Dataset {
 		{Path: "internal/magcoords/coords.bin", Source: "IGRF-14"},
 		{Path: "internal/magcoords/gyro.bin", Source: "IGRF-14"},
 		{Path: "tools/tables/apex/apex-sample.txt", Source: "PyIRI"},
+		{Path: "internal/stations/seed.txt", Source: "GIRO"}, // station codes and positions, never readings (D-51)
 		{Path: "internal/magcoords/testdata/apex-sample.txt", Source: "PyIRI"},
 	}
 }

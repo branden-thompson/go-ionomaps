@@ -13,6 +13,9 @@ Sources the library reads, or will read, and their terms:
    Acknowledge each station's data provider.
    A field computed from these readings is treated as a substantially derivative product, which GIRO's
    rules leave unrestricted. That reading is this project's own and has not been confirmed by GIRO.
+   The stations' codes, and the positions GIRO states for the live ones, are shipped as the live-station
+   list's seed (watchpost D-51); station metadata, never readings:
+     internal/stations/seed.txt
 
 2. NOAA Space Weather Prediction Center: GloTEC (NmF2), D-RAP (D-region absorption)
    the space-weather scales (R, S, G) and the daily solar indices (F10.7)

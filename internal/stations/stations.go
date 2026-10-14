@@ -1,0 +1,265 @@
+// Package stations is GIRO's live-station list (plan task G9.3, watchpost
+// D-51, D-87): a shipped seed of every station's code and, for the live
+// ones, position; a station dropped after three days with no data; one
+// station that is not live probed each update, in rotation; with more live
+// than the burst holds, the live polled in rotation, those left out first
+// next time, the probe always inside the burst. Station metadata, never
+// readings (R-4.3).
+package stations
+
+import (
+	_ "embed"
+	"errors"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+)
+
+//go:embed seed.txt
+var seedFile string
+
+// darkAfter is how long a station may give no data and still be polled
+// (D-51).
+const darkAfter = 72 * time.Hour
+
+// firstWindow is how far back a station with no reading held is asked
+// from (R-5.2): the last hour, which holds its latest sounding.
+const firstWindow = time.Hour
+
+// Station is a GIRO station: its code, and its position once known.
+type Station struct {
+	Code     string
+	Lat, Lon float64
+	Placed   bool
+}
+
+// Place is a position a reply gave, when it gave one.
+type Place struct {
+	Lat, Lon float64
+	Known    bool
+}
+
+// List is the live-station list's state: every station, when each last gave
+// data, when the list was seeded, and the rotations' places.
+type List struct {
+	known   []Station
+	index   map[string]int
+	heard   map[string]time.Time
+	seeded  time.Time
+	pollAt  int
+	probeAt int
+	leftOut []string
+}
+
+var (
+	errSeed    = errors.New("stations: the shipped seed is not a station list")
+	errNoClock = errors.New("stations: a cold start needs the time now")
+	codeRE     = regexp.MustCompile(`^[A-Z0-9]{5}$`)
+)
+
+// Seed is the list at a cold start: every station the seed names, the ones
+// with a position live from now (D-51).
+//
+// Source: GIRO's DIDBase station form, as asked on 2026-10-05, and the
+// positions GIRO's replies state (seed.txt).
+func Seed(now time.Time) (*List, error) {
+	noClock := now.IsZero()
+	if noClock {
+		return nil, errNoClock // every seeded station would read as dark
+	}
+	l := &List{index: map[string]int{}, heard: map[string]time.Time{}, seeded: now}
+	for line := range strings.Lines(seedFile) {
+		f := strings.Fields(line)
+		comment := len(f) == 0 || strings.HasPrefix(f[0], "#")
+		if comment {
+			continue
+		}
+		s, ok := parseStation(f)
+		if !ok {
+			return nil, errSeed
+		}
+		l.index[s.Code] = len(l.known)
+		l.known = append(l.known, s)
+	}
+	none := len(l.known) == 0
+	if none {
+		return nil, errSeed
+	}
+	return l, nil
+}
+
+// parseStation is one seed line: a code, and a position on the globe or
+// none; false for anything else.
+func parseStation(f []string) (Station, bool) {
+	fields := len(f)
+	if fields != 1 && fields != 3 {
+		return Station{}, false
+	}
+	codeOK := codeRE.MatchString(f[0])
+	if !codeOK {
+		return Station{}, false
+	}
+	if fields == 1 {
+		return Station{Code: f[0]}, true
+	}
+	lat, errA := strconv.ParseFloat(f[1], 64)
+	lon, errO := strconv.ParseFloat(f[2], 64)
+	if errA != nil || errO != nil {
+		return Station{}, false
+	}
+	onGlobe := lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+	if !onGlobe {
+		return Station{}, false
+	}
+	return Station{Code: f[0], Lat: lat, Lon: lon, Placed: true}, true
+}
+
+// Live are the stations live now, in the seed's order: each that gave data
+// within three days, or, placed at a cold start, has not been silent three
+// days since; none with no clock.
+//
+// Source: watchpost D-51.
+func (l *List) Live(now time.Time) []string {
+	noClock := now.IsZero()
+	if noClock {
+		return nil
+	}
+	var out []string
+	for _, s := range l.known {
+		if l.isLive(s, now) {
+			out = append(out, s.Code)
+		}
+	}
+	return out
+}
+
+// isLive reports whether a station is live now.
+func (l *List) isLive(s Station, now time.Time) bool {
+	last, heard := l.heard[s.Code]
+	if !heard && !s.Placed {
+		return false
+	}
+	if !heard {
+		last = l.seeded
+	}
+	return now.Sub(last) <= darkAfter
+}
+
+// Plan is an update's asks within a budget (D-87): the live stations to
+// poll, at most one fewer than the budget, those left out last time first;
+// and one station that is not live to probe, the next in rotation.
+//
+// Source: watchpost D-51, D-87.
+func (l *List) Plan(now time.Time, budget int) (poll []string, probe string) {
+	if budget <= 0 {
+		return nil, ""
+	}
+	noClock := now.IsZero()
+	if noClock {
+		return nil, ""
+	}
+	live := l.Live(now)
+	room := budget - 1 // the probe counts inside the burst (D-87)
+	order := l.rotation(live)
+	poll = order[:min(room, len(order))]
+	l.leftOut = order[len(poll):]
+	l.pollAt += len(poll)
+	return poll, l.nextProbe(now)
+}
+
+// rotation is the live stations in the order they are polled: those left
+// out last time first, then the rest from where the rotation stands.
+func (l *List) rotation(live []string) []string {
+	n := len(live)
+	if n == 0 {
+		return nil
+	}
+	out := make([]string, 0, n)
+	for _, s := range l.leftOut {
+		for _, c := range live {
+			if c == s {
+				out = append(out, s)
+				break
+			}
+		}
+	}
+	for i := range n {
+		c := live[(l.pollAt+i)%n]
+		taken := false
+		for _, s := range out {
+			taken = taken || s == c
+		}
+		if !taken {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// nextProbe is the next station that is not live, in the seed's order from
+// where the probe rotation stands; "" when every station is live.
+func (l *List) nextProbe(now time.Time) string {
+	n := len(l.known)
+	if n == 0 {
+		return ""
+	}
+	for i := range n {
+		s := l.known[(l.probeAt+i)%n]
+		if !l.isLive(s, now) {
+			l.probeAt = (l.probeAt + i + 1) % n
+			return s.Code
+		}
+	}
+	return ""
+}
+
+// Heard records that a station gave data at a time, with the position its
+// reply gave: the station is live, and asked from then next time. A reading
+// with no time is no sign of life; a position off the globe is not kept.
+//
+// Source: watchpost D-51; the station's reply.
+func (l *List) Heard(code string, at time.Time, p Place) {
+	i, ok := l.index[code]
+	if !ok {
+		return
+	}
+	noTime := at.IsZero()
+	if noTime {
+		return
+	}
+	if last, held := l.heard[code]; !held || at.After(last) {
+		l.heard[code] = at
+	}
+	onGlobe := p.Lat >= -90 && p.Lat <= 90 && p.Lon >= -180 && p.Lon <= 180
+	if !p.Known || !onGlobe {
+		return
+	}
+	l.known[i].Lat, l.known[i].Lon, l.known[i].Placed = p.Lat, p.Lon, true
+}
+
+// Since is when a station is asked from (R-5.2): its last reading held, or
+// the last hour when none is, or when the last is three days old - a
+// station back from dark is not asked for its whole silence.
+//
+// Source: go-ionomaps R-5.2.
+func (l *List) Since(code string, now time.Time) time.Time {
+	last, held := l.heard[code]
+	if !held {
+		return now.Add(-firstWindow)
+	}
+	stale := now.Sub(last) > darkAfter
+	if stale {
+		return now.Add(-firstWindow)
+	}
+	return last
+}
+
+// station is a station by its code.
+func (l *List) station(code string) Station {
+	i, ok := l.index[code]
+	if !ok {
+		return Station{}
+	}
+	return l.known[i]
+}
