@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/branden-thompson/go-ionomaps/internal/giro"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/solar"
 	"github.com/branden-thompson/go-ionomaps/internal/terms"
@@ -56,7 +57,7 @@ type Library struct {
 
 	mu        sync.Mutex
 	last      Snapshot
-	held      bool          // a snapshot has been made
+	made      bool          // a snapshot has been made
 	notBefore time.Time     // NOAA is not asked before this
 	backOff   time.Duration // after a refusal (D-39); zero after an answer
 	gridAsks  []time.Time   // the grid asks in the last hour (D-39)
@@ -65,6 +66,9 @@ type Library struct {
 	solar     solar.Held
 	solarDay  time.Time // the UTC day the solar file was last read
 	solarVal  Validators
+
+	giro         giro.Asker // GIRO's throttle, stations and readings held (G9)
+	stationsNext bool       // the last update was NOAA's, GIRO due: the next makes the burst (D-63)
 }
 
 // errNoFetcher is New without the host's network.

@@ -8,6 +8,7 @@ package giro
 import (
 	"bytes"
 	"errors"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,7 +20,6 @@ import (
 const (
 	minFoF2, maxFoF2   = 0.5, 20.0
 	minM3000, maxM3000 = 1.5, 5.0
-	maxMUF3000         = maxFoF2 * maxM3000
 )
 
 // The confidence scores (R-9.4, D-61): taken at minScore or more, manual,
@@ -46,14 +46,14 @@ type Station struct {
 }
 
 // Reading is one sounding: its time, its confidence score, foF2 and, where
-// GIRO gives them, MUF(3000) and M(3000)F2.
+// GIRO gives it, M(3000)F2 and MUF(3000), their product.
 type Reading struct {
-	At              time.Time
-	Score           int
-	Unscored        bool // the score is unknown (-1): taken, and said (D-61)
-	FoF2            float32
-	MUF3000, M3000  float32
-	HasMUF, HasM300 bool
+	At             time.Time
+	Score          int
+	Unscored       bool // the score is unknown (-1): taken, and said (D-61)
+	FoF2           float32
+	MUF3000, M3000 float32
+	HasM300        bool
 }
 
 // Reply is a station's reply, read: where it is, the readings taken, how
@@ -75,6 +75,31 @@ var (
 	errOtherCode = errors.New("giro: the reply is for another station than the one asked")
 	errWindow    = errors.New("giro: the window asked ends before it starts, or starts after the clock")
 )
+
+// fastChar is GIRO's FastChar service (D-39 governs every ask of it).
+const fastChar = "https://lgdc.uml.edu/fastchar/getbest"
+
+// askTime is how FastChar takes a time: UTC, a space before the clock.
+const askTime = "2006/01/02 15:04:05"
+
+// AskURL is the ask for a station's readings in a window: foF2 and
+// M(3000)F2 alone (R-5.2, D-62), the code reaching the address only through
+// url.Values (R-3.3).
+//
+// Source: GIRO's FastChar service, as asked on 2026-10-14 (watchpost D-182).
+func AskURL(code string, from, to time.Time) (string, error) {
+	codeOK := CodeOK(code)
+	if !codeOK {
+		return "", ErrBadCode
+	}
+	backwards := to.Before(from)
+	if backwards {
+		return "", errWindow
+	}
+	q := url.Values{"ursiCode": {code}, "charName": {"foF2,M(D)"}, "DMUF": {"3000"},
+		"fromDate": {from.UTC().Format(askTime)}, "toDate": {to.UTC().Format(askTime)}}
+	return fastChar + "?" + q.Encode(), nil
+}
 
 // codeRE is a station's URSI code (R-3.3).
 var codeRE = regexp.MustCompile(`^[A-Z0-9]{5}$`)
@@ -118,7 +143,8 @@ func ParseReply(body []byte, code string, from, to, now time.Time) (Reply, error
 				if !ok {
 					return Reply{}, errNoPlace
 				}
-				st.Code, r.Station, located = code, st, true
+				st.Code = code
+				r.Station, located = st, true
 			}
 			continue
 		}
@@ -153,7 +179,7 @@ func place(lat, ns, lon string) (Station, bool) {
 // take reads one row into the reply: kept, dropped for its confidence, or
 // refused and counted.
 func (r *Reply) take(text string, from, to, now time.Time) {
-	if f := strings.Fields(text); len(f) == 10 && f[2] == "---" {
+	if f := strings.Fields(text); len(f) == rowFields && f[2] == "---" {
 		r.Missing++ // a sounding GIRO could not scale: no foF2, nothing to assimilate
 		return
 	}
@@ -179,16 +205,19 @@ func (r *Reply) take(text string, from, to, now time.Time) {
 	}
 }
 
-// readRow is a row's reading: time, score, foF2 and its qualifier, MUF(3000),
-// M(3000)F2 and hmF2 each with theirs - ten fields; false for another
-// shape, or a value out of its bounds.
+// rowFields is a row's fields as the ask (askURL) has GIRO write them: the
+// time, the score, foF2 and its qualifier, M(3000)F2 and its (D-62).
+const rowFields = 6
+
+// readRow is a row's reading; false for another shape, or a value out of
+// its bounds.
 func readRow(text string) (Reading, bool) {
 	f := strings.Fields(text)
 	fields := len(f)
-	if fields != 10 {
+	if fields != rowFields {
 		return Reading{}, false
 	}
-	moved := len(f[3]) != 2 || len(f[5]) != 2 || len(f[7]) != 2 || len(f[9]) != 2
+	moved := len(f[3]) != 2 || len(f[5]) != 2
 	if moved {
 		return Reading{}, false // the qualifier columns moved: a changed format, never read across (R-3.1)
 	}
@@ -199,19 +228,12 @@ func readRow(text string) (Reading, bool) {
 		return Reading{}, false
 	}
 	x := Reading{At: at, Score: score, FoF2: fo}
-	if f[3] != "__" && f[4] != "---" {
-		muf, ok := value(f[4], minFoF2*minM3000, maxMUF3000)
+	if f[5] != "__" && f[4] != "---" {
+		m, ok := value(f[4], minM3000, maxM3000)
 		if !ok {
 			return Reading{}, false
 		}
-		x.MUF3000, x.HasMUF = muf, true
-	}
-	if f[5] != "__" && f[6] != "---" {
-		m, ok := value(f[6], minM3000, maxM3000)
-		if !ok {
-			return Reading{}, false
-		}
-		x.M3000, x.HasM300 = m, true
+		x.M3000, x.MUF3000, x.HasM300 = m, fo*m, true
 	}
 	return x, true
 }

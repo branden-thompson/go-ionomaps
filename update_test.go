@@ -52,6 +52,7 @@ type noaa struct {
 	solar     []byte
 	status    map[string]int // a status in place of 200
 	down      map[string]bool
+	giro      giroSide
 }
 
 func newNOAA(c *clock) *noaa {
@@ -61,6 +62,9 @@ func newNOAA(c *clock) *noaa {
 func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (ionomaps.Response, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if strings.Contains(url, "lgdc.uml.edu") {
+		return n.giroAnswer(ctx, url)
+	}
 	n.asked = append(n.asked, url)
 	n.validator = append(n.validator, v)
 	if err := ctx.Err(); err != nil {
@@ -183,7 +187,7 @@ func TestAnUpdateMakesTheFieldsFromNOAA(t *testing.T) {
 	n.list(t, start.Add(-50*time.Minute), 6)
 	newest := n.list(t, start.Add(-30*time.Minute), 7)
 	n.list(t, start.Add(-40*time.Minute), 5) // listed out of order
-	s, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +221,7 @@ func TestAnUpdateMakesTheFieldsFromNOAA(t *testing.T) {
 		}
 	}
 	if s.NearestKm != nil || s.Inputs.Stations != 0 {
-		t.Error("no stations are assimilated in G4.2, yet the snapshot says some are")
+		t.Error("no stations are assimilated before G5, yet the snapshot says some are")
 	}
 }
 
@@ -227,7 +231,7 @@ func TestAnUpdateMakesTheFieldsFromNOAA(t *testing.T) {
 func TestAnUpdateTooSoonAnswersFromTheLast(t *testing.T) {
 	l, n, c := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
-	first, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	first, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +239,7 @@ func TestAnUpdateTooSoonAnswersFromTheLast(t *testing.T) {
 	first.Hours[0].FoF2.Values[0] = -1
 	first.Hours[0].FoF2.NoData.Set(1)
 	c.Add(9 * time.Minute)
-	second, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	second, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +253,7 @@ func TestAnUpdateTooSoonAnswersFromTheLast(t *testing.T) {
 		t.Error("a change to one snapshot reached the next")
 	}
 	second.Hours[0].FoF2.Values[2] = -1
-	if third, _ := l.Update(context.Background(), ionomaps.UpdateOptions{}); third.Hours[0].FoF2.Values[2] == -1 {
+	if third, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); third.Hours[0].FoF2.Values[2] == -1 {
 		t.Error("a change to an early answer reached the next")
 	}
 }
@@ -259,12 +263,12 @@ func TestAnUpdateTooSoonAnswersFromTheLast(t *testing.T) {
 func TestAnUnchangedIndexAsksForNoGrid(t *testing.T) {
 	l, n, c := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
-	if _, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err != nil {
+	if _, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	n.take()
 	c.Add(10 * time.Minute)
-	s, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +282,7 @@ func TestAnUnchangedIndexAsksForNoGrid(t *testing.T) {
 	n.mu.Lock()
 	n.validator = nil
 	n.mu.Unlock()
-	if _, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err != nil {
+	if _, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	a := n.take()
@@ -293,7 +297,7 @@ func TestAnUnchangedIndexAsksForNoGrid(t *testing.T) {
 func TestWithoutGloTECTheClimatologyIsNamed(t *testing.T) {
 	l, n, c := library(t)
 	n.status[indexURL] = 404
-	s, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,12 +307,12 @@ func TestWithoutGloTECTheClimatologyIsNamed(t *testing.T) {
 	delete(n.status, indexURL)
 	n.list(t, start.Add(-30*time.Minute), 7)
 	c.Add(10 * time.Minute)
-	if s, _ = l.Update(context.Background(), ionomaps.UpdateOptions{}); s.Background.FoF2 != ionomaps.GloTEC {
+	if s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); s.Background.FoF2 != ionomaps.GloTEC {
 		t.Fatalf("with the grid listed the background is %v", s.Background.FoF2)
 	}
 	n.status[indexURL] = 404
 	c.Add(61 * time.Minute)
-	if s, _ = l.Update(context.Background(), ionomaps.UpdateOptions{}); s.Background.FoF2 != ionomaps.Climatology || !s.Inputs.GloTECValid.IsZero() {
+	if s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); s.Background.FoF2 != ionomaps.Climatology || !s.Inputs.GloTECValid.IsZero() {
 		t.Errorf("a grid over an hour old: background %v, GloTEC valid %v", s.Background.FoF2, s.Inputs.GloTECValid)
 	}
 }
@@ -320,7 +324,7 @@ func TestARefusalBacksOff(t *testing.T) {
 	l, n, c := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
 	n.status[indexURL] = 429
-	if _, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err == nil {
+	if _, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err == nil {
 		t.Error("a refusal with nothing held gave no error")
 	}
 	if a := n.take(); len(a) != 1 {
@@ -328,26 +332,26 @@ func TestARefusalBacksOff(t *testing.T) {
 	}
 	for i, wait := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 15 * time.Minute, 15 * time.Minute} {
 		c.Add(wait - time.Second)
-		if _, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err == nil || len(n.take()) != 0 {
+		if _, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err == nil || len(n.take()) != 0 {
 			t.Fatalf("refusal %d: asked again before %v", i+1, wait)
 		}
 		c.Add(time.Second)
-		l.Update(context.Background(), ionomaps.UpdateOptions{})
+		settled(l, context.Background(), ionomaps.UpdateOptions{})
 		if a := n.take(); len(a) != 1 {
 			t.Fatalf("refusal %d: after %v asked %v", i+1, wait, a)
 		}
 	}
 	delete(n.status, indexURL)
 	c.Add(15 * time.Minute)
-	if s, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err != nil || s.Early != ionomaps.Fresh {
+	if s, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err != nil || s.Early != ionomaps.Fresh {
 		t.Fatalf("after the refusals ended: %v, %v", s.Early, err)
 	}
 	n.down[indexURL] = true
 	c.Add(10 * time.Minute)
-	l.Update(context.Background(), ionomaps.UpdateOptions{})
+	settled(l, context.Background(), ionomaps.UpdateOptions{})
 	n.take()
 	c.Add(time.Minute)
-	if s, _ := l.Update(context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 1 || s.Early != ionomaps.Offline {
+	if s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 1 || s.Early != ionomaps.Offline {
 		t.Errorf("after an answer, the first back-off is 60 s again, and an update without NOAA is offline: %v", s.Early)
 	}
 }
@@ -360,10 +364,10 @@ func TestACancelledUpdateIsNoRefusal(t *testing.T) {
 	n.list(t, start.Add(-30*time.Minute), 7)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	l.Update(ctx, ionomaps.UpdateOptions{})
+	settled(l, ctx, ionomaps.UpdateOptions{})
 	n.take()
 	c.Add(time.Second)
-	s, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil || s.Early != ionomaps.Fresh || len(n.take()) != 3 {
 		t.Errorf("after a cancelled update: %v, %v", s.Early, err)
 	}
@@ -377,7 +381,7 @@ func TestGridsAreAskedAtMostSixAnHour(t *testing.T) {
 	var asks []time.Time
 	for range 360 { // three hours, every 30 s, a new grid listed each time
 		n.list(t, c.Now().Add(-25*time.Minute), 7)
-		l.Update(context.Background(), ionomaps.UpdateOptions{})
+		settled(l, context.Background(), ionomaps.UpdateOptions{})
 		for _, a := range n.take() {
 			if strings.HasSuffix(a, ".geojson") {
 				asks = append(asks, c.Now())
@@ -407,7 +411,7 @@ func TestGridsAreAskedAtMostSixAnHour(t *testing.T) {
 func TestNothingHeldAndNoNOAAIsAnErrorWithAPath(t *testing.T) {
 	l, n, _ := library(t)
 	n.down[indexURL], n.down[solarURL] = true, true
-	s, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err == nil || len(s.Hours) != 0 || s.Early != ionomaps.Offline {
 		t.Fatalf("hours %d, early %v, error %v", len(s.Hours), s.Early, err)
 	}
@@ -424,7 +428,7 @@ func TestAnUpdateIsSafeForConcurrentUse(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			if _, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err != nil {
+			if _, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err != nil {
 				t.Error(err)
 			}
 		})
@@ -443,7 +447,7 @@ func TestASolarFileNotReadKeepsNoValidators(t *testing.T) {
 	n.list(t, start.Add(-30*time.Minute), 7)
 	good := n.solar
 	n.solar = []byte("not the solar file")
-	if _, err := l.Update(context.Background(), ionomaps.UpdateOptions{}); err == nil {
+	if _, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err == nil {
 		t.Fatal("a solar file that does not read gave a field")
 	}
 	n.solar = good
@@ -452,7 +456,7 @@ func TestASolarFileNotReadKeepsNoValidators(t *testing.T) {
 	n.mu.Lock()
 	n.validator = nil
 	n.mu.Unlock()
-	s, err := l.Update(context.Background(), ionomaps.UpdateOptions{})
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil || s.Inputs.F107Mean != 140 {
 		t.Fatalf("the next update: mean %v, error %v", s.Inputs.F107Mean, err)
 	}
@@ -461,4 +465,15 @@ func TestASolarFileNotReadKeepsNoValidators(t *testing.T) {
 			t.Errorf("the solar file was asked again with %+v, the validators of a file that gave nothing", n.validator[i])
 		}
 	}
+}
+
+// settled is an update as a host makes it (D-63): when NOAA's snapshot says
+// the stations are next, the host asks again at once, and that is the
+// snapshot the NOAA tests read.
+func settled(l *ionomaps.Library, ctx context.Context, o ionomaps.UpdateOptions) (ionomaps.Snapshot, error) {
+	s, err := l.Update(ctx, o)
+	if err == nil && s.Early == ionomaps.StationsNext {
+		return l.Update(ctx, o)
+	}
+	return s, err
 }

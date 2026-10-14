@@ -80,6 +80,8 @@ restated here; this log holds go-giro-data's own.
 | D-59 | 2026-10-11 | Restates watchpost D-175 | see watchpost D-175 | G6's upper limits (the P.533 basic MUF, foE, the gyrofrequency) serve UAT-2; G6.2's absorption, the disturbed state and the reference circuit's statuses follow for UAT-3, the absorption from the published method behind P.533's figures. |
 | D-60 | 2026-10-11 | An hour ahead's climatology grids cost about 34 ms each, so 24 in every update is about 0.8 s on a cold open, past D-98's 0.5 s; the open hours need point values only. Build them on demand; eagerly, cached per hour; or eagerly, fewer | "On demand (Rec.)" | **`Snapshot.Hours` is the hour now; `Snapshot.Ahead(k)` builds hour k ahead, 1 to 24, when the host asks**, the climatology's, marked typical; the open hours come from point values. R-1.3 says so. |
 | D-61 | 2026-10-14 | Restates watchpost D-181 | see watchpost D-181 | GIRO readings scored 70 or more, 999 and -1 are taken, 0 to 69 dropped; a -1 reading is unscored, and every cell and answer says whether the nearest measured station behind it is unscored (R-9.4, R-2.11). The hours ahead's typical error re-measured with them taken. |
+| D-62 | 2026-10-14 | Restates watchpost D-182 | see watchpost D-182 | One GIRO request (AL945, an hour, foF2 and M(D) only) showed the two-characteristic layout: six fields a row; the library asks for those two alone (R-5.2) and parses that layout. |
+| D-63 | 2026-10-14 | Restates watchpost D-183 | see watchpost D-183 | When GIRO is due, Update returns NOAA's snapshot at once, reason StationsNext; the host's next Update, at once, makes the burst (R-5.4 holds: pull only). |
 
 ## Agent decisions (A-n, watchpost D-13)
 

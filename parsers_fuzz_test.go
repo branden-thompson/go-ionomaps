@@ -14,7 +14,7 @@ import (
 // parser panics, and none hands on a value that is no number.
 func FuzzEveryInputParser(f *testing.F) {
 	f.Add([]byte(""))
-	f.Add([]byte("#\n2026-09-29T00:05:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //\n"))
+	f.Add([]byte("#\n2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //\n"))
 	f.Add([]byte(`{"time_tag":"2026-10-05T12:05:00Z","features":[]}`))
 	f.Add([]byte("2026 10 05  150  140  1  2  0  0  0  0  0  0  0\n"))
 	now := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)

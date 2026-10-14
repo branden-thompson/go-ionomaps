@@ -22,7 +22,7 @@ var (
 const header = "# Global Ionospheric Radio Observatory\n" +
 	"# Location: " + "GEO" + " ( 19.6 S   146.9 E ), URSI-Code XX00X, SOMEWHERE\n" +
 	"# Requested by unknown guest from IP:192.0.2.1\n" +
-	"# Time                    " + "CS" + "   foF2 " + "QD MUF(D) QD M(D) QD   hmF2 QD\n"
+	"# Time                    " + "CS" + "   foF2 " + "QD M(D) QD\n"
 
 // reply is the header and rows.
 func reply(rows ...string) []byte { return []byte(header + strings.Join(rows, "\n") + "\n") }
@@ -33,25 +33,25 @@ func reply(rows ...string) []byte { return []byte(header + strings.Join(rows, "\
 // made negative.
 func TestARowIsRead(t *testing.T) {
 	r, err := ParseReply(reply(
-		"2026-09-29T00:05:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //",
-		"2026-09-29T00:40:00.000Z 100 11.209 //    --- __  --- __  265.9 //",
-		"2026-09-29T01:00:00.000Z 999  9.500 /F 30.000 // 3.16 //    --- __",
+		"2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //",
+		"2026-09-29T00:40:00.000Z 100 11.209 //  --- __",
+		"2026-09-29T01:00:00.000Z 999  9.500 /F 3.16 //",
 	), "XX00X", from, to, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Station.Lat != -19.6 || math.Abs(r.Station.Lon-146.9) > 1e-9 {
+	if r.Station.Code != "XX00X" || r.Station.Lat != -19.6 || math.Abs(r.Station.Lon-146.9) > 1e-9 {
 		t.Errorf("the station is at %v, %v; want 19.6°S 146.9°E", r.Station.Lat, r.Station.Lon)
 	}
 	if len(r.Readings) != 3 {
 		t.Fatalf("%d readings; want 3", len(r.Readings))
 	}
 	a, b, c := r.Readings[0], r.Readings[1], r.Readings[2]
-	if !a.At.Equal(from.Add(5*time.Minute)) || a.Score != 95 || a.FoF2 != 10.888 || a.MUF3000 != 34.472 || a.M3000 != 3.17 || !a.HasMUF {
+	if !a.At.Equal(from.Add(5*time.Minute)) || a.Score != 95 || a.FoF2 != 10.888 || a.M3000 != 3.17 || a.MUF3000 != float32(10.888)*float32(3.17) || !a.HasM300 {
 		t.Errorf("the first reading is %+v", a)
 	}
-	if b.HasMUF || b.FoF2 != 11.209 {
-		t.Errorf("a MUF GIRO marks missing is read as %+v", b)
+	if b.HasM300 || b.MUF3000 != 0 || b.FoF2 != 11.209 {
+		t.Errorf("an M(3000)F2 GIRO marks missing is read as %+v", b)
 	}
 	if c.Score != 999 || c.FoF2 != 9.5 {
 		t.Errorf("a manually scaled reading with a descriptor is read as %+v", c)
@@ -66,7 +66,7 @@ func TestARowIsRead(t *testing.T) {
 // carries the requester's address, is dropped before the rows are read;
 // nothing the parser returns holds any of its text.
 func TestReplyHeadersNeverLeaveTheParser(t *testing.T) {
-	r, err := ParseReply(reply("2026-09-29T00:05:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //"), "XX00X", from, to, now)
+	r, err := ParseReply(reply("2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //"), "XX00X", from, to, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,15 +91,15 @@ func dump(r Reply) string {
 // counted, never read.
 func TestOutOfRangeReadingsAreRejectedAndCounted(t *testing.T) {
 	r, err := ParseReply(reply(
-		"2026-09-29T00:05:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //", // kept
-		"2026-09-29T00:10:00.000Z  95 40.000 // 34.472 // 3.17 //  278.6 //", // foF2 past any ionosphere
-		"2026-09-29T00:15:00.000Z  95 10.888 // 34.472 // 9.00 //  278.6 //", // M(3000)F2 past its bounds
-		"2026-09-28T23:55:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //", // before the window
-		"2026-10-01T00:00:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //", // in the future
-		"2026-09-29T00:20:00.000Z 150 10.888 // 34.472 // 3.17 //  278.6 //", // no score
-		"2026-09-29T00:25:00.000Z  95 NaN // 34.472 // 3.17 //  278.6 //",    // no number
-		"2026-09-29T00:30:00.000Z  95 10.888 //",                             // another shape
-		"2026-09-29T00:35:00.000Z  95    --- __    --- __  --- __    --- __", // no foF2: missing, not malformed
+		"2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //", // kept
+		"2026-09-29T00:10:00.000Z  95 40.000 // 3.17 //", // foF2 past any ionosphere
+		"2026-09-29T00:15:00.000Z  95 10.888 // 9.00 //", // M(3000)F2 past its bounds
+		"2026-09-28T23:55:00.000Z  95 10.888 // 3.17 //", // before the window
+		"2026-10-01T00:00:00.000Z  95 10.888 // 3.17 //", // in the future
+		"2026-09-29T00:20:00.000Z 150 10.888 // 3.17 //", // no score
+		"2026-09-29T00:25:00.000Z  95 NaN // 3.17 //",    // no number
+		"2026-09-29T00:30:00.000Z  95 10.888 //",         // another shape
+		"2026-09-29T00:35:00.000Z  95    --- __  --- __", // no foF2: missing, not malformed
 	), "XX00X", from, to, now)
 	if err != nil {
 		t.Fatal(err)
@@ -115,12 +115,12 @@ func TestOutOfRangeReadingsAreRejectedAndCounted(t *testing.T) {
 // one whose score is unknown (-1) is kept and marked unscored.
 func TestLowConfidenceReadingsAreDropped(t *testing.T) {
 	r, err := ParseReply(reply(
-		"2026-09-29T00:05:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //",
-		"2026-09-29T00:10:00.000Z  40 10.888 // 34.472 // 3.17 //  278.6 //",
-		"2026-09-29T00:15:00.000Z   0 10.888 // 34.472 // 3.17 //  278.6 //",
-		"2026-09-29T00:20:00.000Z  -1 10.888 // 34.472 // 3.17 //  278.6 //",
-		"2026-09-29T00:25:00.000Z  70 10.888 // 34.472 // 3.17 //  278.6 //",
-		"2026-09-29T00:30:00.000Z  69 10.888 // 34.472 // 3.17 //  278.6 //",
+		"2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //",
+		"2026-09-29T00:10:00.000Z  40 10.888 // 3.17 //",
+		"2026-09-29T00:15:00.000Z   0 10.888 // 3.17 //",
+		"2026-09-29T00:20:00.000Z  -1 10.888 // 3.17 //",
+		"2026-09-29T00:25:00.000Z  70 10.888 // 3.17 //",
+		"2026-09-29T00:30:00.000Z  69 10.888 // 3.17 //",
 	), "XX00X", from, to, now)
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +142,7 @@ func TestErrorsNeverQuoteInput(t *testing.T) {
 		"not FastChar":    []byte("<html>secret-token-123</html>"),
 		"another station": []byte(strings.Replace(header, "XX00X", "YY11Y", 1) + "secret-token-123\n"),
 		"no location":     []byte("# nothing here secret-token-123\n"),
-		"too large":       reply(strings.Repeat("2026-09-29T00:05:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //\n", maxBytes/60)), // well formed, but larger than any reply
+		"too large":       reply(strings.Repeat("2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //\n", maxBytes/len("2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //")+1)), // well formed, but larger than any reply
 	} {
 		_, err := ParseReply(body, "XX00X", from, to, now)
 		if err == nil {
@@ -171,7 +171,7 @@ func TestStationCodesAreChecked(t *testing.T) {
 // FuzzGIROParser is R-3.3 and R-3.4: whatever arrives, the parser does not
 // panic, and nothing it returns is NaN, Inf or out of its bounds.
 func FuzzGIROParser(f *testing.F) {
-	f.Add(reply("2026-09-29T00:05:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //"))
+	f.Add(reply("2026-09-29T00:05:00.000Z  95 10.888 // 3.17 //"))
 	f.Add(reply("2026-09-29T00:40:00.000Z 100 11.209 //    --- __  --- __  265.9 //"))
 	f.Add([]byte("# Location: " + "GEO" + " ( 91.0 N   400.0 E ), URSI-Code XX00X\n")) // a place off the globe
 	f.Fuzz(func(t *testing.T, body []byte) {
@@ -194,7 +194,7 @@ func FuzzGIROParser(f *testing.F) {
 // TestAFutureReadingIsRefused is R-3.3: a reading past the host's clock is
 // refused, even inside the window asked.
 func TestAFutureReadingIsRefused(t *testing.T) {
-	r, err := ParseReply(reply("2026-09-30T07:00:00.000Z  95 10.888 // 34.472 // 3.17 //  278.6 //"), "XX00X", from, now.Add(24*time.Hour), now)
+	r, err := ParseReply(reply("2026-09-30T07:00:00.000Z  95 10.888 // 3.17 //"), "XX00X", from, now.Add(24*time.Hour), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestAFutureReadingIsRefused(t *testing.T) {
 // moved is refused, never read across; a window that ends before it starts
 // or starts after the clock is refused.
 func TestAChangedFormatIsRefused(t *testing.T) {
-	r, err := ParseReply(reply("2026-09-29T00:05:00.000Z  95 10.888 /// 34.472 /// 3.17 ///  278.6 ///"), "XX00X", from, to, now)
+	r, err := ParseReply(reply("2026-09-29T00:05:00.000Z  95 10.888 /// 3.17 ///"), "XX00X", from, to, now)
 	if err != nil || len(r.Readings) != 0 || r.Rejected != 1 {
 		t.Errorf("a row with its qualifiers moved: %d kept, %d rejected, %v", len(r.Readings), r.Rejected, err)
 	}
@@ -225,7 +225,7 @@ func TestTheRowsAreCapped(t *testing.T) {
 	start := from
 	var rows []string
 	for i := range maxRows + 5 {
-		rows = append(rows, start.Add(time.Duration(i)*time.Minute).Format("2006-01-02T15:04:05.000Z")+"  95 10.888 // 34.472 // 3.17 //  278.6 //")
+		rows = append(rows, start.Add(time.Duration(i)*time.Minute).Format("2006-01-02T15:04:05.000Z")+"  95 10.888 // 3.17 //")
 	}
 	end := start.Add(time.Duration(maxRows+5) * time.Minute)
 	r, err := ParseReply(reply(rows...), "XX00X", start, end, end.Add(time.Hour))
@@ -234,5 +234,28 @@ func TestTheRowsAreCapped(t *testing.T) {
 	}
 	if len(r.Readings) != maxRows || r.Rejected != 5 {
 		t.Errorf("%d kept and %d rejected; want %d and 5", len(r.Readings), r.Rejected, maxRows)
+	}
+}
+
+// TestTheAskNamesOnlyWhatIsUsed is R-5.2 and R-3.3 (D-62): the ask names
+// foF2 and M(D) alone, at 3000 km, the window in FastChar's form, and a
+// code reaches the address only through url.Values, never as it came.
+func TestTheAskNamesOnlyWhatIsUsed(t *testing.T) {
+	u, err := AskURL("AL945", from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ursiCode=AL945", "charName=foF2%2CM%28D%29", "DMUF=3000", "fromDate=2026%2F09%2F29+00%3A00%3A00", "toDate=2026%2F09%2F29+23%3A59%3A59"} {
+		if !strings.Contains(u, want) {
+			t.Errorf("the ask %q lacks %q", u, want)
+		}
+	}
+	for _, bad := range []string{"AL945&x=1", "al945", ""} {
+		if _, err := AskURL(bad, from, to); err == nil {
+			t.Errorf("the code %q was put in an address", bad)
+		}
+	}
+	if _, err := AskURL("AL945", to, from); err == nil {
+		t.Error("a window that ends before it starts was asked")
 	}
 }

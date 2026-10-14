@@ -57,6 +57,15 @@ func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock().UTC()
+	if l.stationsNext && l.made { // NOAA's snapshot went out: now the burst (D-63)
+		l.stationsNext = false
+		l.giro.Burst(ctx, now, l.giroFetch())
+		l.giro.LetGo(now)
+		s := l.last.clone()
+		s.Early = Fresh // the readings are held; G5 assimilates them, and the snapshot then says so
+		l.last = s
+		return s.clone(), nil
+	}
 	early := now.Before(l.notBefore)
 	if early {
 		return l.early(now)
@@ -74,17 +83,21 @@ func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error)
 		return Snapshot{Computed: now, Early: Offline}, l.notYet()
 	}
 	s := l.build(now)
-	if !answered {
+	l.giro.LetGo(now)
+	switch {
+	case !answered:
 		s.Early = Offline
+	case l.giro.BurstDue(now):
+		s.Early, l.stationsNext = StationsNext, true // shown at once; the host updates again for the stations (D-63)
 	}
-	l.last, l.held = s, true
+	l.last, l.made = s, true
 	return s.clone(), nil
 }
 
 // early is the answer to an update asked before NOAA may be: the last
 // snapshot, said too soon; with none, the error that says when.
 func (l *Library) early(now time.Time) (Snapshot, error) {
-	if !l.held {
+	if !l.made {
 		return Snapshot{Computed: now, Early: TooSoon}, l.notYet()
 	}
 	s := l.last.clone()

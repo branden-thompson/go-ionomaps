@@ -47,8 +47,8 @@ flowchart TB
 
 1. **Throttle** (R-5.3, R-5.4): within the hour's budget? If not, answer from the last good snapshot, with its age and the reason.
 2. **Stations** (R-5.5): the live list, rotation and one probe, never more than 40 requests together (D-87).
-3. **Fetch**, through the host's fetcher (R-5.1):
-   - GIRO readings since the last held (R-5.2);
+3. **Fetch**, through the host's fetcher (R-5.1), in two updates when GIRO is due (D-63): the first asks NOAA and returns its snapshot, said StationsNext; the host's next, at once, makes GIRO's burst (`internal/giro`'s Asker, over `internal/throttle` and `internal/stations`):
+   - GIRO readings since the last held (R-5.2), foF2 and M(3000)F2 alone (D-62);
    - GloTEC's newest grid, found by its timestamped name or the directory index (W0.0 measures which; a new grid is never a 304, D-111);
    - D-RAP;
    - NOAA's space-weather scales (D-88);

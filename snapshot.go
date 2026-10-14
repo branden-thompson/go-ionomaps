@@ -126,10 +126,11 @@ type Reason uint8
 
 // The reasons.
 const (
-	Fresh      Reason = iota // from new data
-	TooSoon                  // the hour's budget is spent
-	GIROPaused               // GIRO is backing off after a refusal
-	Offline                  // nothing could be fetched
+	Fresh        Reason = iota // from new data
+	TooSoon                    // the hour's budget is spent
+	GIROPaused                 // GIRO is backing off after a refusal
+	Offline                    // nothing could be fetched
+	StationsNext               // NOAA's fields, GIRO due: update again at once for the stations (D-63)
 )
 
 // TypicalError is the hours ahead's error by distance to the nearest
