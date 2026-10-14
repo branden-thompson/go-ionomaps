@@ -45,7 +45,7 @@ flowchart TB
 
 ## One update
 
-1. **Throttle** (R-5.3, R-5.4): within the hour's budget? If not, answer from the last good snapshot, with its age and the reason.
+1. **Throttle** (R-5.3, R-5.4): within the hour's budget? If not, answer from the last good snapshot, with its age and the reason; when the host's options have changed, that snapshot is rebuilt at its own time from what is held, nothing asked (A-7).
 2. **Stations** (R-5.5): the live list, rotation and one probe, never more than 40 requests together (D-87).
 3. **Fetch**, through the host's fetcher (R-5.1), in two updates when GIRO is due (D-63): the first asks NOAA and returns its snapshot, said StationsNext; the host's next, at once, makes GIRO's burst (`internal/giro`'s Asker, over `internal/throttle` and `internal/stations`):
    - GIRO readings since the last held (R-5.2), foF2 and M(3000)F2 alone (D-62);
@@ -60,9 +60,9 @@ flowchart TB
    - foF2: GloTEC's, from NmF2 (else the climatology's, named);
    - M(3000)F2: the climatology's (watchpost D-101);
    - else the climatology (named, FR-5.2).
-6. **Assimilate** (R-9.2): station residuals for foF2 (over GloTEC) and M(3000)F2 (over the climatology), a GP on the sphere each, added to its background.
+6. **Assimilate** (R-9.2): station residuals for foF2 (over GloTEC) and M(3000)F2 (over the climatology), a GP on the sphere each, added to its background. **The offset** (R-9.6, D-105): with five or more readings over GloTEC, the live offset is their mean residual, and the typical offset (seeded at -0.5 MHz) learns from it once per burst's readings; with none assimilated and the host asking (`UpdateOptions.CorrectNoReadings`), GloTEC's foF2 is moved by the typical offset, and the snapshot says so.
 7. **Hours ahead** (R-1.3, watchpost D-109): each hour ahead is the climatology's hour from the day's cache, marked typical, with the typical error and its basis.
-8. **Snapshot:** fields, computed time, the inputs' own times (GloTEC's valid time, the oldest reading, D-RAP's), backgrounds per field, sources. NOAA comes first, so a first snapshot without stations precedes the GIRO burst (watchpost architecture, "Opening the mode").
+8. **Snapshot:** fields, computed time, the inputs' own times (GloTEC's valid time, the oldest reading, D-RAP's), backgrounds per field, the offset, sources. NOAA comes first, so a first snapshot without stations precedes the GIRO burst (watchpost architecture, "Opening the mode").
 
 The answers (`Bands`, `Path`, `Reach`) are pure functions of a snapshot (R-2), so a host can call them off
 its UI goroutine without touching the network.

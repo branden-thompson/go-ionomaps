@@ -15,13 +15,14 @@ import (
 // giroSide is GIRO's answers, built here (R-4.3): every station answers
 // with one reading five minutes old unless told otherwise; asks recorded.
 type giroSide struct {
-	asks   []string               // the URLs asked, in order
-	rows   map[string][]time.Time // a station's readings, when set
-	refuse int                    // the ask, counting from 1, answered 429
-	cancel func()                 // called at the ask refuse names, in place of refusing
-	silent map[string]bool        // stations that answer with no reading
-	speak  bool                   // stations answer with readings; NOAA's own tests leave it off
-	score  map[string]string      // a station's confidence score, 95 when unset
+	asks     []string               // the URLs asked, in order
+	rows     map[string][]time.Time // a station's readings, when set
+	refuse   int                    // the ask, counting from 1, answered 429
+	cancel   func()                 // called at the ask refuse names, in place of refusing
+	silent   map[string]bool        // stations that answer with no reading
+	speak    bool                   // stations answer with readings; NOAA's own tests leave it off
+	score    map[string]string      // a station's confidence score, 95 when unset
+	speakers int                    // when set, only the first this many asks give readings
 }
 
 // giroAnswer answers one GIRO ask: the station's reply in FastChar's
@@ -51,7 +52,7 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 	if v, ok := g.score[code]; ok {
 		score = v
 	}
-	if g.speak && !g.silent[code] {
+	if g.speak && !g.silent[code] && (g.speakers == 0 || len(g.asks) <= g.speakers) {
 		for _, at := range times {
 			body += at.UTC().Format("2006-01-02T15:04:05.000Z") + "  " + score + "  7.500 // 3.40 //\n"
 		}

@@ -69,6 +69,9 @@ type Library struct {
 
 	giro         giro.Asker // GIRO's throttle, stations and readings held (G9)
 	stationsNext bool       // the last update was NOAA's, GIRO due: the next makes the burst (D-63)
+
+	offset typicalOffset // the typical offset learned from this library's updates (D-105)
+	opts   UpdateOptions // the options the last snapshot was built with
 }
 
 // errNoFetcher is New without the host's network.
@@ -85,7 +88,7 @@ func New(f Fetcher, o Options) (*Library, error) {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Library{fetch: f, clock: clock}, nil
+	return &Library{fetch: f, clock: clock, offset: seedOffset()}, nil
 }
 
 // Sources is every source the library reads or is built from, with its

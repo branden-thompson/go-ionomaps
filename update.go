@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/branden-thompson/go-ionomaps/internal/assimilate"
 	"github.com/branden-thompson/go-ionomaps/internal/background"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
@@ -39,9 +40,14 @@ const (
 // hour old means several missed, and foF2 has moved with the hour (A-5).
 const gridMaxAge = time.Hour
 
-// UpdateOptions are one update's settings, the host's to give each time;
-// none yet (the no-readings correction is planned with G5.2, D-105).
-type UpdateOptions struct{}
+// UpdateOptions are one update's settings, the host's to give each time,
+// so a change needs no new library and no new burst (R-9.6, A-30).
+type UpdateOptions struct {
+	// CorrectNoReadings moves GloTEC's foF2 by the typical offset when no
+	// station readings are assimilated (watchpost D-105 c); off, GloTEC is
+	// shown as it is. The snapshot's Offset.Corrected says when it applied.
+	CorrectNoReadings bool
+}
 
 // Update asks NOAA for what is new and returns the hour's snapshot (G4.2,
 // watchpost D-151): GloTEC's newest grid, found through its index, and the
@@ -49,14 +55,15 @@ type UpdateOptions struct{}
 // named, without it or past an hour old), M(3000)F2 from the climatology,
 // MUF(3000) their product, with GIRO's readings up to an hour old
 // assimilated onto both (G5, D-64), NearestKm and NearestUnscored saying
-// where. When GIRO is due it returns NOAA's snapshot said StationsNext, and
+// where, and the stations' offset against GloTEC (R-9.6). When GIRO is due it returns NOAA's snapshot said StationsNext, and
 // the next call makes GIRO's burst (D-63). Within ten minutes of the last
 // ask, or while backing off, the last snapshot comes back said too soon
-// (R-5.4). With nothing held and no F10.7 mean to be had there is no field:
+// (R-5.4), rebuilt from what is held when the options have changed, nothing
+// asked. With nothing held and no F10.7 mean to be had there is no field:
 // the error says when NOAA is asked again.
 //
-// Source: watchpost D-39, D-63, D-64, D-101, D-104, D-111, D-151; this library.
-func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error) {
+// Source: watchpost D-39, D-63, D-64, D-101, D-104, D-105, D-111, D-151; this library.
+func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock().UTC()
@@ -64,13 +71,13 @@ func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error)
 		l.stationsNext = false
 		l.giro.Burst(ctx, now, l.giroFetch())
 		l.giro.LetGo(now)
-		s := l.build(now) // NOAA's fields held, the stations' readings now on them
-		l.last = s
+		s := l.build(now, o) // NOAA's fields held, the stations' readings now on them
+		l.last, l.opts = s, o
 		return s.clone(), nil
 	}
 	early := now.Before(l.notBefore)
 	if early {
-		return l.early(now)
+		return l.early(now, o)
 	}
 	answered, refused := l.refreshGrid(ctx, now)
 	if !refused {
@@ -78,13 +85,13 @@ func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error)
 	}
 	cancelled := ctx.Err() != nil
 	if cancelled {
-		return l.early(now) // the host's, not NOAA's: no back-off, no ten minutes spent
+		return l.early(now, o) // the host's, not NOAA's: no back-off, no ten minutes spent
 	}
 	l.notBefore, l.backOff = nextAsk(now, l.backOff, refused)
 	if !l.solar.OK {
 		return Snapshot{Computed: now, Early: Offline}, l.notYet()
 	}
-	s := l.build(now)
+	s := l.build(now, o)
 	l.giro.LetGo(now)
 	switch {
 	case !answered:
@@ -92,15 +99,20 @@ func (l *Library) Update(ctx context.Context, _ UpdateOptions) (Snapshot, error)
 	case l.giro.BurstDue(now):
 		s.Early, l.stationsNext = StationsNext, true // shown at once; the host updates again for the stations (D-63)
 	}
-	l.last, l.made = s, true
+	l.last, l.made, l.opts = s, true, o
 	return s.clone(), nil
 }
 
 // early is the answer to an update asked before NOAA may be: the last
-// snapshot, said too soon; with none, the error that says when.
-func (l *Library) early(now time.Time) (Snapshot, error) {
+// snapshot, said too soon, rebuilt at its own time from what is held when
+// the host's options differ from the ones it was built with (A-30); with
+// none, the error that says when.
+func (l *Library) early(now time.Time, o UpdateOptions) (Snapshot, error) {
 	if !l.made {
 		return Snapshot{Computed: now, Early: TooSoon}, l.notYet()
+	}
+	if o != l.opts {
+		l.last, l.opts = l.build(l.last.Computed, o), o
 	}
 	s := l.last.clone()
 	s.Early = TooSoon
@@ -203,14 +215,30 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 	return false
 }
 
-// build is the snapshot at now from what is held.
-func (l *Library) build(now time.Time) Snapshot {
+// build is the snapshot at now from what is held, with the options asked:
+// the typical offset learns from a live offset over readings not yet
+// learned from, and the no-readings correction moves GloTEC's foF2 when no
+// reading is assimilated (R-9.6).
+func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 	g := l.grid
 	if g != nil && now.Sub(g.Valid) > gridMaxAge {
 		g = nil
 	}
 	b := background.Build(now, l.solar.Mean, g)
-	res, oldest := l.assimilated(b, now)
+	res, oldest, newest := l.assimilated(b, now)
+	overGloTEC := b.FoF2From == background.GloTEC
+	measured := overGloTEC && res.Used >= liveReadings
+	if measured {
+		l.offset.learn(res.MeanResidual, newest)
+	}
+	corrected := false
+	if o.CorrectNoReadings && overGloTEC && res.Used == 0 {
+		var shifted []float32
+		shifted, corrected = assimilate.Shifted(res.FoF2, l.offset.mean)
+		if corrected {
+			res.FoF2 = shifted
+		}
+	}
 	fo, muf := newField(), newField()
 	for i, f := range res.FoF2 {
 		fo.put(i, f)
@@ -225,6 +253,7 @@ func (l *Library) build(now time.Time) Snapshot {
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),
+		Offset:          l.offset.offset(res.MeanResidual, measured, corrected),
 	}
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid = g.Valid

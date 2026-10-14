@@ -25,11 +25,10 @@ func (l *Library) giroFetch() giro.Fetch {
 const assimilateFor = time.Hour
 
 // assimilated is the backgrounds with the readings held up to an hour old
-// assimilated onto them, and the oldest of those (R-9.2, D-64); the
-// backgrounds as they were when fewer than three are that fresh.
-func (l *Library) assimilated(b background.Fields, now time.Time) (assimilate.Result, time.Time) {
+// assimilated onto them, and the oldest and newest of those (R-9.2, D-64);
+// the backgrounds as they were when fewer than three are that fresh.
+func (l *Library) assimilated(b background.Fields, now time.Time) (res assimilate.Result, oldest, newest time.Time) {
 	var rs []assimilate.Reading
-	var oldest time.Time
 	for _, h := range l.giro.Readings() {
 		if now.Sub(h.Reading.At) > assimilateFor {
 			continue
@@ -39,12 +38,21 @@ func (l *Library) assimilated(b background.Fields, now time.Time) (assimilate.Re
 		if oldest.IsZero() || h.Reading.At.Before(oldest) {
 			oldest = h.Reading.At
 		}
+		newest = later(newest, h.Reading.At)
 	}
 	res, err := assimilate.Onto(b.FoF2, b.M3000, rs)
 	if err != nil || res.Used == 0 {
-		return assimilate.Result{FoF2: b.FoF2, M3000: b.M3000}, time.Time{}
+		return assimilate.Result{FoF2: b.FoF2, M3000: b.M3000}, time.Time{}, time.Time{}
 	}
-	return res, oldest
+	return res, oldest, newest
+}
+
+// later is the later of two times.
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // unscoredCells are the cells whose nearest station is unscored, as a

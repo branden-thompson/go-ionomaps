@@ -17,12 +17,14 @@ type Reading struct {
 }
 
 // Result is the background with the readings assimilated: foF2 and
-// M(3000)F2 a cell, how many readings were used for each, and per cell the
+// M(3000)F2 a cell, how many readings were used for each, foF2's mean
+// residual over its background at the readings used, and per cell the
 // distance to the nearest reading used and whether it is unscored - none
 // when nothing was used.
 type Result struct {
 	FoF2, M3000     []float32
 	Used, UsedM     int
+	MeanResidual    float64
 	NearestKm       []float32
 	NearestUnscored []bool
 }
@@ -71,6 +73,9 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 	}
 	mFit, errM := NewFit(mObs, M3000Kernel)
 	r.Used = len(foObs)
+	for _, o := range foObs {
+		r.MeanResidual += o.Residual / float64(r.Used)
+	}
 	if errM == nil {
 		r.UsedM = len(mObs)
 	}
@@ -84,6 +89,28 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 		r.NearestKm[i], r.NearestUnscored[i] = nearest(used, lat, lon)
 	}
 	return r, nil
+}
+
+// Shifted is foF2 moved by a number of MHz a cell, each held to the floor
+// (R-9.6): a correction pulling far below a thin background never makes a
+// value of no meaning. False, and nothing made, for a field not on the
+// library's grid or a shift that is no finite number.
+//
+// Source: watchpost D-105.
+func Shifted(foF2 []float32, by float64) ([]float32, bool) {
+	sized := len(foF2) == grid.Cells
+	if !sized {
+		return nil, false
+	}
+	finite := !math.IsNaN(by) && !math.IsInf(by, 0)
+	if !finite {
+		return nil, false
+	}
+	out := make([]float32, len(foF2))
+	for i, f := range foF2 {
+		out[i] = float32(math.Max(float64(f)+by, minFoF2))
+	}
+	return out, true
 }
 
 // The floors a cell is held to: the parser's lowest foF2 and M(3000)F2, so

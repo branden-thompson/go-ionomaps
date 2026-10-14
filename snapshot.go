@@ -1,6 +1,9 @@
 package ionomaps
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // A Snapshot is immutable: every update returns fresh slices (P-6). Hours[0]
 // is now; then up to 24 hours ahead, typical (R-1.3, watchpost D-109).
@@ -165,8 +168,26 @@ type DayScale struct {
 	G                          int
 }
 
-// Offset is the stations' foF2 against GloTEC's (watchpost D-105).
+// Offset is the stations' foF2 against GloTEC's (watchpost D-105, R-9.6):
+// the live offset, this update's, when measured; the typical offset and its
+// spread (one standard deviation), seeded from PLAN's week and learned from
+// this library's own updates; whether the no-readings correction moved
+// GloTEC's foF2 by the typical offset; and where the seed was measured.
 type Offset struct {
 	LiveMHz, TypicalMHz, SpreadMHz float32
+	Measured                       bool // a live offset: GloTEC the background, five or more readings assimilated
 	Corrected                      bool // the no-readings correction is in use
+	Basis                          string
+}
+
+// Apart is whether the live offset is more than two spreads from the
+// typical (watchpost D-105 d): the host's status says so; false when no live
+// offset is measured.
+//
+// Source: watchpost D-105; go-ionomaps 02-analysis/evidence/offset.py.
+func (o Offset) Apart() bool {
+	if !o.Measured {
+		return false
+	}
+	return math.Abs(float64(o.LiveMHz-o.TypicalMHz)) > 2*float64(o.SpreadMHz)
 }
