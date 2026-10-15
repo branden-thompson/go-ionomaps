@@ -48,23 +48,39 @@ func TestEachBandsStatusForAPath(t *testing.T) {
 	if err != nil || len(got) != 1 || len(got[0].Bands) != len(AllBands()) {
 		t.Fatalf("%v, %v", got, err)
 	}
-	muf := float64(got[0].Bands[0].LimitMHz)
+	muf := mufOf(got[0].Bands)
 	if muf < 20.5 || muf > 22.5 {
 		t.Errorf("the path MUF at about 3000 km is %.2f MHz; the MUF(3000) is 21", muf)
 	}
 	for _, b := range got[0].Bands {
-		want := AboveUpper
-		if b.Band.LowMHz() < muf {
-			want = Open
-		}
-		if b.Status != want || b.Limit != LimitMUF {
-			t.Errorf("%v: %v by %v at %.2f MHz; want %v by the MUF", b.Band, b.Status, b.Limit, b.LimitMHz, want)
+		switch {
+		case b.Band.LowMHz() >= muf:
+			if b.Status != AboveUpper || b.Limit != LimitMUF {
+				t.Errorf("%v: %v by %v; above the MUF, named the MUF", b.Band, b.Status, b.Limit)
+			}
+		case b.Status == Open:
+			if b.Limit != LimitMUF {
+				t.Errorf("%v: open, named %v; want the MUF", b.Band, b.Limit)
+			}
+		case b.Status == Absorbed && b.Limit == LimitAbsorption, b.Status == Weak && b.Limit == LimitCircuit:
+		default:
+			t.Errorf("%v under the MUF: %v by %v; open, or closed by the lower limit and named so", b.Band, b.Status, b.Limit)
 		}
 	}
 	near, _ := s.Path(from, []LatLon{{Lat: 40, Lon: -94}}, noonUTC) // about 500 km: its own hop, far shorter
-	if float64(near[0].Bands[0].LimitMHz) > 0.6*muf {
-		t.Errorf("a 500 km path's MUF %.2f is not well below the 3000 km path's %.2f", near[0].Bands[0].LimitMHz, muf)
+	if m := mufOf(near[0].Bands); m > 0.6*muf {
+		t.Errorf("a 500 km path's MUF %.2f is not well below the 3000 km path's %.2f", m, muf)
 	}
+}
+
+// mufOf is the upper limit an answer's bands name.
+func mufOf(bands []BandStatus) float64 {
+	for _, b := range bands {
+		if b.Limit == LimitMUF || b.Limit == LimitFoF2 {
+			return float64(b.LimitMHz)
+		}
+	}
+	return 0
 }
 
 // TestShortPathsUseFoF2 is R-2.2 and R-2.8: the near-vertical area around a
@@ -125,8 +141,10 @@ func TestAPlaceWithNoDataHasNoStatus(t *testing.T) {
 // TestTheDaysOpenHours is R-2.8 (watchpost D-135): each band carries the UTC
 // day's hours it is typically open, from the climatology at the snapshot's
 // F10.7 mean: spans within the day, in order, neither overlapping nor
-// touching; a lower band open at least as long as a higher one; a path, its
-// MUF above foF2, open longer than the near-vertical area.
+// touching; and, under the upper limits alone, a lower band open at least
+// as long as a higher one and a path, its MUF above foF2, open longer than
+// the near-vertical area (the lower limit, which closes the low bands by
+// day, is TestTheTypicalDayKeepsTheLowerLimit's).
 func TestTheDaysOpenHours(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	day := noonUTC.Truncate(24 * time.Hour)
@@ -138,8 +156,27 @@ func TestTheDaysOpenHours(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	total := map[string]time.Duration{}
 	for name, bands := range map[string][]BandStatus{"near-vertical": near[0].Bands, "a path": path[0].Bands} {
+		for _, b := range bands {
+			end := day.Add(-time.Nanosecond)
+			for _, sp := range b.OpenHours {
+				if !sp.From.After(end) || !sp.To.After(sp.From) || sp.To.After(day.Add(24*time.Hour)) {
+					t.Errorf("%s %v: a span %v to %v is out of the day, out of order or touching the one before", name, b.Band, sp.From, sp.To)
+				}
+				end = sp.To
+			}
+		}
+	}
+	upperOnly := func(lim func(typicalHour) hourLimits) func(typicalHour) hourLimits {
+		return func(t typicalHour) hourLimits { h := lim(t); h.absorbed = notAbsorbed; return h }
+	}
+	typical := s.typicalDay(noonUTC)
+	withHours := func(open [][]Span) []BandStatus { return withOpenHours(statuses(1, true, LimitMUF), open) }
+	total := map[string]time.Duration{}
+	for name, bands := range map[string][]BandStatus{
+		"near-vertical": withHours(openHours(typical, upperOnly(s.areaLimit(LatLon{37.7, -97.3}, 400)))),
+		"a path":        withHours(openHours(typical, upperOnly(s.pathLimit(LatLon{37.7, -97.3}, LatLon{40.7, -74})))),
+	} {
 		last := 25 * time.Hour
 		for _, b := range bands {
 			open := time.Duration(0)

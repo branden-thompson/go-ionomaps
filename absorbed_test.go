@@ -1,0 +1,277 @@
+package ionomaps
+
+import (
+	"math"
+	"testing"
+	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/limits"
+	"github.com/branden-thompson/go-ionomaps/internal/magcoords"
+)
+
+// A mid-latitude path of about 1260 km whose middle is at 0°E, so noon UTC
+// is its local noon and midnight UTC its local midnight.
+var (
+	westEnd = LatLon{Lat: 45, Lon: -8}
+	eastEnd = LatLon{Lat: 45, Lon: 8}
+)
+
+// TestDaytimeAbsorptionClosesTheLowBands is R-2.4 (G6.2b, watchpost D-186 to
+// D-189): on a mid-latitude path at local noon the reference circuit falls
+// short of +13 dB on 80 m, which is absorbed, named as the lower limit at
+// the LUF; at local midnight it is open; 20 m is open at both. The LUF lies
+// between the highest absorbed band's top and the next open band's, where
+// the S/N is +13 dB.
+func TestDaytimeAbsorptionClosesTheLowBands(t *testing.T) {
+	day := flatSnapshot(noonUTC, 7, 21)
+	night := flatSnapshot(noonUTC.Add(12*time.Hour), 7, 21)
+	d, err := day.Path(westEnd, []LatLon{eastEnd}, noonUTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := night.Path(westEnd, []LatLon{eastEnd}, noonUTC.Add(12*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := statusOf(d[0].Bands, Band80m); st != Absorbed {
+		t.Errorf("80 m at local noon is %v; want absorbed", st)
+	}
+	if st := statusOf(n[0].Bands, Band80m); st != Open {
+		t.Errorf("80 m at local midnight is %v; want open", st)
+	}
+	if statusOf(d[0].Bands, Band20m) != Open || statusOf(n[0].Bands, Band20m) == Absorbed {
+		t.Errorf("20 m: %v at noon, %v at midnight; open at noon, never absorbed", statusOf(d[0].Bands, Band20m), statusOf(n[0].Bands, Band20m))
+	}
+	var luf float64
+	highest, next := 0.0, math.Inf(1)
+	for _, b := range d[0].Bands {
+		switch {
+		case b.Status == Absorbed:
+			if b.Limit != LimitAbsorption {
+				t.Errorf("%v absorbed names limit %v", b.Band, b.Limit)
+			}
+			luf, highest = float64(b.LimitMHz), b.Band.HighMHz()
+		case b.Status == Open && b.Band.HighMHz() > highest && b.Band.HighMHz() < next:
+			next = b.Band.HighMHz()
+		}
+	}
+	if !(luf >= highest && luf <= next) {
+		t.Errorf("the LUF %.2f MHz is not between the highest absorbed band's top %.2f and the next open band's %.2f", luf, highest, next)
+	}
+	c, ok := day.newCircuit(hourReader(day.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC))
+	if snr, okS := c.snr(luf, true); !ok || !okS || math.Abs(snr-limits.RequiredSNR) > 0.2 {
+		t.Errorf("the S/N at the LUF is %v (%v, %v); want +13 dB", snr, ok, okS)
+	}
+}
+
+// TestTheNoiseEnvironmentMovesTheLowerLimit is D-187: a noisier
+// environment needs more signal, so its LUF is higher; the environment is
+// the snapshot's, set by the update's options.
+func TestTheNoiseEnvironmentMovesTheLowerLimit(t *testing.T) {
+	luf := func(env Noise) float64 {
+		s := flatSnapshot(noonUTC, 7, 21)
+		s.Noise = env
+		p, _ := s.Path(westEnd, []LatLon{eastEnd}, noonUTC)
+		for _, b := range p[0].Bands {
+			if b.Status == Absorbed {
+				return float64(b.LimitMHz)
+			}
+		}
+		return 0
+	}
+	city, res, quiet := luf(NoiseCity), luf(NoiseResidential), luf(NoiseQuietRural)
+	if !(city > res && res > quiet) {
+		t.Errorf("LUF: city %.2f, residential %.2f, quiet rural %.2f MHz; noisier is higher", city, res, quiet)
+	}
+}
+
+// TestTheTypicalDayKeepsTheLowerLimit is R-2.8 with R-2.4: a band is
+// typically open in an hour only between both limits, so 80 m on the
+// mid-latitude path is not typically open at local noon, and is at local
+// midnight.
+func TestTheTypicalDayKeepsTheLowerLimit(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	p, _ := s.Path(westEnd, []LatLon{eastEnd}, noonUTC)
+	b80 := p[0].Bands[1]
+	day := noonUTC.Truncate(24 * time.Hour)
+	at := func(h int) bool {
+		for _, sp := range b80.OpenHours {
+			if t := day.Add(time.Duration(h) * time.Hour); !t.Before(sp.From) && t.Before(sp.To) {
+				return true
+			}
+		}
+		return false
+	}
+	if at(12) || !at(0) {
+		t.Errorf("80 m typically open at noon %v, at midnight %v; want closed by day, open by night (%v)", at(12), at(0), b80.OpenHours)
+	}
+}
+
+// TestBeyond7000kmTheLowerLimitWaits is G6.2b's bound: P.533 §5.2 alone
+// reaches 7000 km; a longer path is never said absorbed until §5.3 comes
+// (G6.2c).
+func TestBeyond7000kmTheLowerLimitWaits(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	p, _ := s.Path(LatLon{Lat: 40, Lon: -100}, []LatLon{{Lat: 40, Lon: 0}}, noonUTC)
+	for _, b := range p[0].Bands {
+		if b.Status == Absorbed {
+			t.Errorf("%v absorbed on a path past 7000 km", b.Band)
+		}
+	}
+	if _, ok := s.newCircuit(hourReader(s.Hours[0]), LatLon{Lat: 40, Lon: -100}, LatLon{Lat: 40, Lon: 0}, newSunTrack(noonUTC)); ok {
+		t.Error("a circuit was made for a path past 7000 km")
+	}
+}
+
+// TestTheNearVerticalAreaHasALowerLimit is R-2.4 for the area: at local
+// noon the area's 160 m is absorbed, at midnight open.
+func TestTheNearVerticalAreaHasALowerLimit(t *testing.T) {
+	day, night := flatSnapshot(noonUTC, 7, 21), flatSnapshot(noonUTC.Add(12*time.Hour), 7, 21)
+	a, _ := day.Bands([]LatLon{{Lat: 45, Lon: 0}}, 400, noonUTC)
+	b, _ := night.Bands([]LatLon{{Lat: 45, Lon: 0}}, 400, noonUTC.Add(12*time.Hour))
+	if statusOf(a[0].Bands, Band160m) != Absorbed || statusOf(b[0].Bands, Band160m) != Open {
+		t.Errorf("the area's 160 m: %v at noon, %v at midnight; want absorbed, open", statusOf(a[0].Bands, Band160m), statusOf(b[0].Bands, Band160m))
+	}
+}
+
+// TestALongPathTooWeakForTheCircuitIsWeak is D-70: at 5000 km at local
+// midnight, absorption all but gone, the reference circuit still cannot
+// reach +13 dB, so every band under the MUF is Weak, named as the circuit's
+// limit - not Absorbed.
+func TestALongPathTooWeakForTheCircuitIsWeak(t *testing.T) {
+	night := noonUTC.Add(12 * time.Hour)
+	s := flatSnapshot(night, 7, 21)
+	from, to := destination(LatLon{Lat: 45, Lon: 0}, 270, 2500), destination(LatLon{Lat: 45, Lon: 0}, 90, 2500)
+	p, err := s.Path(from, []LatLon{to}, night)
+	if err != nil {
+		t.Fatal(err)
+	}
+	weak := 0
+	for _, b := range p[0].Bands {
+		switch b.Status {
+		case Weak:
+			weak++
+			if b.Limit != LimitCircuit {
+				t.Errorf("%v weak, named %v", b.Band, b.Limit)
+			}
+		case Absorbed, Open:
+			t.Errorf("%v is %v at 5000 km at midnight; the circuit cannot reach +13 dB even without absorption", b.Band, b.Status)
+		}
+	}
+	if weak == 0 {
+		t.Error("no band was weak")
+	}
+}
+
+// TestTheCircuitCountsP533sModes is §5.2.1 and §4: the circuit counts up to
+// three E modes (to 4000 km) and six F2 modes, an F2 mode the E layer screens
+// at the frequency left out, and a mode whose ray would leave below the
+// horizon left out too; screening reads the higher foE of the points 1000 km
+// from each end.
+func TestTheCircuitCountsP533sModes(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	from, to := LatLon{40, -100}, LatLon{40, -64.8} // about 3000 km, sunrise along it
+	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC))
+	if !ok {
+		t.Fatal("no circuit")
+	}
+	a, _ := s.controlPoint(hourReader(s.Hours[0]), from, to, 1000/c.km, newSunTrack(noonUTC))
+	b, _ := s.controlPoint(hourReader(s.Hours[0]), from, to, 1-1000/c.km, newSunTrack(noonUTC))
+	if a.FoE == b.FoE || c.screenFoE != math.Max(a.FoE, b.FoE) {
+		t.Errorf("screening's foE %v; the points 1000 km from each end give %v and %v, the higher wanted (and different, for the test to measure)", c.screenFoE, a.FoE, b.FoE)
+	}
+	f := 3.8
+	unscreened := 0
+	dmax := limits.Dmax(c.mid.FoF2, c.mid.M3000, c.mid.FoE)
+	n0 := int(limits.Hops(c.km, dmax))
+	for n := n0; n < n0+f2Modes; n++ {
+		d := c.km / float64(n)
+		delta := limits.ElevationAngle(d, limits.MirrorHeight(c.mid.FoF2, c.mid.FoE, c.mid.M3000, c.r12, f, d))
+		if limits.ScreeningFrequency(c.screenFoE, delta) < f && delta >= 0 {
+			unscreened++
+		}
+	}
+	if got := len(c.modes(f, true)); got != eModes+unscreened || unscreened == f2Modes {
+		t.Errorf("at %v MHz over %.0f km %d modes counted; three E modes and the %d F2 modes the E layer does not screen (of six)", f, c.km, got, unscreened)
+	}
+	high := flatSnapshot(noonUTC, 12, 43.2) // a high, low-lying F2 layer: its two-hop mode over 6900 km would leave below the horizon
+	long, okL := high.newCircuit(hourReader(high.Hours[0]), destination(LatLon{45, -40}, 270, 3450), destination(LatLon{45, -40}, 90, 3450), newSunTrack(noonUTC))
+	if !okL {
+		t.Fatal("no circuit at 6900 km")
+	}
+	below := 0
+	dl := limits.Dmax(long.mid.FoF2, long.mid.M3000, long.mid.FoE)
+	nl := int(limits.Hops(long.km, dl))
+	for n := nl; n < nl+f2Modes; n++ {
+		d := long.km / float64(n)
+		if limits.ElevationAngle(d, limits.MirrorHeight(long.mid.FoF2, long.mid.FoE, long.mid.M3000, long.r12, 7.2, d)) < 0 {
+			below++
+		}
+	}
+	if got := len(long.modes(7.2, true)); below == 0 || got != f2Modes-below {
+		t.Errorf("6900 km at 7.2 MHz: %d modes counted, %d of six F2 modes below the horizon; those left out, and at least one, for the test to measure", got, below)
+	}
+}
+
+// TestABandTheMUFCutsIsJudgedAtTheMUF is R-2.4: a band whose top is above
+// the upper limit is judged by the lower limit at the upper limit, so the
+// part above the MUF never makes it absorbed or weak: 15 m, 21.0 to 21.45
+// MHz, under a 21.04 MHz MUF, is open.
+func TestABandTheMUFCutsIsJudgedAtTheMUF(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	p, _ := s.Path(LatLon{40, -100}, []LatLon{{40, -64.8}}, noonUTC)
+	if muf := mufOf(p[0].Bands); !(muf > 21 && muf < 21.45) {
+		t.Fatalf("the MUF is %.2f; the test needs it inside 15 m", muf)
+	}
+	if st := statusOf(p[0].Bands, Band15m); st != Open {
+		t.Errorf("15 m, cut by the MUF, is %v; judged at the MUF it is open", st)
+	}
+}
+
+// TestGalacticNoiseIsHeardAboveFoF2 is P.372 in the circuit: the receiver
+// hears galactic noise only above foF2 there.
+func TestGalacticNoiseIsHeardAboveFoF2(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC))
+	if c.noise(5) != limits.NoiseFactor(limits.Residential, 5, false) || c.noise(10) != limits.NoiseFactor(limits.Residential, 10, true) {
+		t.Errorf("noise at 5 and 10 MHz under foF2 7: %v, %v", c.noise(5), c.noise(10))
+	}
+}
+
+// TestTheAreasPathIsCentredOnIt is A-11: the near-vertical area's
+// representative path runs half the radius west and half east of the
+// origin, its middle the origin.
+func TestTheAreasPathIsCentredOnIt(t *testing.T) {
+	o := LatLon{Lat: 45, Lon: 10}
+	w, e := areaEnds(o, 400)
+	dw, de := limits.Distance(w.Lat, w.Lon, o.Lat, o.Lon), limits.Distance(o.Lat, o.Lon, e.Lat, e.Lon)
+	mlat, mlon := limits.Along(w.Lat, w.Lon, e.Lat, e.Lon, 0.5)
+	if math.Abs(dw-200) > 1e-6 || math.Abs(de-200) > 1e-6 || limits.Distance(mlat, mlon, o.Lat, o.Lon) > 1e-6 {
+		t.Errorf("the area's ends are %.3f and %.3f km from it, its middle %.6f km off it; want 200, 200, 0", dw, de, limits.Distance(mlat, mlon, o.Lat, o.Lon))
+	}
+}
+
+// TestAModesAbsorptionIsEq20 is eq. (20) in the circuit: a mode's Li is the
+// hops times (1 + 0.0067 R12) times the mean of its penetration points'
+// terms, over (f + fL)^2 and cos i at 110 km, fL the mean of fH sin I at
+// 100 km at those points - each read where the mode crosses 90 km.
+func TestAModesAbsorptionIsEq20(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC))
+	n, f := 2, 3.8
+	delta := limits.ElevationAngle(c.km/float64(n), 250)
+	cosI := math.Cos(limits.IncidenceAngle(delta, limits.ELayerKm) * math.Pi / 180)
+	var terms, fl float64
+	fr := limits.PenetrationFractions(c.km, n, delta)
+	for _, at := range fr {
+		lat, lon := limits.Along(westEnd.Lat, westEnd.Lon, eastEnd.Lat, eastEnd.Lon, at)
+		fh, dip := magcoords.Field100(lat, lon, noonUTC)
+		decl, chi, since := c.sun.sunAt(lat, lon)
+		terms += limits.AbsorptionTerm(limits.Penetration{Lat: lat, Dip: dip, Chi: chi, ChiNoon: math.Abs(lat - decl), FoE: limits.FoE(lat, decl, chi, c.flux, since)}, time.October, f*cosI)
+		fl += fh * math.Abs(math.Sin(dip*math.Pi/180))
+	}
+	want := limits.AbsorptionLoss(n, c.r12, f, fl/float64(len(fr)), cosI, terms/float64(len(fr)))
+	if got := c.absorption(n, delta, f, cosI); math.Abs(got-want) > 1e-9 || !(fl > 0) {
+		t.Errorf("a two-hop mode's Li at %v MHz: %v dB; eq. (20) over its penetration points gives %v", f, got, want)
+	}
+}

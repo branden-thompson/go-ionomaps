@@ -18,6 +18,7 @@ type Snapshot struct {
 	Scales          Scales       // NOAA's space-weather levels (watchpost D-88)
 	Offset          Offset       // stations against GloTEC (watchpost D-105)
 	Disturbance     Field        // D-RAP's highest frequency absorbed by 1 dB, MHz a cell (R-2.5); no cells without D-RAP
+	Noise           Noise        // the man-made noise the reference circuit hears, as the update asked (D-187)
 	TypicalError    TypicalError // the hours ahead's error, with its basis (watchpost D-109)
 }
 

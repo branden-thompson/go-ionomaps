@@ -57,10 +57,20 @@ func (t typicalHour) read(p LatLon) (float64, float64, bool) {
 	return fo, m3, fo > 0 && m3 > 0
 }
 
-// openHours are the spans of the day each band is open under the hour-by-hour
-// upper limits, MHz (NaN where there is none), by band in AllBands order.
-func openHours(day [24]typicalHour, limit func(typicalHour) float64) [][]Span {
-	var limits [24]float64
+// hourLimits are one typical hour's limits: the upper limit, MHz (NaN
+// where there is none), and whether a band is absorbed under the lower.
+type hourLimits struct {
+	upper    float64
+	absorbed func(Band) bool
+}
+
+// notAbsorbed is the lower limit where no circuit is made: nothing absorbed.
+func notAbsorbed(Band) bool { return false }
+
+// openHours are the spans of the day each band is open between the
+// hour-by-hour limits, by band in AllBands order.
+func openHours(day [24]typicalHour, limit func(typicalHour) hourLimits) [][]Span {
+	var limits [24]hourLimits
 	for h := range day {
 		limits[h] = limit(day[h])
 	}
@@ -68,7 +78,7 @@ func openHours(day [24]typicalHour, limit func(typicalHour) float64) [][]Span {
 	for _, b := range AllBands() {
 		var spans []Span
 		for h := range day {
-			if !(b.LowMHz() < limits[h]) {
+			if !(b.LowMHz() < limits[h].upper) || limits[h].absorbed(b) {
 				continue
 			}
 			end := day[h].at.Add(time.Hour)
@@ -91,27 +101,40 @@ func withOpenHours(bands []BandStatus, open [][]Span) []BandStatus {
 	return bands
 }
 
-// pathLimit is a path's basic MUF in one typical hour; NaN where there is
-// none.
-func (s Snapshot) pathLimit(from, to LatLon) func(typicalHour) float64 {
-	return func(t typicalHour) float64 {
+// pathLimit is a path's limits in one typical hour: its basic MUF (NaN
+// where there is none) and its circuit's absorption.
+func (s Snapshot) pathLimit(from, to LatLon) func(typicalHour) hourLimits {
+	return func(t typicalHour) hourLimits {
 		muf, _, ok := s.pathMUF(t.read, from, to, t.sun)
 		if !ok {
-			return math.NaN()
+			return hourLimits{upper: math.NaN(), absorbed: notAbsorbed}
 		}
-		return muf
+		return hourLimits{upper: muf, absorbed: s.lowerAt(t, from, to, muf)}
 	}
 }
 
-// areaLimit is foF2 at a place in one typical hour; NaN where there is none.
-func areaLimit(p LatLon) func(typicalHour) float64 {
-	return func(t typicalHour) float64 {
+// areaLimit is the near-vertical area's limits in one typical hour: foF2 at
+// the place (NaN where there is none) and its representative path's
+// absorption.
+func (s Snapshot) areaLimit(p LatLon, radiusKm float64) func(typicalHour) hourLimits {
+	return func(t typicalHour) hourLimits {
 		fo, _, ok := t.read(p)
 		if !ok {
-			return math.NaN()
+			return hourLimits{upper: math.NaN(), absorbed: notAbsorbed}
 		}
-		return fo
+		west, east := areaEnds(p, radiusKm)
+		return hourLimits{upper: fo, absorbed: s.lowerAt(t, west, east, fo)}
 	}
+}
+
+// lowerAt is whether a band is absorbed on a path in a typical hour; nothing
+// is where no circuit is made.
+func (s Snapshot) lowerAt(t typicalHour, from, to LatLon, upper float64) func(Band) bool {
+	c, ok := s.circuitAt(t, from, to)
+	if !ok {
+		return notAbsorbed
+	}
+	return func(b Band) bool { return c.closedBelow(b, upper) }
 }
 
 // pointAt is a control point's limits.Point from what a reader gives there.

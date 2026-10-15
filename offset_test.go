@@ -203,3 +203,21 @@ func TestTogglingTheCorrectionMakesNoRequest(t *testing.T) {
 		}
 	}
 }
+
+// TestTheNoiseIsTheUpdatesOption is D-187: the noise environment the update
+// is asked with is the snapshot's; a change within the ten minutes rebuilds
+// the last snapshot from what is held, asking nothing.
+func TestTheNoiseIsTheUpdatesOption(t *testing.T) {
+	l, n, c := library(t)
+	n.list(t, start.Add(-30*time.Minute), 7)
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{Noise: ionomaps.NoiseCity})
+	if err != nil || s.Noise != ionomaps.NoiseCity {
+		t.Fatalf("asked for city noise, the snapshot's is %v (%v)", s.Noise, err)
+	}
+	n.take()
+	c.Add(time.Minute)
+	s, _ = l.Update(context.Background(), ionomaps.UpdateOptions{Noise: ionomaps.NoiseQuietRural})
+	if a := n.take(); len(a) != 0 || s.Noise != ionomaps.NoiseQuietRural || s.Early != ionomaps.TooSoon {
+		t.Errorf("the noise changed within ten minutes: asked %v, noise %v, %v", a, s.Noise, s.Early)
+	}
+}

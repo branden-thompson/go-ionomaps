@@ -43,6 +43,21 @@ func (b Band) LowMHz() float64 {
 	return bandEdges[b]
 }
 
+// bandTops are each band's upper edge, MHz, by Band: ITU Region 2's
+// allocations (A-11).
+var bandTops = [...]float64{Band160m: 2, Band80m: 4, Band60m: 5.4065, Band40m: 7.3, Band30m: 10.15, Band20m: 14.35, Band17m: 18.168,
+	Band15m: 21.45, Band12m: 24.99, Band10m: 29.7}
+
+// HighMHz is a band's upper edge, MHz; 0 for a value that is no band.
+//
+// Source: the amateur HF allocations, ITU Region 2 (A-11).
+func (b Band) HighMHz() float64 {
+	if b < Band160m || b > Band10m {
+		return 0
+	}
+	return bandTops[b]
+}
+
 // AllBands are the bands, lowest first.
 //
 // Source: this library.
@@ -50,8 +65,7 @@ func AllBands() []Band {
 	return []Band{Band160m, Band80m, Band60m, Band40m, Band30m, Band20m, Band17m, Band15m, Band12m, Band10m}
 }
 
-// Status is a band's state on a path or over an area (R-2.6). Absorbed,
-// the regular daytime lower limit, comes with G6.2.
+// Status is a band's state on a path or over an area (R-2.6).
 type Status uint8
 
 // The statuses.
@@ -60,6 +74,8 @@ const (
 	Open                       // below the upper limit
 	AboveUpper                 // its lower edge at or past the upper limit
 	Disturbed                  // below the upper limit, its lower edge under D-RAP's 1 dB frequency: degraded, not closed (watchpost D-73)
+	Absorbed                   // below the upper limit, the reference circuit short of +13 dB by the day's absorption: closed (R-2.4, D-70)
+	Weak                       // below the upper limit, the reference circuit short of +13 dB even without absorption: closed (D-70)
 )
 
 // Limit is which limit decided a band's status.
@@ -67,10 +83,12 @@ type Limit uint8
 
 // The limits.
 const (
-	LimitNone Limit = iota
-	LimitMUF        // the path's basic MUF (P.533)
-	LimitFoF2       // foF2, for the near-vertical area
-	LimitDRAP       // D-RAP's 1 dB frequency (R-2.5)
+	LimitNone       Limit = iota
+	LimitMUF              // the path's basic MUF (P.533)
+	LimitFoF2             // foF2, for the near-vertical area
+	LimitDRAP             // D-RAP's 1 dB frequency (R-2.5)
+	LimitAbsorption       // the LUF: the reference circuit's +13 dB, under the day's absorption (R-2.4)
+	LimitCircuit          // the reference circuit's +13 dB, out of reach even without absorption (D-70)
 )
 
 // BandStatus is one band's answer: its status and the limit that decided
@@ -154,13 +172,18 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([]Ans
 	if err != nil {
 		return nil, err
 	}
-	day := s.typicalDay(at)
+	day, sun := s.typicalDay(at), newSunTrack(at)
 	out := make([]Answer, len(origins))
 	for i, p := range origins {
 		fo, ok := cellAt(h.FoF2, p)
 		mhz, disturbed := cellAt(s.Disturbance, p)
-		bands := disturb(statuses(float64(fo), ok, LimitFoF2), float64(mhz), disturbed)
-		out[i] = Answer{Bands: withOpenHours(bands, openHours(day, areaLimit(p))), Nearest: s.nearestAt(h.FoF2, p)}
+		bands := statuses(float64(fo), ok, LimitFoF2)
+		west, east := areaEnds(p, radiusKm)
+		if c, okC := s.newCircuit(hourReader(h), west, east, sun); okC {
+			bands = absorb(bands, c, float64(fo))
+		}
+		bands = disturb(bands, float64(mhz), disturbed)
+		out[i] = Answer{Bands: withOpenHours(bands, openHours(day, s.areaLimit(p, radiusKm))), Nearest: s.nearestAt(h.FoF2, p)}
 	}
 	return out, nil
 }
@@ -183,7 +206,11 @@ func (s Snapshot) Path(from LatLon, to []LatLon, at time.Time) ([]Answer, error)
 		muf, frac, ok := s.pathMUF(hourReader(h), from, p, sun)
 		places := controlPlaces(from, p, frac)
 		mhz, disturbed := s.pathDisturbance(places)
-		bands := disturb(statuses(muf, ok, LimitMUF), mhz, disturbed)
+		bands := statuses(muf, ok, LimitMUF)
+		if c, okC := s.newCircuit(hourReader(h), from, p, sun); okC && ok {
+			bands = absorb(bands, c, muf)
+		}
+		bands = disturb(bands, mhz, disturbed)
 		out[i] = Answer{Bands: withOpenHours(bands, openHours(day, s.pathLimit(from, p))), Nearest: s.pathNearest(h.FoF2, places)}
 	}
 	return out, nil

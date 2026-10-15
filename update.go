@@ -54,6 +54,11 @@ type UpdateOptions struct {
 	// station readings are assimilated (watchpost D-105 c); off, GloTEC is
 	// shown as it is. The snapshot's Offset.Corrected says when it applied.
 	CorrectNoReadings bool
+
+	// Noise is the man-made noise the reference circuit's receiver hears
+	// (watchpost D-187), Residential by default; the band statuses' lower
+	// limit moves with it. A change needs no request.
+	Noise Noise
 }
 
 // Update asks NOAA for what is new and returns the hour's snapshot (G4.2,
@@ -280,6 +285,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),
 		Offset:          l.offset.offset(res.MeanResidual, measured, corrected),
+		Noise:           o.Noise,
 	}
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid = g.Valid
