@@ -13,7 +13,14 @@ import (
 // between 0.4 and 1.8 MHz everywhere; a table of another shape is refused,
 // and a place off the globe has none.
 func TestTheGyrofrequencyIsTheTables(t *testing.T) {
-	g := readGyro(gyroTable)
+	t0 := readYearTable(gyroTable, gyroMagic, 1)
+	g := struct {
+		first int
+		cells [][]float32
+	}{t0.first, nil}
+	if len(t0.parts) == 1 {
+		g.cells = t0.parts[0]
+	}
 	if len(g.cells) == 0 {
 		t.Fatal("the embedded gyrofrequency table is refused")
 	}
@@ -39,7 +46,7 @@ func TestTheGyrofrequencyIsTheTables(t *testing.T) {
 	}
 	bad := append([]byte(nil), gyroTable...)
 	bad[0] = 'X'
-	if len(readGyro(bad).cells) != 0 || len(readGyro(gyroTable[:len(gyroTable)-4]).cells) != 0 {
+	if len(readYearTable(bad, gyroMagic, 1).parts) != 0 || len(readYearTable(gyroTable[:len(gyroTable)-4], gyroMagic, 1).parts) != 0 {
 		t.Error("a table with its magic or its length wrong was read")
 	}
 	if !math.IsNaN(Gyro(91, 0, jan)) || !math.IsNaN(Gyro(math.NaN(), 0, jan)) {

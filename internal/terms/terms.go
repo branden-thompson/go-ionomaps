@@ -35,7 +35,9 @@ func All() []Source {
 			Cite: "Forsythe, V. V., et al. (2024), PyIRI: whole-globe approach to the International Reference Ionosphere modeling implemented in Python, Space Weather, 22, doi:10.1029/2023SW003739"},
 		{Name: "IGRF-14", Terms: "freely available from IAGA",
 			Cite: "IAGA Working Group V-MOD, the International Geomagnetic Reference Field, 14th generation (IGRF-14), coefficients as published by IAGA in igrf14coeffs.txt"},
-		{Name: "ITU-R P.533", Terms: "the published recommendation; no text or tables reproduced"},
+		{Name: "ITU-R P.533", Terms: "the published recommendation; no text reproduced, and no table but those taken from ITUHFProp"},
+		{Name: "ITUHFProp", Terms: "ITU-R Study Group 3's reference implementation of ITU-R P.533: \"may be used by implementers in their implementation of the Recommendation ... free from any copyright assertions\", as is, no warranty",
+			Cite: "ITU-R Study Group 3, ITURHFProp and the P533 library, github.com/ITU-R-Study-Group-3/ITU-R-HF"},
 		{Name: "P.1239", Terms: "the published recommendation; no text or tables reproduced"},
 	}
 }
@@ -44,8 +46,9 @@ func All() []Source {
 // NOTICE entry: NRL's refits from PyIRI as exported once (watchpost D-114)
 // and as converted for the library; PyIRI's own values at fixed inputs, the
 // climatology's test oracle; IGRF-14's coefficients, their golden values,
-// the coordinate table traced from them and the gyrofrequency table; and the Apex sample the coordinates
-// are tested against.
+// the coordinate table traced from them and the field tables; ITUHFProp's
+// own absorption factors, their test oracle; and the Apex sample the
+// coordinates are tested against.
 //
 // Source: this library.
 func Datasets() []Dataset {
@@ -62,6 +65,8 @@ func Datasets() []Dataset {
 		{Path: "tools/tables/igrf/golden-igrf.txt", Source: "IGRF-14"},
 		{Path: "internal/magcoords/coords.bin", Source: "IGRF-14"},
 		{Path: "internal/magcoords/gyro.bin", Source: "IGRF-14"},
+		{Path: "internal/magcoords/field100.bin", Source: "IGRF-14"},
+		{Path: "internal/limits/testdata/itu-absorption-golden.txt", Source: "ITUHFProp"},
 		{Path: "tools/tables/apex/apex-sample.txt", Source: "PyIRI"},
 		{Path: "internal/stations/seed.txt", Source: "GIRO"}, // station codes and positions, never readings (D-51)
 		{Path: "internal/magcoords/testdata/apex-sample.txt", Source: "PyIRI"},

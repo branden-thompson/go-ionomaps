@@ -14,46 +14,55 @@ const gyroMagic = "IONOFH01"
 //go:embed gyro.bin
 var gyroTable []byte
 
-// gyroYears is the gyrofrequency table read: the first year, and each
-// year's cells.
-type gyroYears struct {
+//go:embed field100.bin
+var field100Table []byte
+
+// field100Magic opens the 100 km field table, as tools/tables writes it.
+const field100Magic = "IONOF100"
+
+// yearTable is a build-time table of whole years read: the first year, and
+// each part's cells a year (parts[part][year][cell]).
+type yearTable struct {
 	first int
-	cells [][]float32
+	parts [][][]float32
 }
 
 var (
-	gyroLoaded gyroYears
-	gyroOnce   sync.Once
+	gyroLoaded, field100Loaded yearTable
+	gyroOnce, field100Once     sync.Once
 )
 
-// readGyro is a gyrofrequency table read: the magic, the number of years,
-// the grid's columns and rows, the years, consecutive, then each year's
-// cells; empty where it is not whole or not the library's grid.
-func readGyro(b []byte) gyroYears {
-	head := len(gyroMagic) + 12
-	if len(b) < head || string(b[:len(gyroMagic)]) != gyroMagic {
-		return gyroYears{}
+// readYearTable is a table of whole years read: the magic, the number of
+// years, the grid's columns and rows, the years, consecutive, then each
+// year's parts in turn, each a value a cell; empty where it is not whole,
+// not this kind or not the library's grid.
+func readYearTable(b []byte, magic string, parts int) yearTable {
+	head := len(magic) + 12
+	if len(b) < head || string(b[:len(magic)]) != magic {
+		return yearTable{}
 	}
 	u32 := func(at int) int { return int(binary.LittleEndian.Uint32(b[at:])) }
-	n := u32(len(gyroMagic))
-	whole := n > 0 && n <= 100 && u32(len(gyroMagic)+4) == cols && u32(len(gyroMagic)+8) == rows && len(b) == head+4*n+4*n*cells
+	n := u32(len(magic))
+	whole := n > 0 && n <= 100 && u32(len(magic)+4) == cols && u32(len(magic)+8) == rows && len(b) == head+4*n+4*n*parts*cells
 	if !whole {
-		return gyroYears{}
+		return yearTable{}
 	}
-	y := gyroYears{first: u32(head)}
+	y := yearTable{first: u32(head), parts: make([][][]float32, parts)}
 	for k := range n {
 		if u32(head+4*k) != y.first+k {
-			return gyroYears{}
+			return yearTable{}
 		}
 	}
 	at := head + 4*n
 	for range n {
-		year := make([]float32, cells)
-		for i := range year {
-			year[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[at+4*i:]))
+		for p := range parts {
+			year := make([]float32, cells)
+			for i := range year {
+				year[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[at+4*i:]))
+			}
+			at += 4 * cells
+			y.parts[p] = append(y.parts[p], year)
 		}
-		at += 4 * cells
-		y.cells = append(y.cells, year)
 	}
 	return y
 }
@@ -66,20 +75,41 @@ func readGyro(b []byte) gyroYears {
 // Source: IGRF-14 (IAGA), the field's strength at 300 km, generated at
 // build time by tools/tables; ITU-R P.533-14 §3.5 takes it at 300 km.
 func Gyro(lat, lon float64, at time.Time) float64 {
-	gyroOnce.Do(func() { gyroLoaded = readGyro(gyroTable) })
-	g := gyroLoaded
-	if len(g.cells) == 0 || lat != lat || lon != lon {
+	gyroOnce.Do(func() { gyroLoaded = readYearTable(gyroTable, gyroMagic, 1) })
+	return gyroLoaded.value(0, lat, lon, at)
+}
+
+// Field100 is the electron gyrofrequency, MHz, and the field's dip,
+// degrees, positive downward, at 100 km, at a geographic place and moment,
+// as Gyro interpolates; no number for a place off the globe or with no
+// table.
+//
+// Source: IGRF-14 (IAGA), the field at 100 km against the local geodetic
+// vertical, generated at build time by tools/tables; ITU-R P.533-14 §5.2.2
+// reads both at 100 km (fL = fH sin I; p by the modified dip).
+func Field100(lat, lon float64, at time.Time) (fH, dip float64) {
+	field100Once.Do(func() { field100Loaded = readYearTable(field100Table, field100Magic, 2) })
+	return field100Loaded.value(0, lat, lon, at), field100Loaded.value(1, lat, lon, at)
+}
+
+// value is one part of a table at a place and moment: between the cell
+// centres around it and the years either side, the nearest year's outside
+// them; no number for a place off the globe or a table not read.
+func (g yearTable) value(part int, lat, lon float64, at time.Time) float64 {
+	read := part < len(g.parts) && len(g.parts[part]) > 0
+	if !read || lat != lat || lon != lon {
 		return math.NaN()
 	}
 	if lat < -90 || lat > 90 {
 		return math.NaN()
 	}
-	i, w, _ := span(years{first: g.first, lat: g.cells}, at)
-	a := cellValue(g.cells[i], lat, lon)
-	if w == 0 || i+1 >= len(g.cells) {
+	cells := g.parts[part]
+	i, w, _ := span(years{first: g.first, lat: cells}, at)
+	a := cellValue(cells[i], lat, lon)
+	if w == 0 || i+1 >= len(cells) {
 		return a
 	}
-	return a + w*(cellValue(g.cells[i+1], lat, lon)-a)
+	return a + w*(cellValue(cells[i+1], lat, lon)-a)
 }
 
 // cellValue is the bilinear interpolation of one year's cells at a place,

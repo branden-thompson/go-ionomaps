@@ -26,7 +26,7 @@ flowchart TB
   DR["internal/drap<br/>D-RAP table: the 1 dB frequency<br/>on the 2° grid (R-2.5)"]
   SC["internal/scales<br/>NOAA R, S, G (D-88)"]
   CL["internal/climatology<br/>PyIRI method over Tables;<br/>the day's hours cached by (UTC hour, F10.7 mean, month)"]
-  MC["internal/magcoords<br/>QD latitude and MLT from IGRF-14 (D-107)"]
+  MC["internal/magcoords<br/>QD latitude and MLT from IGRF-14 (D-107);<br/>fH at 300 km, fH and dip at 100 km"]
   AS["internal/assimilate<br/>GP on the sphere: foF2 over GloTEC,<br/>M(3000)F2 over the climatology (D-101)"]
   LIM["internal/limits<br/>P.533 MUF, daytime absorption"]
   TM["internal/terms<br/>sources, terms, citations"]
@@ -80,7 +80,7 @@ source in its doc comment (R-7.1).
 | Assimilation | Gaussian-process regression of station residuals; exponential kernel in great-circle distance | Rasmussen & Williams 2006; Gneiting 2013 (doi:10.3150/12-BEJSP06); validated against Galkin et al. 2012 (IRTAM, doi:10.1029/2011RS004952) |
 | Hours ahead | the climatology for each hour, marked typical; its error measured on PLAN's week | watchpost D-109; `02-analysis/evidence/week.py` |
 | MUF for a path | basic MUF from foF2, M(3000)F2 and distance | ITU-R P.533-14 §3.4-3.5, equations checked against the recommendation's worked values (R-2.7) |
-| Daytime absorption | absorption against solar zenith angle, frequency and solar activity, for the reference circuit | ITU-R P.533-14 (its absorption term); the method only, no text or tables |
+| Daytime absorption | P.533-14 eq. (20): ATnoon by latitude and month, the penetration factor phi by fv/foE, the diurnal exponent p by modified dip and month, F(chi) = cos^p(0.881 chi), Li over (f + fL)^2; the dip and gyrofrequency at 100 km from IGRF-14; for the reference circuit (D-186 to D-189) | ITU-R P.533-14 §5.2.2; **the three factors (and later Tables 2 and 5) ported from ITU-R SG3's ITUHFProp**, "free from any copyright assertions" for implementers (D-186, D-189), held to ITUHFProp's own values (A-10) |
 | Disturbance | D-RAP's 1 dB frequency; below it, "disturbed" | NOAA SWPC D-RAP (public domain) |
 | Space-weather scales | NOAA's R, S and G levels and outlook, carried as published; named, not modelled (D-88) | NOAA SWPC scales feed (public domain) |
 | Reach | the area where a frequency lies between the limits along paths from an origin; the skip zone where the sky wave first returns | geometry over the path model above |

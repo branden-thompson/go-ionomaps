@@ -112,7 +112,7 @@ func readCompact(b []byte) ([]float64, error) {
 
 func main() {
 	root := flag.String("root", "../..", "the repository's root")
-	gyroOnly := flag.Bool("gyro", false, "write the gyrofrequency table alone")
+	gyroOnly := flag.Bool("gyro", false, "write the field tables alone: the gyrofrequency at 300 km, the field at 100 km")
 	flag.Parse()
 	if *gyroOnly {
 		writeGyroTable(*root)
@@ -169,8 +169,9 @@ func main() {
 	}
 }
 
-// writeGyroTable writes the gyrofrequency table from IGRF-14's
-// coefficients, the coordinate table's years.
+// writeGyroTable writes the field tables from IGRF-14's coefficients, the
+// coordinate table's years: the gyrofrequency at 300 km, and the
+// gyrofrequency and dip at 100 km.
 func writeGyroTable(root string) {
 	model, err := loadIGRF(filepath.Join("igrf", "igrf14coeffs.txt"))
 	if err != nil {
@@ -179,6 +180,12 @@ func writeGyroTable(root string) {
 	years := []int{2025, 2026, 2027, 2028, 2029, 2030}
 	out := filepath.Join(root, "internal", "magcoords", "gyro.bin")
 	if err := os.WriteFile(out, writeGyro(years, generateGyro(model, years)), 0o644); err != nil {
+		fail(err)
+	}
+	fmt.Printf("igrf14coeffs.txt -> %s (%v)\n", out, years)
+	out = filepath.Join(root, "internal", "magcoords", "field100.bin")
+	fh, dip := generateField100(model, years)
+	if err := os.WriteFile(out, writeField100(years, fh, dip), 0o644); err != nil {
 		fail(err)
 	}
 	fmt.Printf("igrf14coeffs.txt -> %s (%v)\n", out, years)
