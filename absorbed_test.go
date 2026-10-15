@@ -275,3 +275,88 @@ func TestAModesAbsorptionIsEq20(t *testing.T) {
 		t.Errorf("a two-hop mode's Li at %v MHz: %v dB; eq. (20) over its penetration points gives %v", f, got, want)
 	}
 }
+
+// TestTheAuroralZoneAddsItsLoss is §5.2.2's Lh (D-189): a high-latitude
+// path carries Table 2's loss at its control points and its S/N falls by
+// it; a low-latitude path carries none; taking the absorption out (D-70)
+// takes Lh out with Li, as both are the D region's.
+func TestTheAuroralZoneAddsItsLoss(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	read, sun := hourReader(s.Hours[0]), newSunTrack(noonUTC)
+	north, ok := s.newCircuit(read, LatLon{64.8, -147.7}, LatLon{69.6, 18.9}, sun) // Fairbanks to Tromsø, over the pole
+	if !ok {
+		t.Fatal("no circuit")
+	}
+	if !(north.lhF2 > 0) || !(north.lhE >= 0) {
+		t.Fatalf("the polar path's Lh: E %v, F2 %v; Table 2 gives it a loss", north.lhE, north.lhF2)
+	}
+	bare := north
+	bare.lhE, bare.lhF2 = 0, 0
+	with, _ := north.snr(14.35, true)
+	without, _ := bare.snr(14.35, true)
+	if !(with < without) {
+		t.Errorf("Lh did not lower the polar path's S/N: %v with it, %v without", with, without)
+	}
+	if a, _ := north.snr(14.35, false); a != func() float64 { v, _ := bare.snr(14.35, false); return v }() {
+		t.Error("the S/N without the absorption kept Lh")
+	}
+	south, _ := s.newCircuit(read, LatLon{10, -20}, LatLon{10, 10}, sun)
+	if south.lhE != 0 || south.lhF2 != 0 {
+		t.Errorf("a path at 10° N carries Lh %v, %v; Table 2 starts at 42.5° geomagnetic", south.lhE, south.lhF2)
+	}
+}
+
+// TestLhIsReadAtTable1dsPoints is §5.2.2 and Table 1d: past dmax an F2 mode's
+// Lh is the mean at the middle, the points 1000 km from each end and those
+// d0/2 from each end, at the mid-path local time.
+func TestLhIsReadAtTable1dsPoints(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	from, to := LatLon{64.8, -147.7}, LatLon{69.6, 18.9}
+	c, _ := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC))
+	dmax := limits.Dmax(c.mid.FoF2, c.mid.M3000, c.mid.FoE)
+	if !(c.km > dmax) {
+		t.Fatalf("the path, %.0f km, is within dmax %.0f: the test needs it past", c.km, dmax)
+	}
+	half := 1 / (2 * limits.Hops(c.km, dmax))
+	_, midLon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, 0.5)
+	local := 12 + midLon/15
+	var sum float64
+	fr := []float64{0.5, 1000 / c.km, 1 - 1000/c.km, half, 1 - half}
+	for _, f := range fr {
+		lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, f)
+		sum += limits.AuroralLoss(c.km, lat, limits.GeomagneticLatitude(lat, lon), time.October, local)
+	}
+	if want := sum / 5; math.Abs(c.lhF2-want) > 1e-12 {
+		t.Errorf("the F2 modes' Lh is %v; Table 2 at Table 1d's five points gives %v", c.lhF2, want)
+	}
+	var e float64
+	for _, f := range fr[:3] {
+		lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, f)
+		e += limits.AuroralLoss(c.km, lat, limits.GeomagneticLatitude(lat, lon), time.October, local)
+	}
+	if want := e / 3; math.Abs(c.lhE-want) > 1e-12 {
+		t.Errorf("the E modes' Lh is %v; at the three points %v", c.lhE, want)
+	}
+}
+
+// TestAnEModeTakesItsOwnLh is Table 1d: E and F2 modes read Lh at different
+// points once a path is past dmax and still within 4000 km, and an E mode's
+// field carries the E modes' Lh.
+func TestAnEModeTakesItsOwnLh(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 28) // M(3000)F2 4: dmax under 4000 km
+	from := LatLon{40, -60}
+	to := destination(from, 0, 3950) // north from 40° N into the auroral zone
+	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC))
+	if !ok || c.lhE == c.lhF2 {
+		t.Fatalf("E and F2 Lh %v, %v (%v): the test needs them different", c.lhE, c.lhF2, ok)
+	}
+	f, n := 3.8, 2
+	delta := limits.ElevationAngle(c.km/float64(n), limits.ELayerKm)
+	i110 := limits.IncidenceAngle(delta, limits.ELayerKm) * math.Pi / 180
+	fb := c.mid.FoE / math.Cos(i110)
+	got := c.mode(nil, n, limits.ELayerKm, true, true, f, fb)
+	want := limits.ModeField(f, limits.SlantRange(n, c.km/float64(n), delta), c.absorption(n, delta, f, math.Cos(i110)), limits.AboveMUFLoss(true, f, fb), n, c.lhE)
+	if len(got) != 1 || math.Abs(got[0]-want) > 1e-9 {
+		t.Errorf("a two-hop E mode's field %v; with the E modes' Lh %v", got, want)
+	}
+}

@@ -47,6 +47,7 @@ type circuit struct {
 	r12, flux float64
 	sun       *sunTrack
 	env       limits.Environment
+	lhE, lhF2 float64 // the auroral loss for E and F2 modes, Table 2 at Table 1d's points
 }
 
 // newCircuit is the circuit from one place to another in the hour a reader
@@ -71,7 +72,33 @@ func (s Snapshot) newCircuit(read reader, from, to LatLon, sun *sunTrack) (circu
 			c.screenFoE = math.Max(a.FoE, b.FoE)
 		}
 	}
+	c.lhE, c.lhF2 = c.auroral(true), c.auroral(false)
 	return c, true
+}
+
+// auroral is the mean auroral loss Lh at a mode's control points (Table 1d,
+// §5.2.2), at the mid-path local time: the middle within 2000 km; the middle
+// and the points 1000 km from each end within 4000 km for E modes and within
+// dmax for F2 modes; past dmax, those and the points d0/2 from each end.
+func (c circuit) auroral(eMode bool) float64 {
+	fr := []float64{0.5}
+	if c.km > eHopKm {
+		fr = append(fr, screenAtKm/c.km, 1-screenAtKm/c.km)
+	}
+	dmax := limits.Dmax(c.mid.FoF2, c.mid.M3000, c.mid.FoE)
+	if !eMode && c.km > dmax {
+		half := 1 / (2 * limits.Hops(c.km, dmax)) // d0/2 of the path, as a part of it
+		fr = append(fr, half, 1-half)
+	}
+	_, midLon := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, 0.5)
+	at := c.sun.at.UTC()
+	local := float64(at.Hour()) + float64(at.Minute())/60 + midLon/15
+	sum := 0.0
+	for _, f := range fr {
+		lat, lon := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, f)
+		sum += limits.AuroralLoss(c.km, lat, limits.GeomagneticLatitude(lat, lon), at.Month(), local)
+	}
+	return sum / float64(len(fr))
 }
 
 // snr is the circuit's median S/N at a frequency, dB in 2.5 kHz (§5.2 to
@@ -126,11 +153,14 @@ func (c circuit) mode(fields []float64, n int, hr float64, eMode, absorbed bool,
 		return fields
 	}
 	i110 := limits.IncidenceAngle(delta, limits.ELayerKm) * math.Pi / 180
-	li := 0.0
-	if absorbed {
-		li = c.absorption(n, delta, f, math.Cos(i110))
+	li, lh := 0.0, 0.0
+	if absorbed { // the absorption: the day's (Li) and the auroral zone's (Lh)
+		li, lh = c.absorption(n, delta, f, math.Cos(i110)), c.lhF2
+		if eMode {
+			lh = c.lhE
+		}
 	}
-	ew := limits.ModeField(f, limits.SlantRange(n, d, delta), li, limits.AboveMUFLoss(eMode, f, fb), n, 0)
+	ew := limits.ModeField(f, limits.SlantRange(n, d, delta), li, limits.AboveMUFLoss(eMode, f, fb), n, lh)
 	if ew != ew {
 		return fields
 	}
