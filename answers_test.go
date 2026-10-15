@@ -167,8 +167,12 @@ func TestTheDaysOpenHours(t *testing.T) {
 			}
 		}
 	}
-	upperOnly := func(lim func(typicalHour) hourLimits) func(typicalHour) hourLimits {
-		return func(t typicalHour) hourLimits { h := lim(t); h.absorbed = notAbsorbed; return h }
+	upperOnly := func(lim func(typicalHour, *[24]typicalHour) hourLimits) func(typicalHour, *[24]typicalHour) hourLimits {
+		return func(t typicalHour, day *[24]typicalHour) hourLimits {
+			h := lim(t, day)
+			h.absorbed = notAbsorbed
+			return h
+		}
 	}
 	typical := s.typicalDay(noonUTC)
 	withHours := func(open [][]Span) []BandStatus { return withOpenHours(statuses(1, true, LimitMUF), open) }

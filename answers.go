@@ -179,7 +179,7 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([]Ans
 		mhz, disturbed := cellAt(s.Disturbance, p)
 		bands := statuses(float64(fo), ok, LimitFoF2)
 		west, east := areaEnds(p, radiusKm)
-		if c, okC := s.newCircuit(hourReader(h), west, east, sun); okC {
+		if c, okC := s.newCircuit(hourReader(h), west, east, sun, &day); okC {
 			bands = absorb(bands, c, float64(fo))
 		}
 		bands = disturb(bands, float64(mhz), disturbed)
@@ -207,7 +207,7 @@ func (s Snapshot) Path(from LatLon, to []LatLon, at time.Time) ([]Answer, error)
 		places := controlPlaces(from, p, frac)
 		mhz, disturbed := s.pathDisturbance(places)
 		bands := statuses(muf, ok, LimitMUF)
-		if c, okC := s.newCircuit(hourReader(h), from, p, sun); okC && ok {
+		if c, okC := s.newCircuit(hourReader(h), from, p, sun, &day); okC && ok {
 			bands = absorb(bands, c, muf)
 		}
 		bands = disturb(bands, mhz, disturbed)

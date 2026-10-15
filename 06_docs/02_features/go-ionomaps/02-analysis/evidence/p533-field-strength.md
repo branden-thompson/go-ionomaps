@@ -36,3 +36,27 @@ markup):** Φ12 = 63.7 + 0.728 R12 + 8.9 × 10⁻⁴ R12².
 **The noise (ITU-R P.372-18, Table 1, as the G6.2 desk survey read it):** man-made noise Fam = c − d log f, f in
 MHz: City 76.8, 27.7; Residential 72.5, 27.7; Rural 67.2, 27.7; Quiet rural 53.6, 28.6; galactic noise 52.0, 23.0,
 heard above foF2 only. Atmospheric noise needs ITU's noise-map data and is not modelled (watchpost D-187).
+
+## §5.3 and §5.4: paths past 7000 km (G6.2c, watchpost D-191)
+
+Read 2026-10-15 from the same Word edition: these equations are Office Math markup, rebuilt with their fractions,
+powers and roots; eq. (42) from its embedded preview's glyphs; Tables 3, 4 and 5 from the document's tables.
+
+| # | Equation | Note |
+|---|---|---|
+| — | fM's hops: the fewest of at most 4000 km, one more while the elevation (13) from 300 km is under 3° | control points dM/2 from each end |
+| (29) | fBM = fz + (f4 − fz) fD; f4 = 1.1 foF2 M(3000)F2; fz = foF2 + fH/2 | at each control point; the lower is the path's |
+| (30) | fD = ((((((C6 dM + C5) dM + C4) dM + C3) dM + C2) dM + C1) dM + C0) dM | C6 −2.40074637494790e−24, C5 25.8520201885984e−21, C4 −92.4986988833091e−18, C3 102.342990689362e−15, C2 22.0776941764705e−12, C1 87.4376851991085e−9, C0 29.1996868566837e−6 |
+| (31), (32) | fM = K fBM; K = 1.2 + W fBM/fBM,noon + X (∛(fBM,noon/fBM) − 1) + Y (fBM,min/fBM,noon)² | the lower of the two points' fM; W, X, Y from Table 3 (east-west 0.1, 1.2, 0.6; north-south 0.2, 0.2, 0.4), read between by the bearing at the path's centre |
+| (33) | fL = (5.3 √[(1 + 0.009 R12) Σ cos^0.5 χ / (cos i90 ln(9.5×10⁶ / p′))] − fH)(Aw + 1) | the penetration points of hops of at most 3000 km from 300 km; cos^0.5 χ none past 90°; R12 not capped |
+| (34), (35) | χ from the subsolar latitude for mid-month (Table 4) and the hour angle | the library takes the sun's own position each hour (A-14) |
+| — | Aw: none from 0° to 30° and at 90°, Table 5's at 60° (northern J .30 F .15 M .03 A–A 0 S .01 O .03 N .15 D .30; southern J–M 0 A .03 M .15 J .30 J .30 A .15 S .03 O–D 0), linear between | at the path's middle |
+| (36) | fLN = √(D/3000) | the night LUF: each hour's fL at least this |
+| (37), (38) | where fL falls through 2 fLN at hour tr: fL(tr) = e^−0.23 fL(tr−1) (dt (1 − e^−0.23) + e^−0.23), dt = (2 fLN − fL(tr)) / (fL(tr−1) − fL(tr)); then fL(tr+n) = fL(tr+n−1) e^−0.23 for n = 1 to 3; each kept where larger | |
+| (39) | Etl = E0 [1 − (fM+fH)²/((fM+fH)² + (fL+fH)²) ((fL+fH)²/(f+fH)² + (f+fH)²/(fM+fH)²)] − 30 + Pt + Gtl + Gap − Ly | fH the mean at the two control points; Ly = −0.14 dB |
+| (40) | E0 = 139.6 − 20 log p′ | p′ from (19), (13), 300 km, fM's hops |
+| (41) | Gap = 10 log(D / (R0 sin(D/R0))), at most 15 dB | |
+| (42) | Eti = 100 log10 Xi; Xi = Xs + (D − 7000)/2000 (Xl − Xs); Xs = 10^(0.01 Es); Xl = 10^(0.01 El) | 7000 to 9000 km |
+
+**Where ITUHFProp differs from the recommendation, the library follows the recommendation:** Table 5's northern
+September (0.01 printed, 0.00 held) and Ly (−0.14 dB printed; ITUHFProp uses its own constant).

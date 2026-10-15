@@ -63,14 +63,15 @@ func TestADisturbanceMarksTheBandsItCovers(t *testing.T) {
 		t.Fatal("no band was open under D-RAP: the test measures nothing")
 	}
 	far := disturbed(0, 15)
-	paths, _ := far.Path(LatLon{40, -100}, []LatLon{{40, -64.8}, {40, 0}}, noonUTC)
+	paths, _ := far.Path(LatLon{40, -100}, []LatLon{{40, -64.8}}, noonUTC)
 	check("a path wholly where D-RAP is 0", paths[0].Bands, 0, muf)
-	if st := statusOf(paths[1].Bands, Band20m); st != Disturbed {
-		t.Errorf("a path whose far control point is under D-RAP's 15 MHz: 20 m is %v; want disturbed", st)
+	there := controlPlaces(LatLon{40, -100}, LatLon{40, 0}, 0.2)
+	back := controlPlaces(LatLon{40, 0}, LatLon{40, -100}, 0.2) // the disturbed control point first
+	if mhz, ok := far.pathDisturbance(there); !ok || mhz != 15 {
+		t.Errorf("a path whose far control point is under D-RAP's 15 MHz takes %v (%v); want 15", mhz, ok)
 	}
-	back, _ := far.Path(LatLon{40, 0}, []LatLon{{40, -100}}, noonUTC) // the disturbed control point first
-	if st := statusOf(back[0].Bands, Band20m); st != Disturbed {
-		t.Errorf("the same path reversed: 20 m is %v; want disturbed", st)
+	if mhz, _ := far.pathDisturbance(back); mhz != 15 {
+		t.Errorf("the same path reversed takes %v; want 15", mhz)
 	}
 	edge := disturb([]BandStatus{{Band: Band60m, Status: Open}, {Band: Band40m, Status: Open}, {Band: Band80m, Status: Absorbed}}, 7.0, true)
 	if edge[0].Status != Disturbed || edge[1].Status != Open || edge[2].Status != Absorbed {

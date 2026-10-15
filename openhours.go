@@ -19,6 +19,7 @@ type typicalHour struct {
 	hour  climatology.Hour
 	subQD float64
 	sun   *sunTrack
+	long  longMemo // the day's §5.3 work by path, shared by its hours
 }
 
 // typicalDay is the climatology for each hour of the UTC day holding a
@@ -26,9 +27,10 @@ type typicalHour struct {
 func (s Snapshot) typicalDay(at time.Time) [24]typicalHour {
 	var day [24]typicalHour
 	start := at.UTC().Truncate(24 * time.Hour)
+	memo := longMemo{}
 	for h := range day {
 		t := start.Add(time.Duration(h) * time.Hour)
-		day[h] = typicalHour{at: t, hour: climatology.NewHour(climatology.Refits(), t, float64(s.Inputs.F107Mean)), subQD: magcoords.SubsolarQD(t), sun: newSunTrack(t)}
+		day[h] = typicalHour{at: t, hour: climatology.NewHour(climatology.Refits(), t, float64(s.Inputs.F107Mean)), subQD: magcoords.SubsolarQD(t), sun: newSunTrack(t), long: memo}
 	}
 	return day
 }
@@ -69,10 +71,10 @@ func notAbsorbed(Band) bool { return false }
 
 // openHours are the spans of the day each band is open between the
 // hour-by-hour limits, by band in AllBands order.
-func openHours(day [24]typicalHour, limit func(typicalHour) hourLimits) [][]Span {
+func openHours(day [24]typicalHour, limit func(typicalHour, *[24]typicalHour) hourLimits) [][]Span {
 	var limits [24]hourLimits
 	for h := range day {
-		limits[h] = limit(day[h])
+		limits[h] = limit(day[h], &day)
 	}
 	out := make([][]Span, 0, len(bandEdges)-1)
 	for _, b := range AllBands() {
@@ -103,34 +105,34 @@ func withOpenHours(bands []BandStatus, open [][]Span) []BandStatus {
 
 // pathLimit is a path's limits in one typical hour: its basic MUF (NaN
 // where there is none) and its circuit's absorption.
-func (s Snapshot) pathLimit(from, to LatLon) func(typicalHour) hourLimits {
-	return func(t typicalHour) hourLimits {
+func (s Snapshot) pathLimit(from, to LatLon) func(typicalHour, *[24]typicalHour) hourLimits {
+	return func(t typicalHour, day *[24]typicalHour) hourLimits {
 		muf, _, ok := s.pathMUF(t.read, from, to, t.sun)
 		if !ok {
 			return hourLimits{upper: math.NaN(), absorbed: notAbsorbed}
 		}
-		return hourLimits{upper: muf, absorbed: s.lowerAt(t, from, to, muf)}
+		return hourLimits{upper: muf, absorbed: s.lowerAt(t, day, from, to, muf)}
 	}
 }
 
 // areaLimit is the near-vertical area's limits in one typical hour: foF2 at
 // the place (NaN where there is none) and its representative path's
 // absorption.
-func (s Snapshot) areaLimit(p LatLon, radiusKm float64) func(typicalHour) hourLimits {
-	return func(t typicalHour) hourLimits {
+func (s Snapshot) areaLimit(p LatLon, radiusKm float64) func(typicalHour, *[24]typicalHour) hourLimits {
+	return func(t typicalHour, day *[24]typicalHour) hourLimits {
 		fo, _, ok := t.read(p)
 		if !ok {
 			return hourLimits{upper: math.NaN(), absorbed: notAbsorbed}
 		}
 		west, east := areaEnds(p, radiusKm)
-		return hourLimits{upper: fo, absorbed: s.lowerAt(t, west, east, fo)}
+		return hourLimits{upper: fo, absorbed: s.lowerAt(t, day, west, east, fo)}
 	}
 }
 
 // lowerAt is whether a band is absorbed on a path in a typical hour; nothing
 // is where no circuit is made.
-func (s Snapshot) lowerAt(t typicalHour, from, to LatLon, upper float64) func(Band) bool {
-	c, ok := s.circuitAt(t, from, to)
+func (s Snapshot) lowerAt(t typicalHour, day *[24]typicalHour, from, to LatLon, upper float64) func(Band) bool {
+	c, ok := s.circuitAt(t, day, from, to)
 	if !ok {
 		return notAbsorbed
 	}

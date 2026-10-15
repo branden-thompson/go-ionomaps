@@ -210,14 +210,31 @@ func ModeField(f, slant, li, lm float64, hops int, lh float64) float64 {
 //
 // Source: ITU-R P.533-14 eqs. (28), (43), (44).
 func ReceivedPower(f float64, fields []float64) float64 {
+	return PowerFromField(f, SumFields(fields))
+}
+
+// SumFields is the modes' field strengths summed in power, dB(1 µV/m) (eq.
+// 28); minus infinity with no mode.
+//
+// Source: ITU-R P.533-14 §5.2.2 eq. (28).
+func SumFields(fields []float64) float64 {
+	sum := 0.0
+	for _, ew := range fields {
+		sum += math.Pow(10, ew/10)
+	}
+	return 10 * math.Log10(sum)
+}
+
+// PowerFromField is the power available from the reference circuit's
+// receiving antenna for a field strength, dBW (eq. 43). No number for no
+// frequency.
+//
+// Source: ITU-R P.533-14 §6 eq. (43).
+func PowerFromField(f, e float64) float64 {
 	if !(f > 0) {
 		return math.NaN()
 	}
-	sum := 0.0
-	for _, ew := range fields {
-		sum += math.Pow(10, (ew+AntennaDBi-20*math.Log10(f)-107.2)/10)
-	}
-	return 10 * math.Log10(sum)
+	return e + AntennaDBi - 20*math.Log10(f) - 107.2
 }
 
 // Environment is P.372's man-made noise category (watchpost D-187).

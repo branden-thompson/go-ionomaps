@@ -7,18 +7,19 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/magcoords"
 )
 
-// The lower limit's bounds (R-2.4): P.533-14 §5.2 alone reaches 7000 km
-// (§5.3 beyond comes with G6.2c); E modes and the E layer's screening reach
-// 4000 km, an E mode's lowest-order hop 2000 km, and screening's foE is read
-// 1000 km from each end of a path past 2000 km.
+// The lower limit's bounds (R-2.4): P.533-14 §5.2 alone to 7000 km, §5.3
+// alone past 9000 km, the two blended between (D-191); E modes and the E
+// layer's screening reach 4000 km, an E mode's lowest-order hop 2000 km, and
+// screening's foE is read 1000 km from each end of a path past 2000 km.
 const (
-	maxCircuitKm = 7000.0
-	eModesKm     = 4000.0
-	eHopKm       = 2000.0
-	screenAtKm   = 1000.0
-	eModes       = 3
-	f2Modes      = 6
-	lufSteps     = 12
+	longFromKm = 7000.0
+	shortToKm  = 9000.0
+	eModesKm   = 4000.0
+	eHopKm     = 2000.0
+	screenAtKm = 1000.0
+	eModes     = 3
+	f2Modes    = 6
+	lufSteps   = 12
 )
 
 // Noise is the man-made noise the reference circuit hears (watchpost D-187):
@@ -48,14 +49,35 @@ type circuit struct {
 	sun       *sunTrack
 	env       limits.Environment
 	lhE, lhF2 float64 // the auroral loss for E and F2 modes, Table 2 at Table 1d's points
+	long      longPath
+}
+
+// longMemo is a typical day's §5.3 work by path - each control point's
+// basic MUF at local noon and its least, and the LUF through the day - done
+// once and read by each hour (P-3).
+type longMemo map[[2]LatLon]*longDay
+
+// longDay is one path's §5.3 work over a typical day.
+type longDay struct {
+	noon, least [2]float64
+	fl          [24]float64
+}
+
+// longPath is §5.3's view of a path past 7000 km (D-191): its operational
+// MUF, its LUF this hour and at night, the mean gyrofrequency at its
+// control points, and the slant range of fM's hops.
+type longPath struct {
+	fM, fL, fLN, fH, slant float64
 }
 
 // newCircuit is the circuit from one place to another in the hour a reader
-// and a sun give; false for a path of no length or past 7000 km, or no value
-// at its middle or receiver.
-func (s Snapshot) newCircuit(read reader, from, to LatLon, sun *sunTrack) (circuit, bool) {
+// and a sun give, the typical day beside it for a path past 7000 km (§5.3's
+// noon and daily least, and its LUF through the day); false for a path of
+// no length, no value at its middle or receiver, or a long path with no
+// day or no value at its control points.
+func (s Snapshot) newCircuit(read reader, from, to LatLon, sun *sunTrack, day *[24]typicalHour) (circuit, bool) {
 	km := limits.Distance(from.Lat, from.Lon, to.Lat, to.Lon)
-	if !(km > 0) || km > maxCircuitKm {
+	if !(km > 0) {
 		return circuit{}, false
 	}
 	mid, okM := s.controlPoint(read, from, to, 0.5, sun)
@@ -73,7 +95,109 @@ func (s Snapshot) newCircuit(read reader, from, to LatLon, sun *sunTrack) (circu
 		}
 	}
 	c.lhE, c.lhF2 = c.auroral(true), c.auroral(false)
+	if km > longFromKm {
+		long, ok := c.longPath(read, day)
+		if !ok {
+			return circuit{}, false
+		}
+		c.long = long
+	}
 	return c, true
+}
+
+// longPath works out §5.3 for the circuit (D-191): fM's hops and control
+// points d_M/2 from each end, each point's basic MUF now, at its local noon
+// and its least through the typical day, K by the bearing at the path's
+// middle, fM the lower of the two; and the LUF by eq. (33) through the day
+// at fL's penetration points (hops of at most 3000 km from 300 km), the
+// night LUF and the decay into it, this hour's taken.
+func (c circuit) longPath(read reader, day *[24]typicalHour) (longPath, bool) {
+	if day == nil {
+		return longPath{}, false
+	}
+	nM, dM, deltaM := limits.LongHops(c.km)
+	l := longPath{slant: limits.SlantRange(nM, dM, deltaM), fLN: limits.NightLUF(c.km), fM: math.Inf(1)}
+	midLat, midLon := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, 0.5)
+	bearing := bearingFrom(LatLon{midLat, midLon}, c.to)
+	ends := [...]float64{dM / (2 * c.km), 1 - dM/(2*c.km)}
+	var fbm [2]float64
+	for i, fr := range ends {
+		lat, lon := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, fr)
+		fo, m3, ok := read(LatLon{Lat: lat, Lon: lon})
+		if !ok {
+			return longPath{}, false
+		}
+		fh := magcoords.Gyro(lat, lon, c.sun.at)
+		l.fH += fh / 2
+		fbm[i] = limits.LongBasicMUF(fo, m3, fh, dM)
+	}
+	ld := c.longDay(day, ends, dM, l)
+	for i := range ends {
+		l.fM = math.Min(l.fM, limits.KFactor(fbm[i], ld.noon[i], ld.least[i], bearing)*fbm[i])
+	}
+	l.fL = ld.fl[c.sun.at.UTC().Hour()]
+	usable := l.fM > 0 && !math.IsInf(l.fM, 0) && l.fL > 0
+	return l, usable
+}
+
+// longDay is the path's §5.3 work over the typical day, from the day's memo
+// or done and kept there: each control point's basic MUF at its local noon
+// and its least through the day, and the LUF of eq. (33) in each hour at
+// fL's penetration points (hops of at most 3000 km from 300 km), the night
+// LUF and the decay into it applied.
+func (c circuit) longDay(day *[24]typicalHour, ends [2]float64, dM float64, l longPath) *longDay {
+	key := [2]LatLon{c.from, c.to}
+	memo := day[0].long
+	if d, ok := memo[key]; ok {
+		return d
+	}
+	d := &longDay{}
+	for i, fr := range ends {
+		lat, lon := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, fr)
+		p, fh := LatLon{Lat: lat, Lon: lon}, magcoords.Gyro(lat, lon, c.sun.at)
+		noonHour := int(math.Mod(math.Round(12-lon/15)+48, 24))
+		d.noon[i], d.least[i] = math.NaN(), math.Inf(1)
+		for h := range day {
+			foH, m3H, okH := day[h].read(p)
+			if !okH {
+				continue
+			}
+			v := limits.LongBasicMUF(foH, m3H, fh, dM)
+			d.least[i] = math.Min(d.least[i], v)
+			if h == noonHour {
+				d.noon[i] = v
+			}
+		}
+	}
+	midLat, _ := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, 0.5)
+	nL := math.Ceil(c.km / limits.FLHopKm)
+	deltaL := limits.ElevationAngle(c.km/nL, limits.LongMirrorKm)
+	i90 := limits.IncidenceAngle(deltaL, limits.PenetrationKm)
+	aw := limits.WinterAnomaly(midLat, c.sun.at.Month())
+	pts := limits.PenetrationFractions(c.km, int(nL), deltaL)
+	for h := range day {
+		sum := 0.0
+		for _, fr := range pts {
+			lat, lon := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, fr)
+			_, chi, _ := day[h].sun.sunAt(lat, lon)
+			sum += math.Sqrt(math.Max(math.Cos(chi*math.Pi/180), 0)) // none where the sun is down (§5.3.2)
+		}
+		d.fl[h] = limits.LongLUF(c.r12, sum, i90, l.slant, l.fH, aw)
+	}
+	d.fl = limits.LUFDecay(d.fl, l.fLN)
+	if memo != nil {
+		memo[key] = d
+	}
+	return d
+}
+
+// bearingFrom is the initial great-circle bearing from one place to
+// another, degrees from north.
+func bearingFrom(a, b LatLon) float64 {
+	r := math.Pi / 180
+	y := math.Sin((b.Lon-a.Lon)*r) * math.Cos(b.Lat*r)
+	x := math.Cos(a.Lat*r)*math.Sin(b.Lat*r) - math.Sin(a.Lat*r)*math.Cos(b.Lat*r)*math.Cos((b.Lon-a.Lon)*r)
+	return math.Mod(math.Atan2(y, x)/r+360, 360)
 }
 
 // auroral is the mean auroral loss Lh at a mode's control points (Table 1d,
@@ -107,11 +231,41 @@ func (c circuit) auroral(eMode bool) float64 {
 // would leave below the horizon; each mode's absorption at its penetration
 // points, or none when absorbed is false. False with no mode.
 func (c circuit) snr(f float64, absorbed bool) (float64, bool) {
-	fields := c.modes(f, absorbed)
-	if len(fields) == 0 {
+	e, ok := c.field(f, absorbed)
+	if !ok {
 		return 0, false
 	}
-	return limits.SNR(limits.ReceivedPower(f, fields), c.noise(f)), true
+	return limits.SNR(limits.PowerFromField(f, e), c.noise(f)), true
+}
+
+// field is the circuit's median field strength at a frequency, dB(1 µV/m):
+// §5.2's modes summed to 7000 km, §5.3's composite past 9000 km, blended
+// between (eq. 42); "without the absorption", §5.3's LUF is its night floor.
+// False with no mode or no field.
+func (c circuit) field(f float64, absorbed bool) (float64, bool) {
+	var es, el float64
+	if c.km <= shortToKm {
+		fields := c.modes(f, absorbed)
+		if len(fields) == 0 {
+			return 0, false
+		}
+		es = limits.SumFields(fields)
+	}
+	if c.km <= longFromKm {
+		return es, true
+	}
+	fl := c.long.fL
+	if !absorbed {
+		fl = c.long.fLN
+	}
+	el = limits.LongField(f, c.long.fM, fl, c.long.fH, c.long.slant, c.km)
+	if el != el {
+		return 0, false
+	}
+	if c.km > shortToKm {
+		return el, true
+	}
+	return limits.BlendField(c.km, es, el), true
 }
 
 // noise is the noise factor the circuit's receiver hears at a frequency:
@@ -274,7 +428,7 @@ func destination(p LatLon, bearing, km float64) LatLon {
 	return LatLon{Lat: lat2 / r, Lon: math.Mod(lon2/r+540, 360) - 180}
 }
 
-// circuitAt is the circuit in a typical hour.
-func (s Snapshot) circuitAt(t typicalHour, from, to LatLon) (circuit, bool) {
-	return s.newCircuit(t.read, from, to, t.sun)
+// circuitAt is the circuit in a typical hour of a typical day.
+func (s Snapshot) circuitAt(t typicalHour, day *[24]typicalHour, from, to LatLon) (circuit, bool) {
+	return s.newCircuit(t.read, from, to, t.sun, day)
 }

@@ -58,7 +58,7 @@ func TestDaytimeAbsorptionClosesTheLowBands(t *testing.T) {
 	if !(luf >= highest && luf <= next) {
 		t.Errorf("the LUF %.2f MHz is not between the highest absorbed band's top %.2f and the next open band's %.2f", luf, highest, next)
 	}
-	c, ok := day.newCircuit(hourReader(day.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC))
+	c, ok := day.newCircuit(hourReader(day.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC), nil)
 	if snr, okS := c.snr(luf, true); !ok || !okS || math.Abs(snr-limits.RequiredSNR) > 0.2 {
 		t.Errorf("the S/N at the LUF is %v (%v, %v); want +13 dB", snr, ok, okS)
 	}
@@ -107,19 +107,111 @@ func TestTheTypicalDayKeepsTheLowerLimit(t *testing.T) {
 	}
 }
 
-// TestBeyond7000kmTheLowerLimitWaits is G6.2b's bound: P.533 §5.2 alone
-// reaches 7000 km; a longer path is never said absorbed until §5.3 comes
-// (G6.2c).
-func TestBeyond7000kmTheLowerLimitWaits(t *testing.T) {
+// TestTheLongPathHasALowerLimit is §5.3 (D-191): past 7000 km the circuit
+// is made from the typical day beside the snapshot, and on a 10000 km path
+// at 0 dBi every band under the MUF is closed, named as the circuit's or the
+// absorption's limit; without the day no long circuit is made.
+func TestTheLongPathHasALowerLimit(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	p, _ := s.Path(LatLon{Lat: 40, Lon: -100}, []LatLon{{Lat: 40, Lon: 0}}, noonUTC)
+	p, err := s.Path(LatLon{Lat: 40, Lon: -100}, []LatLon{{Lat: 40, Lon: 0}}, noonUTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := 0
 	for _, b := range p[0].Bands {
-		if b.Status == Absorbed {
-			t.Errorf("%v absorbed on a path past 7000 km", b.Band)
+		switch b.Status {
+		case Weak, Absorbed:
+			closed++
+			if b.Limit != LimitCircuit && b.Limit != LimitAbsorption {
+				t.Errorf("%v closed, named %v", b.Band, b.Limit)
+			}
+		case Open:
+			t.Errorf("%v open on a 10000 km path at 0 dBi", b.Band)
 		}
 	}
-	if _, ok := s.newCircuit(hourReader(s.Hours[0]), LatLon{Lat: 40, Lon: -100}, LatLon{Lat: 40, Lon: 0}, newSunTrack(noonUTC)); ok {
-		t.Error("a circuit was made for a path past 7000 km")
+	if closed == 0 {
+		t.Error("no band was closed by the lower limit past 7000 km")
+	}
+	if _, ok := s.newCircuit(hourReader(s.Hours[0]), LatLon{Lat: 40, Lon: -100}, LatLon{Lat: 40, Lon: 0}, newSunTrack(noonUTC), nil); ok {
+		t.Error("a long circuit was made with no typical day")
+	}
+}
+
+// TestTheLongPathIsP533s is §5.3 and §5.4 in the circuit: past 9000 km the
+// field is eq. (39)'s from the path's fM, this hour's fL, the mean
+// gyrofrequency and fM's slant range; from 7000 to 9000 km it is eq. (42)'s
+// blend with §5.2's; fM is the lower of the two control points' K fBM; fL
+// is the night LUF at local midnight along the path and above it at noon.
+func TestTheLongPathIsP533s(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	day := s.typicalDay(noonUTC)
+	from, to := LatLon{Lat: 20, Lon: -60}, LatLon{Lat: 20, Lon: 40}
+	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), &day)
+	if !ok || c.km <= shortToKm {
+		t.Fatalf("a %v km circuit (%v); the test needs one past 9000 km", c.km, ok)
+	}
+	if got, _ := c.field(14, true); math.Abs(got-limits.LongField(14, c.long.fM, c.long.fL, c.long.fH, c.long.slant, c.km)) > 1e-9 {
+		t.Errorf("past 9000 km the field %v is not eq. (39)'s", got)
+	}
+	if bare, _ := c.field(14, false); math.Abs(bare-limits.LongField(14, c.long.fM, c.long.fLN, c.long.fH, c.long.slant, c.km)) > 1e-9 {
+		t.Errorf("without the absorption the field %v is not eq. (39)'s at the night LUF", bare)
+	}
+	nM, dM, deltaM := limits.LongHops(c.km)
+	if c.long.slant != limits.SlantRange(nM, dM, deltaM) {
+		t.Errorf("the slant range %v is not fM's hops'", c.long.slant)
+	}
+	midLat, midLon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, 0.5)
+	bearing := bearingFrom(LatLon{midLat, midLon}, to)
+	fM, fH := math.Inf(1), 0.0
+	for _, fr := range []float64{dM / (2 * c.km), 1 - dM/(2*c.km)} {
+		lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, fr)
+		fo, m3, _ := hourReader(s.Hours[0])(LatLon{lat, lon})
+		gh := magcoords.Gyro(lat, lon, noonUTC)
+		fH += gh / 2
+		noonH := int(math.Mod(math.Round(12-lon/15)+48, 24))
+		least, noon := math.Inf(1), 0.0
+		for h := range day {
+			foH, m3H, _ := day[h].read(LatLon{lat, lon})
+			v := limits.LongBasicMUF(foH, m3H, gh, dM)
+			least = math.Min(least, v)
+			if h == noonH {
+				noon = v
+			}
+		}
+		fbm := limits.LongBasicMUF(fo, m3, gh, dM)
+		fM = math.Min(fM, limits.KFactor(fbm, noon, least, bearing)*fbm)
+	}
+	if math.Abs(c.long.fM-fM) > 1e-9 || math.Abs(c.long.fH-fH) > 1e-12 {
+		t.Errorf("fM %v and fH %v; the two control points give %v and %v", c.long.fM, c.long.fH, fM, fH)
+	}
+	nL := math.Ceil(c.km / limits.FLHopKm)
+	deltaL := limits.ElevationAngle(c.km/nL, limits.LongMirrorKm)
+	var fl [24]float64
+	for h := range day {
+		sum := 0.0
+		for _, fr := range limits.PenetrationFractions(c.km, int(nL), deltaL) {
+			lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, fr)
+			_, chi, _ := day[h].sun.sunAt(lat, lon)
+			sum += math.Sqrt(math.Max(math.Cos(chi*math.Pi/180), 0))
+		}
+		fl[h] = limits.LongLUF(c.r12, sum, limits.IncidenceAngle(deltaL, limits.PenetrationKm), c.long.slant, fH, limits.WinterAnomaly(midLat, time.October))
+	}
+	if want := limits.LUFDecay(fl, c.long.fLN)[12]; math.Abs(c.long.fL-want) > 1e-9 {
+		t.Errorf("fL at noon %v; eq. (33) through the day, decayed, gives %v", c.long.fL, want)
+	}
+	midnight := noonUTC.Add(-12 * time.Hour) // the path's middle is at 10° W: local midnight about 00:40
+	night, _ := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(midnight.Add(time.Hour)), &day)
+	if math.Abs(night.long.fL-night.long.fLN) > 1e-9 || !(c.long.fL > c.long.fLN) {
+		t.Errorf("fL %v at night (night LUF %v), %v at noon; the night LUF by night, above it by day", night.long.fL, night.long.fLN, c.long.fL)
+	}
+	mid, _ := s.newCircuit(hourReader(s.Hours[0]), LatLon{Lat: 20, Lon: -40}, LatLon{Lat: 20, Lon: 40}, newSunTrack(noonUTC), &day)
+	if !(mid.km > longFromKm && mid.km < shortToKm) {
+		t.Fatalf("a %v km circuit; the blend needs 7000 to 9000", mid.km)
+	}
+	es := limits.SumFields(mid.modes(14, true))
+	el := limits.LongField(14, mid.long.fM, mid.long.fL, mid.long.fH, mid.long.slant, mid.km)
+	if got, _ := mid.field(14, true); math.Abs(got-limits.BlendField(mid.km, es, el)) > 1e-9 {
+		t.Errorf("at %v km the field %v is not eq. (42)'s blend of %v and %v", mid.km, got, es, el)
 	}
 }
 
@@ -171,7 +263,7 @@ func TestALongPathTooWeakForTheCircuitIsWeak(t *testing.T) {
 func TestTheCircuitCountsP533sModes(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	from, to := LatLon{40, -100}, LatLon{40, -64.8} // about 3000 km, sunrise along it
-	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC))
+	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), nil)
 	if !ok {
 		t.Fatal("no circuit")
 	}
@@ -195,7 +287,7 @@ func TestTheCircuitCountsP533sModes(t *testing.T) {
 		t.Errorf("at %v MHz over %.0f km %d modes counted; three E modes and the %d F2 modes the E layer does not screen (of six)", f, c.km, got, unscreened)
 	}
 	high := flatSnapshot(noonUTC, 12, 43.2) // a high, low-lying F2 layer: its two-hop mode over 6900 km would leave below the horizon
-	long, okL := high.newCircuit(hourReader(high.Hours[0]), destination(LatLon{45, -40}, 270, 3450), destination(LatLon{45, -40}, 90, 3450), newSunTrack(noonUTC))
+	long, okL := high.newCircuit(hourReader(high.Hours[0]), destination(LatLon{45, -40}, 270, 3450), destination(LatLon{45, -40}, 90, 3450), newSunTrack(noonUTC), nil)
 	if !okL {
 		t.Fatal("no circuit at 6900 km")
 	}
@@ -232,7 +324,7 @@ func TestABandTheMUFCutsIsJudgedAtTheMUF(t *testing.T) {
 // hears galactic noise only above foF2 there.
 func TestGalacticNoiseIsHeardAboveFoF2(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC))
+	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC), nil)
 	if c.noise(5) != limits.NoiseFactor(limits.Residential, 5, false) || c.noise(10) != limits.NoiseFactor(limits.Residential, 10, true) {
 		t.Errorf("noise at 5 and 10 MHz under foF2 7: %v, %v", c.noise(5), c.noise(10))
 	}
@@ -257,7 +349,7 @@ func TestTheAreasPathIsCentredOnIt(t *testing.T) {
 // 100 km at those points - each read where the mode crosses 90 km.
 func TestAModesAbsorptionIsEq20(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC))
+	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC), nil)
 	n, f := 2, 3.8
 	delta := limits.ElevationAngle(c.km/float64(n), 250)
 	cosI := math.Cos(limits.IncidenceAngle(delta, limits.ELayerKm) * math.Pi / 180)
@@ -283,7 +375,7 @@ func TestAModesAbsorptionIsEq20(t *testing.T) {
 func TestTheAuroralZoneAddsItsLoss(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	read, sun := hourReader(s.Hours[0]), newSunTrack(noonUTC)
-	north, ok := s.newCircuit(read, LatLon{64.8, -147.7}, LatLon{69.6, 18.9}, sun) // Fairbanks to Tromsø, over the pole
+	north, ok := s.newCircuit(read, LatLon{64.8, -147.7}, LatLon{69.6, 18.9}, sun, nil) // Fairbanks to Tromsø, over the pole
 	if !ok {
 		t.Fatal("no circuit")
 	}
@@ -300,7 +392,7 @@ func TestTheAuroralZoneAddsItsLoss(t *testing.T) {
 	if a, _ := north.snr(14.35, false); a != func() float64 { v, _ := bare.snr(14.35, false); return v }() {
 		t.Error("the S/N without the absorption kept Lh")
 	}
-	south, _ := s.newCircuit(read, LatLon{10, -20}, LatLon{10, 10}, sun)
+	south, _ := s.newCircuit(read, LatLon{10, -20}, LatLon{10, 10}, sun, nil)
 	if south.lhE != 0 || south.lhF2 != 0 {
 		t.Errorf("a path at 10° N carries Lh %v, %v; Table 2 starts at 42.5° geomagnetic", south.lhE, south.lhF2)
 	}
@@ -312,7 +404,7 @@ func TestTheAuroralZoneAddsItsLoss(t *testing.T) {
 func TestLhIsReadAtTable1dsPoints(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	from, to := LatLon{64.8, -147.7}, LatLon{69.6, 18.9}
-	c, _ := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC))
+	c, _ := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), nil)
 	dmax := limits.Dmax(c.mid.FoF2, c.mid.M3000, c.mid.FoE)
 	if !(c.km > dmax) {
 		t.Fatalf("the path, %.0f km, is within dmax %.0f: the test needs it past", c.km, dmax)
@@ -346,7 +438,7 @@ func TestAnEModeTakesItsOwnLh(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 28) // M(3000)F2 4: dmax under 4000 km
 	from := LatLon{40, -60}
 	to := destination(from, 0, 3950) // north from 40° N into the auroral zone
-	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC))
+	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), nil)
 	if !ok || c.lhE == c.lhF2 {
 		t.Fatalf("E and F2 Lh %v, %v (%v): the test needs them different", c.lhE, c.lhF2, ok)
 	}
