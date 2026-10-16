@@ -12,6 +12,7 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/drap"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
+	"github.com/branden-thompson/go-ionomaps/internal/scales"
 	"github.com/branden-thompson/go-ionomaps/internal/solar"
 )
 
@@ -22,6 +23,7 @@ const (
 	glotecIndex = "https://services.swpc.noaa.gov/products/glotec/geojson_2d_urt/"
 	solarFile   = "https://services.swpc.noaa.gov/text/daily-solar-indices.txt"
 	drapTable   = "https://services.swpc.noaa.gov/text/drap_global_frequencies.txt"
+	scalesFile  = "https://services.swpc.noaa.gov/products/noaa-scales.json"
 )
 
 // NOAA's limits (D-39): asked at most every ten minutes, the interval GloTEC
@@ -46,6 +48,10 @@ const gridMaxAge = time.Hour
 // it is remade every few minutes, and a flare's absorption lasts about an
 // hour (A-9).
 const drapMaxAge = time.Hour
+
+// scalesMaxAge is how old NOAA's scales file may be and still be carried:
+// NOAA rewrites it within minutes of a change.
+const scalesMaxAge = time.Hour
 
 // UpdateOptions are one update's settings, the host's to give each time,
 // so a change needs no new library and no new burst (R-9.6, A-30).
@@ -97,6 +103,9 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	}
 	if !refused {
 		refused = l.refreshDRAP(ctx, now)
+	}
+	if !refused {
+		refused = l.refreshScales(ctx, now)
 	}
 	cancelled := ctx.Err() != nil
 	if cancelled {
@@ -246,6 +255,37 @@ func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool)
 	return false
 }
 
+// refreshScales asks for NOAA's scales at each update, with D-RAP and the
+// validators of the file held (R-2.10, watchpost D-88); a file that cannot
+// be read leaves the one held. refused is whether it was refused or
+// unanswered.
+func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused bool) {
+	r, ok, refused := l.ask(ctx, scalesFile, l.scalesVal)
+	if !ok || r.Status != statusOK {
+		return refused
+	}
+	s, err := scales.Read(r.Body, now)
+	if err != nil {
+		return false
+	}
+	l.scales, l.scalesVal = &s, r.Validators
+	return false
+}
+
+// scalesOf are the scales held as the snapshot carries them: none, said by
+// a zero valid time, when none was read or the last is over scalesMaxAge
+// old (watchpost D-88: never level 0).
+func scalesOf(held *scales.Levels, now time.Time) Scales {
+	if held == nil || now.Sub(held.Valid) > scalesMaxAge {
+		return Scales{R: ScaleUnset, S: ScaleUnset, G: ScaleUnset}
+	}
+	s := Scales{R: held.R, S: held.S, G: held.G, Valid: held.Valid, Outlook: make([]DayScale, len(held.Days))}
+	for i, d := range held.Days {
+		s.Outlook[i] = DayScale{Day: d.Day, RMinorPct: d.RMinorPct, RMajorPct: d.RMajorPct, SPct: d.SPct, G: d.G}
+	}
+	return s
+}
+
 // build is the snapshot at now from what is held, with the options asked:
 // the typical offset learns from a live offset over readings not yet
 // learned from, and the no-readings correction moves GloTEC's foF2 when no
@@ -286,6 +326,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		TypicalError:    typicalError(),
 		Offset:          l.offset.offset(res.MeanResidual, measured, corrected),
 		Noise:           o.Noise,
+		Scales:          scalesOf(l.scales, now),
 	}
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid = g.Valid

@@ -57,6 +57,10 @@ type noaa struct {
 	drap           []byte // D-RAP's table; none served when nil
 	drapAsks       []string
 	drapValidators []ionomaps.Validators
+
+	scales           []byte // NOAA's scales file; none served when nil
+	scalesAsks       int
+	scalesValidators []ionomaps.Validators
 }
 
 func newNOAA(c *clock) *noaa {
@@ -71,6 +75,9 @@ func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (io
 	}
 	if url == drapURL {
 		return n.drapAnswer(ctx, v)
+	}
+	if url == scalesURL {
+		return n.scalesAnswer(ctx, v)
 	}
 	n.asked = append(n.asked, url)
 	n.validator = append(n.validator, v)
@@ -115,6 +122,20 @@ func (n *noaa) drapAnswer(ctx context.Context, v ionomaps.Validators) (ionomaps.
 		return ionomaps.Response{Status: 404}, nil
 	}
 	return ionomaps.Response{Status: 200, Body: n.drap, Validators: ionomaps.Validators{ETag: `"drap-1"`}}, nil
+}
+
+// scalesAnswer answers the scales' ask, recorded apart: the file when one
+// is set, with its validators, else 404.
+func (n *noaa) scalesAnswer(ctx context.Context, v ionomaps.Validators) (ionomaps.Response, error) {
+	n.scalesAsks++
+	n.scalesValidators = append(n.scalesValidators, v)
+	if err := ctx.Err(); err != nil {
+		return ionomaps.Response{}, err
+	}
+	if n.scales == nil {
+		return ionomaps.Response{Status: 404}, nil
+	}
+	return ionomaps.Response{Status: 200, Body: n.scales, Validators: ionomaps.Validators{ETag: `"scales-1"`}}, nil
 }
 
 // list puts a grid valid at t in the index and serves it.

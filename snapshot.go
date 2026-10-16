@@ -3,6 +3,8 @@ package ionomaps
 import (
 	"math"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/scales"
 )
 
 // A Snapshot is immutable: every update returns fresh slices (P-6). Hours[0]
@@ -154,16 +156,21 @@ type BandError struct {
 	FoF2MHz, MUF3000MHz float32
 }
 
-// Scales are NOAA's space-weather levels now and their outlook, as
-// published; Valid is zero when the feed is missing, never read as level 0
-// (watchpost D-88).
+// Scales are NOAA's space-weather levels now and their outlook - today and
+// the next two days - as published; Valid is zero when the feed is missing,
+// and a level or probability NOAA leaves null is ScaleUnset: neither is
+// ever read as level 0 (watchpost D-88).
 type Scales struct {
-	R, S, G int
+	R, S, G int // 0 to 5, or ScaleUnset
 	Outlook []DayScale
 	Valid   time.Time
 }
 
-// DayScale is one day of NOAA's outlook: its probabilities and G level.
+// ScaleUnset is a level or probability NOAA's file gives none for.
+const ScaleUnset = scales.None
+
+// DayScale is one day of NOAA's outlook: R's minor and major probabilities
+// and S's, in percent, and the G level; each ScaleUnset where none is given.
 type DayScale struct {
 	Day                        time.Time
 	RMinorPct, RMajorPct, SPct int

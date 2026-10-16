@@ -84,7 +84,7 @@ Size (estimates, L-F14): G0 1, G1 1, G2 2, G3 3 (with IGRF and the export), G4 1
 | G2.2 | GloTEC GeoJSON, typed decode | `BenchmarkGloTECDecode`, `FuzzGloTECDecode`, `TestFoF2FromNmF2` |
 | G2.3 | D-RAP table | `FuzzDRAPParser`, `TestDRAPGridIsTwoByFour` (from the measured file's layout) |
 | G2.4 | Station codes `^[A-Z0-9]{5}$`, through `url.Values` | `TestStationCodesAreChecked` |
-| G2.5 | NOAA's scales feed: levels 0 to 5 checked, outlook days and probabilities, unset when missing (D-88) | `FuzzScalesParser`, `TestTheScalesAreCarriedInTheSnapshot`, `TestMissingScalesAreUnsetNotZero` |
+| G2.5 | NOAA's scales feed: levels 0 to 5 checked, outlook days and probabilities, unset when missing or left null (D-88, A-16; built) | `FuzzEveryInputParser` (the scales parser joined it), `TestTheLevelsAndOutlookAreRead`, `TestABadFileIsRefused`, `TestTheScalesAreCarriedInTheSnapshot`, `TestMissingScalesAreUnsetNotZero` |
 
 ## G3 — The climatology
 
