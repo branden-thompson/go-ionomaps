@@ -107,3 +107,9 @@ Hand mutants: twelve, ten killed at once; the extrapolation flag survived and is
 | G8.1 Hours ahead, on demand | this commit | `TestHoursAheadAreTheClimatology`, `TestAnHourAheadIsMarkedTypical`, `TestTheTypicalErrorCarriesItsBasis`: failed to compile first | **Built when asked (D-60):** each hour ahead's grids cost about 34 ms, so 24 an update would break D-98's cold open; `Snapshot.Ahead(k)` builds hour k from the climatology at the snapshot's F10.7 mean, marked typical, never a field from now. The snapshot carries the typical error by distance band and its basis (watchpost D-134) |
 
 Hand mutants: fourteen, eleven killed at once; the three survivors (the one-hop length, the gyrofrequency's year interpolation, and a mistyped anchor) are killed after the tests were strengthened.
+
+## Before watchpost's BUILD exit (watchpost D-201)
+
+| Task | Commit | The test first | Learned |
+|---|---|---|---|
+| Each run-time source's reply bound (A-15; watchpost FR-4.4, W0.2) | this commit | `TestEveryRunTimeSourceCarriesItsByteBound`: failed to compile on the missing `Source.MaxBytes` | watchpost's propagation client read up to 8 MB from any host before the library's own checks; with each source's bound exported, a host's client takes no more from GIRO than its parser would take. The GIRO parser's and the GloTEC decoder's checks read the same constants |

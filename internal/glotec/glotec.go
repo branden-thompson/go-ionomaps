@@ -9,6 +9,8 @@ import (
 	"errors"
 	"math"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/terms"
 )
 
 // The grid's layout: 72 by 72 points at the centres of 5° by 2.5° cells.
@@ -29,8 +31,9 @@ const (
 	maxQuality       = 5
 )
 
-// maxBytes bounds a grid's size: about three times the measured 2.5 MB.
-const maxBytes = 8 << 20
+// maxBytes bounds a grid's size: NOAA's reply bound, about three times the
+// measured 2.5 MB.
+const maxBytes = terms.NOAAReplyBytes
 
 // clockSkew is how far a grid's time may lie past the host's clock.
 const clockSkew = 5 * time.Minute

@@ -15,8 +15,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	ionomaps "github.com/branden-thompson/go-ionomaps"
+	"github.com/branden-thompson/go-ionomaps/internal/giro"
+	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 )
 
 // noFetch is a fetcher that must never be asked.
@@ -159,4 +162,35 @@ func addresses(f *ast.File) []string {
 func onHost(address string, hosts []string) bool {
 	u, err := url.Parse(address)
 	return err == nil && slices.Contains(hosts, u.Hostname())
+}
+
+// TestEveryRunTimeSourceCarriesItsByteBound is watchpost FR-4.4 and W0.2
+// (D-201): every source asked at run time says the most one reply from it
+// may be, so a host's client takes nothing larger from that host; GIRO's is
+// its own, smaller than NOAA's grid; and the library's own checks are those
+// same bounds - one carrier each.
+func TestEveryRunTimeSourceCarriesItsByteBound(t *testing.T) {
+	l, err := ionomaps.New(&noFetch{}, ionomaps.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := map[string]int{}
+	for _, s := range l.Sources() {
+		if len(s.Hosts) > 0 && s.MaxBytes <= 0 {
+			t.Errorf("%s is asked at run time with no byte bound", s.Name)
+		}
+		for _, h := range s.Hosts {
+			bound[h] = s.MaxBytes
+		}
+	}
+	if giro, noaa := bound["lgdc.uml.edu"], bound["services.swpc.noaa.gov"]; giro <= 0 || giro >= noaa {
+		t.Errorf("GIRO's bound %d, NOAA's %d: GIRO's replies are its stations' rows, NOAA's largest a grid", giro, noaa)
+	}
+	if _, err := glotec.Decode(make([]byte, bound["services.swpc.noaa.gov"]+1), time.Now()); err == nil {
+		t.Error("GloTEC decodes a grid past NOAA's bound")
+	}
+	now := time.Now()
+	if _, err := giro.ParseReply(make([]byte, bound["lgdc.uml.edu"]+1), "AL945", now.Add(-time.Hour), now, now); err == nil {
+		t.Error("GIRO's parser takes a reply past GIRO's bound")
+	}
 }

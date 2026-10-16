@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/terms"
 )
 
 // The physical bounds a reading is held to (R-3.3): foF2 and MUF(3000) in
@@ -34,9 +36,9 @@ const (
 // minute; the rest are counted as rejected.
 const maxRows = 7 * 24 * 60
 
-// maxBytes bounds a reply: a station's week of five-minute rows is about
-// 170 KB; ten times that.
-const maxBytes = 2 << 20
+// maxBytes bounds a reply: GIRO's reply bound; a station's week of
+// five-minute rows is about 170 KB.
+const maxBytes = terms.GIROReplyBytes
 
 // Station is where a reply's station is: its code, and its place in
 // degrees, longitude from -180 to 180.

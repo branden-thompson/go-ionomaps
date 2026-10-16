@@ -5,13 +5,25 @@ package terms
 
 // Source is one source: its name as the NOTICE names it, the hosts the
 // library asks it on at run time (none for a source used only at build
-// time), its terms and the citation it asks for.
+// time), its terms and the citation it asks for, and the most one reply from
+// it may be - which a host's client is to take no more than (watchpost
+// FR-4.4) - zero for a source not asked at run time.
 type Source struct {
-	Name  string
-	Hosts []string
-	Terms string
-	Cite  string
+	Name     string
+	Hosts    []string
+	Terms    string
+	Cite     string
+	MaxBytes int
 }
+
+// The bounds on one reply, by source: GIRO's, about ten times a station's
+// week of five-minute rows (170 KB); NOAA's, about three times the
+// measured 2.5 MB GloTEC grid, its largest file (watchpost D-141). The
+// library's own checks read these.
+const (
+	GIROReplyBytes = 2 << 20
+	NOAAReplyBytes = 8 << 20
+)
 
 // Dataset is a third-party dataset committed to the repository: its path and
 // the source it comes from (R-4.3 lists those allowed).
@@ -26,10 +38,10 @@ type Dataset struct {
 // them.
 func All() []Source {
 	return []Source{
-		{Name: "GIRO", Hosts: []string{"lgdc.uml.edu"},
+		{Name: "GIRO", Hosts: []string{"lgdc.uml.edu"}, MaxBytes: GIROReplyBytes,
 			Terms: "CC BY-NC-SA 4.0; offered only for educational and non-commercial research purposes",
 			Cite:  "Reinisch, B. W., and I. A. Galkin, Global ionospheric radio observatory (GIRO), Earth, Planets and Space, 63, 377-381, doi:10.5047/eps.2011.03.001, 2011"},
-		{Name: "NOAA Space Weather Prediction Center", Hosts: []string{"services.swpc.noaa.gov"},
+		{Name: "NOAA Space Weather Prediction Center", Hosts: []string{"services.swpc.noaa.gov"}, MaxBytes: NOAAReplyBytes,
 			Terms: "public domain; no endorsement by NOAA or the NWS is implied"},
 		{Name: "PyIRI", Terms: "MIT licence, Copyright (c) 2023 victoriyaforsythe",
 			Cite: "Forsythe, V. V., et al. (2024), PyIRI: whole-globe approach to the International Reference Ionosphere modeling implemented in Python, Space Weather, 22, doi:10.1029/2023SW003739"},
