@@ -9,9 +9,9 @@ status: "APPROVED at the PLAN gate (watchpost D-139). No code: signatures, shape
 
 # Design
 
-The public shape is in watchpost's architecture document
-(`watchpost/06_docs/02_features/propagation-overlays/03-architecture-design/architecture.md`, "go-ionomaps'
-shape"). This page holds the library's inside: its packages, its update, and **where every algorithm comes
+The public shape is the package's own documentation (`go doc github.com/branden-thompson/go-ionomaps`) and
+its review, [`api-review.md`](api-review.md); watchpost's architecture says only what watchpost relies on, by
+role ("go-ionomaps, as watchpost uses it", watchpost D-F4). This page holds the library's inside: its packages, its update, and **where every algorithm comes
 from** (watchpost D-53).
 
 ## Packages
