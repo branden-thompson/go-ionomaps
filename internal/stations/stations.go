@@ -10,7 +10,9 @@ package stations
 import (
 	_ "embed"
 	"errors"
+	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -96,8 +98,7 @@ func parseStation(f []string) (Station, bool) {
 	if fields != 1 && fields != 3 {
 		return Station{}, false
 	}
-	codeOK := codeRE.MatchString(f[0])
-	if !codeOK {
+	if !codeRE.MatchString(f[0]) {
 		return Station{}, false
 	}
 	if fields == 1 {
@@ -155,8 +156,7 @@ func (l *List) Plan(now time.Time, budget int) (poll []string, probe string) {
 	if budget <= 0 {
 		return nil, ""
 	}
-	noClock := now.IsZero()
-	if noClock {
+	if now.IsZero() {
 		return nil, ""
 	}
 	live := l.Live(now)
@@ -224,8 +224,7 @@ func (l *List) Heard(code string, at time.Time, p Place) {
 	if !ok {
 		return
 	}
-	noTime := at.IsZero()
-	if noTime {
+	if at.IsZero() {
 		return
 	}
 	if last, held := l.heard[code]; !held || at.After(last) {
@@ -248,11 +247,63 @@ func (l *List) Since(code string, now time.Time) time.Time {
 	if !held {
 		return now.Add(-firstWindow)
 	}
-	stale := now.Sub(last) > darkAfter
-	if stale {
+	if now.Sub(last) > darkAfter {
 		return now.Add(-firstWindow)
 	}
 	return last
+}
+
+// State is the list's state as a host keeps it across restarts (watchpost
+// D-213): when it was seeded, when each station last gave data, and the
+// rotations' places - no reading, and no position, which the next reply
+// gives again.
+type State struct {
+	Seeded          time.Time
+	Heard           map[string]time.Time
+	PollAt, ProbeAt int
+	LeftOut         []string
+}
+
+// errBadState is a state this list could not have reached by now.
+var errBadState = errors.New("stations: the state is not one the list reaches")
+
+// Record is the list's state, to keep: copies, so the list's own are never
+// the caller's.
+//
+// Source: watchpost D-213.
+func (l *List) Record() State {
+	return State{Seeded: l.seeded, Heard: maps.Clone(l.heard), PollAt: l.pollAt, ProbeAt: l.probeAt, LeftOut: slices.Clone(l.leftOut)}
+}
+
+// Apply puts a state kept onto a seeded list, checked against now: every
+// station one the seed names, no time after now, no rotation place below
+// zero; a state that fails leaves the list as it was.
+//
+// Source: watchpost D-213; R-3.3.
+func (l *List) Apply(s State, now time.Time) error {
+	if s.Seeded.IsZero() || s.Seeded.After(now) || s.PollAt < 0 || s.ProbeAt < 0 || s.ProbeAt >= len(l.known) {
+		return errBadState
+	}
+	if len(s.Heard) > len(l.known) || len(s.LeftOut) > len(l.known) {
+		return errBadState // more stations than the seed names
+	}
+	for code, at := range s.Heard {
+		_, known := l.index[code]
+		if !known || at.After(now) {
+			return errBadState
+		}
+	}
+	for _, code := range s.LeftOut {
+		_, known := l.index[code]
+		if !known {
+			return errBadState
+		}
+	}
+	l.seeded, l.heard, l.pollAt, l.probeAt, l.leftOut = s.Seeded, maps.Clone(s.Heard), s.PollAt, s.ProbeAt, slices.Clone(s.LeftOut)
+	if l.heard == nil {
+		l.heard = map[string]time.Time{}
+	}
+	return nil
 }
 
 // station is a station by its code.

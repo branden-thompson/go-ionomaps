@@ -43,7 +43,7 @@ func TestDRAPIsFetchedAndCarried(t *testing.T) {
 	if len(n.drapAsks) == 0 || !s.Inputs.DRAPValid.Equal(start.Add(-3*time.Minute)) || s.Disturbance.Values[100] != 3 {
 		t.Fatalf("D-RAP asked %d times; valid %v, a cell %v MHz; want asked, its time, 3", len(n.drapAsks), s.Inputs.DRAPValid, s.Disturbance.Values[100])
 	}
-	a, _ := s.Bands([]ionomaps.LatLon{{Lat: 40, Lon: -100}}, 400, s.Computed)
+	a, _ := s.Bands([]ionomaps.LatLon{{Lat: 40, Lon: -100}}, 400)
 	if a[0].Bands[0].Status != ionomaps.Disturbed || a[0].Bands[1].Status != ionomaps.Open {
 		t.Errorf("D-RAP at 3 MHz: 160 m %v, 80 m %v; want disturbed and open", a[0].Bands[0].Status, a[0].Bands[1].Status)
 	}
@@ -82,8 +82,8 @@ func TestAnUnreadableDRAPIsNoRefusal(t *testing.T) {
 	}
 	n.take()
 	c.Add(61 * time.Second)
-	if s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); s.Early != ionomaps.TooSoon || len(n.take()) != 0 {
-		t.Errorf("61 s after an unreadable table the update is %v; it backed off as if refused", s.Early)
+	if s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); s.Reason != ionomaps.TooSoon || len(n.take()) != 0 {
+		t.Errorf("61 s after an unreadable table the update is %v; it backed off as if refused", s.Reason)
 	}
 }
 

@@ -7,24 +7,28 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/scales"
 )
 
-// A Snapshot is immutable: every update returns fresh slices (P-6). Hours[0]
-// is now; then up to 24 hours ahead, typical (R-1.3, watchpost D-109).
+// A Snapshot is one hour's fields and what they were made from, and answers
+// for that hour. It is immutable: every update returns fresh slices (P-6).
+// An update's snapshot is now; Ahead gives an hour ahead as a snapshot of
+// its own, typical (R-1.3, watchpost D-109).
 type Snapshot struct {
 	Computed        time.Time    // the age is the host's clock minus this
-	Hours           []Hour       // Hours[0] is now; then the hours ahead, typical
+	Now             Hour         // the hour it answers for: now, or from Ahead an hour ahead
 	NearestKm       []float32    // per cell: distance to the nearest assimilated station (R-2.11); measured within 500 km (R-3.2)
 	NearestUnscored Bitset       // per cell: whether that nearest station's readings are unscored - verify on air (D-61)
 	Background      Backgrounds  // per field (watchpost D-101)
 	Inputs          Inputs       // what fed it, and when (R-3.3, R-9.5, R-9.7)
-	Early           Reason       // why this is not from new data (R-5.4)
+	Reason          Reason       // why this is not from new data (R-5.4)
 	Scales          Scales       // NOAA's space-weather levels (watchpost D-88)
 	Offset          Offset       // stations against GloTEC (watchpost D-105)
 	Disturbance     Field        // D-RAP's highest frequency absorbed by 1 dB, MHz a cell (R-2.5); no cells without D-RAP
 	Noise           Noise        // the man-made noise the reference circuit hears, as the update asked (D-187)
 	TypicalError    TypicalError // the hours ahead's error, with its basis (watchpost D-109)
+
+	typical *typicalDays // the library's typical days, which the answers share (P-4); none for a snapshot made by hand
 }
 
-// Hour is one hour's fields: valid from At, for the hour that starts there.
+// Hour is one hour's fields, for the moment At.
 type Hour struct {
 	At      time.Time
 	MUF3000 Field
@@ -42,19 +46,17 @@ type Field struct {
 	NoData                   Bitset
 }
 
-// CellCentre is the longitude and latitude of a cell's centre, the place its
-// value is for; false for a cell outside the field.
+// WithNoData is a copy of the field with the cells given marked as having
+// no data; a cell outside the field is passed over. The field itself is
+// unchanged: a host's tests mark cells this way.
 //
-// Source: this library; the cell layout go-tuiMaps reads a grid with.
-func (f Field) CellCentre(col, row int) (lon, lat float64, ok bool) {
-	if f.Cols <= 0 || f.Rows <= 0 {
-		return 0, 0, false
+// Source: this library.
+func (f Field) WithNoData(cells ...int) Field {
+	c := f.owned()
+	for _, i := range cells {
+		c.NoData.set(i)
 	}
-	if col < 0 || col >= f.Cols || row < 0 || row >= f.Rows {
-		return 0, 0, false
-	}
-	w, h := (f.East-f.West)/float64(f.Cols), (f.North-f.South)/float64(f.Rows)
-	return f.West + (float64(col)+0.5)*w, f.North - (float64(row)+0.5)*h, true
+	return c
 }
 
 // Bitset is a set of cells by index.
@@ -80,10 +82,8 @@ func (b Bitset) Has(i int) bool {
 	return b.bits[i/64]&(1<<(i%64)) != 0
 }
 
-// Set puts cell i in the set; a cell outside it is passed over.
-//
-// Source: this library.
-func (b Bitset) Set(i int) {
+// set puts cell i in the set; a cell outside it is passed over.
+func (b Bitset) set(i int) {
 	if i < 0 || i >= b.n {
 		return
 	}
@@ -119,7 +119,7 @@ type Backgrounds struct{ FoF2, M3000 Background }
 
 // Inputs are what fed a snapshot, and when (R-3.3, R-9.5, R-9.7).
 type Inputs struct {
-	Stations, Rejected int           // readings used, and refused by range checks
+	Stations, Rejected int           // readings used, and the last burst's rows refused by range checks
 	GloTECValid        time.Time     // the grid's own valid time; zero when GloTEC was missing
 	OldestReading      time.Time     // the oldest GIRO reading assimilated
 	DRAPValid          time.Time     // zero when D-RAP was missing: no "disturbed" state
@@ -127,6 +127,9 @@ type Inputs struct {
 	F107Days           int           // observed days in it
 	F107Age            time.Duration // since the solar file was last fetched
 	CoordsExtrapolated bool          // past IGRF-14's last year
+	NoStations         bool          // the host asked for no stations (UpdateOptions.NoStations): GIRO not asked, no reading on the field
+	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
+	Refused            []string      // NOAA's files this update fetched and could not read - "GloTEC", "solar", "D-RAP", "scales" - each the one held used instead, its age saying so
 }
 
 // Reason is why a snapshot is not from new data (R-5.4).
@@ -139,14 +142,16 @@ const (
 	GIROPaused                 // GIRO is backing off after a refusal
 	Offline                    // nothing could be fetched
 	StationsNext               // NOAA's fields, GIRO due: update again at once for the stations (D-63)
+	Unfinished                 // the update stopped before every file arrived - its deadline passed, or the host cancelled it - so it is built from what is held; NOAA may be asked again at once (L-F4)
 )
 
 // TypicalError is the hours ahead's error by distance to the nearest
 // reporting station, and where and when it was measured (watchpost D-109,
-// D-134).
+// D-134): Basis in words a listener can be told, Source the citation for a
+// developer (watchpost AX-3).
 type TypicalError struct {
-	Bands []BandError
-	Basis string
+	Bands         []BandError
+	Basis, Source string
 }
 
 // BandError is the typical error up to a distance: 500, 1000, 2000 km, then
@@ -184,9 +189,10 @@ type DayScale struct {
 // GloTEC's foF2 by the typical offset; and where the seed was measured.
 type Offset struct {
 	LiveMHz, TypicalMHz, SpreadMHz float32
-	Measured                       bool // a live offset: GloTEC the background, five or more readings assimilated
-	Corrected                      bool // the no-readings correction is in use
-	Basis                          string
+	Measured                       bool   // a live offset: GloTEC the background, five or more readings assimilated
+	Corrected                      bool   // the no-readings correction is in use
+	Basis                          string // where the seed was measured, in words a listener can be told
+	Source                         string // the seed's citation, for a developer
 }
 
 // Apart is whether the live offset is more than two spreads from the

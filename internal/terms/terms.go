@@ -47,10 +47,12 @@ func All() []Source {
 			Cite: "Forsythe, V. V., et al. (2024), PyIRI: whole-globe approach to the International Reference Ionosphere modeling implemented in Python, Space Weather, 22, doi:10.1029/2023SW003739"},
 		{Name: "IGRF-14", Terms: "freely available from IAGA",
 			Cite: "IAGA Working Group V-MOD, the International Geomagnetic Reference Field, 14th generation (IGRF-14), coefficients as published by IAGA in igrf14coeffs.txt"},
-		{Name: "ITU-R P.533", Terms: "the published recommendation; no text reproduced, and no table but those taken from ITUHFProp"},
+		{Name: "ITU-R P.533", Terms: "the published recommendation; no text reproduced; Tables 2, 3 and 5 ported, as the NOTICE lists them"},
 		{Name: "ITUHFProp", Terms: "ITU-R Study Group 3's reference implementation of ITU-R P.533: \"may be used by implementers in their implementation of the Recommendation ... free from any copyright assertions\", as is, no warranty",
 			Cite: "ITU-R Study Group 3, ITURHFProp and the P533 library, github.com/ITU-R-Study-Group-3/ITU-R-HF"},
 		{Name: "P.1239", Terms: "the published recommendation; no text or tables reproduced"},
+		{Name: "P.372", Terms: "the published recommendation; no text reproduced; Table 1's man-made noise constants ported"},
+		{Name: "P.371", Terms: "the published recommendation; no text or tables reproduced"},
 	}
 }
 

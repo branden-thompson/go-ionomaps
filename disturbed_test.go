@@ -2,6 +2,8 @@ package ionomaps
 
 import (
 	"testing"
+
+	"github.com/branden-thompson/go-ionomaps/internal/grid"
 )
 
 // disturbed is a snapshot of foF2 7 MHz and MUF(3000) 21 everywhere, with
@@ -11,7 +13,7 @@ func disturbed(mhz, east float32) Snapshot {
 	s.Disturbance = newField()
 	for i := range s.Disturbance.Values {
 		s.Disturbance.Values[i] = mhz
-		if lon, _, _ := s.Disturbance.CellCentre(i%s.Disturbance.Cols, i/s.Disturbance.Cols); lon > -35 {
+		if _, lon := grid.Centre(i); lon > -35 {
 			s.Disturbance.Values[i] = east
 		}
 	}
@@ -50,20 +52,20 @@ func TestADisturbanceMarksTheBandsItCovers(t *testing.T) {
 		}
 	}
 	s := disturbed(8, 8)
-	area, err := s.Bands([]LatLon{{40, -100}}, 400, noonUTC)
+	area, err := s.Bands([]LatLon{{40, -100}}, 400)
 	if err != nil {
 		t.Fatal(err)
 	}
 	check("near-vertical, D-RAP 8", area[0].Bands, 8, 7) // foF2 7 is the area's upper limit
 	wide := disturbed(15, 15)
-	path, _ := wide.Path(LatLon{40, -100}, []LatLon{{40, -64.8}}, noonUTC)
-	muf, _, _ := wide.pathMUF(hourReader(wide.Hours[0]), LatLon{40, -100}, LatLon{40, -64.8}, newSunTrack(noonUTC))
+	path, _ := wide.Path(LatLon{40, -100}, []LatLon{{40, -64.8}})
+	muf, _, _ := wide.pathMUF(hourReader(wide.Now), LatLon{40, -100}, LatLon{40, -64.8}, newSunTrack(noonUTC))
 	check("a path, D-RAP 15", path[0].Bands, 15, muf)
 	if seen == 0 {
 		t.Fatal("no band was open under D-RAP: the test measures nothing")
 	}
 	far := disturbed(0, 15)
-	paths, _ := far.Path(LatLon{40, -100}, []LatLon{{40, -64.8}}, noonUTC)
+	paths, _ := far.Path(LatLon{40, -100}, []LatLon{{40, -64.8}})
 	check("a path wholly where D-RAP is 0", paths[0].Bands, 0, muf)
 	there := controlPlaces(LatLon{40, -100}, LatLon{40, 0}, 0.2)
 	back := controlPlaces(LatLon{40, 0}, LatLon{40, -100}, 0.2) // the disturbed control point first
@@ -78,7 +80,7 @@ func TestADisturbanceMarksTheBandsItCovers(t *testing.T) {
 		t.Errorf("D-RAP at 7.0 MHz: 60 m %v, 40 m (from 7.0) %v, 80 m absorbed %v; want disturbed, open, absorbed", edge[0].Status, edge[1].Status, edge[2].Status)
 	}
 	plain := flatSnapshot(noonUTC, 7, 21)
-	none, _ := plain.Bands([]LatLon{{40, -100}}, 400, noonUTC)
+	none, _ := plain.Bands([]LatLon{{40, -100}}, 400)
 	for _, b := range none[0].Bands {
 		if b.Status == Disturbed {
 			t.Errorf("no D-RAP: %v is disturbed", b.Band)
@@ -101,13 +103,13 @@ func statusOf(bands []BandStatus, b Band) Status {
 func TestEveryStatusNamesItsLimit(t *testing.T) {
 	s := disturbed(8, 15)
 	blank := flatSnapshot(noonUTC, 7, 21)
-	for i := range blank.Hours[0].FoF2.Values {
-		blank.Hours[0].FoF2.NoData.Set(i)
+	for i := range blank.Now.FoF2.Values {
+		blank.Now.FoF2.NoData.set(i)
 	}
 	var all []BandStatus
 	for _, snap := range []Snapshot{s, blank} {
-		a, _ := snap.Bands([]LatLon{{40, -100}, {40, 0}}, 400, noonUTC)
-		p, _ := snap.Path(LatLon{40, -100}, []LatLon{{40, -64.8}, {40, 0}}, noonUTC)
+		a, _ := snap.Bands([]LatLon{{40, -100}, {40, 0}}, 400)
+		p, _ := snap.Path(LatLon{40, -100}, []LatLon{{40, -64.8}, {40, 0}})
 		for _, x := range append(a, p...) {
 			all = append(all, x.Bands...)
 		}

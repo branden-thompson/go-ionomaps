@@ -21,12 +21,13 @@ func TestHoursAheadAreTheClimatology(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := s.Ahead(3)
+	a, err := s.Ahead(3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !h.At.Equal(s.Hours[0].At.Add(3 * time.Hour)) {
-		t.Errorf("hour 3 ahead is at %v; want %v", h.At, s.Hours[0].At.Add(3*time.Hour))
+	h := a.Now
+	if !h.At.Equal(s.Now.At.Add(3 * time.Hour)) {
+		t.Errorf("hour 3 ahead is at %v; want %v", h.At, s.Now.At.Add(3*time.Hour))
 	}
 	want := background.Build(h.At, float64(s.Inputs.F107Mean), nil)
 	for _, i := range []int{0, 4500, 16199} {
@@ -45,9 +46,10 @@ func TestHoursAheadAreTheClimatology(t *testing.T) {
 	}
 }
 
-// TestTheTypicalErrorCarriesItsBasis is R-1.3 (watchpost D-134): the
+// TestTheTypicalErrorCarriesItsBasis is R-1.3 (watchpost D-134, AX-3): the
 // snapshot carries the hours ahead's typical error by distance to the
-// nearest station, and where it was measured.
+// nearest station, and where it was measured - in words a listener can be
+// told, the citation apart.
 func TestTheTypicalErrorCarriesItsBasis(t *testing.T) {
 	l, n, _ := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
@@ -56,7 +58,13 @@ func TestTheTypicalErrorCarriesItsBasis(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := s.TypicalError
-	if len(e.Bands) != 4 || e.Bands[0] != (ionomaps.BandError{UpToKm: 500, FoF2MHz: 0.77, MUF3000MHz: 2.91}) || e.Bands[3] != (ionomaps.BandError{UpToKm: 0, FoF2MHz: 1.37, MUF3000MHz: 4.73}) || !strings.Contains(e.Basis, "D-181") { // D-61: re-measured with the unknown scores taken
+	if len(e.Bands) != 4 || e.Bands[0] != (ionomaps.BandError{UpToKm: 500, FoF2MHz: 0.77, MUF3000MHz: 2.91}) || e.Bands[3] != (ionomaps.BandError{UpToKm: 0, FoF2MHz: 1.37, MUF3000MHz: 4.73}) || !strings.Contains(e.Source, "D-181") || !listenable(e.Basis) { // D-61: re-measured with the unknown scores taken
 		t.Errorf("the typical error is %+v", e)
 	}
+}
+
+// listenable is whether words can be said to a listener as they are: no
+// ruling, file or setting a developer cites.
+func listenable(words string) bool {
+	return words != "" && !strings.ContainsAny(words, "()_=") && !strings.Contains(words, "D-") && !strings.Contains(words, ".py") && !strings.Contains(words, "watchpost")
 }

@@ -2,8 +2,10 @@ package glotec
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -82,7 +84,7 @@ func TestFoF2FromNmF2(t *testing.T) {
 // from the north, each west to east, with their foF2, hmF2 and quality, and
 // the grid's own valid time.
 func TestAGridIsReadIntoItsCells(t *testing.T) {
-	g, err := Decode(synthetic(t, func(lon, lat float64) float64 {
+	g, err := Read(synthetic(t, func(lon, lat float64) float64 {
 		return math.Pow((5+lat/30+lon/180)/8.98e-6, 2)
 	}), now)
 	if err != nil {
@@ -107,7 +109,7 @@ func TestAGridIsReadIntoItsCells(t *testing.T) {
 // hmF2 is past its physical bounds is marked without data, counted, and its
 // value never read; every value that leaves is finite.
 func TestOutOfRangeCellsAreRejectedAndCounted(t *testing.T) {
-	g, err := Decode(synthetic(t, func(lon, lat float64) float64 {
+	g, err := Read(synthetic(t, func(lon, lat float64) float64 {
 		switch {
 		case lon == -177.5 && lat == 88.75:
 			return 1e16 // foF2 of 898 MHz
@@ -142,7 +144,7 @@ func TestAChangedFormatIsAnError(t *testing.T) {
 		{"a point missing", dropPoint(t, good)},
 		{"a point repeated in another's place", repeatPoint(t, good)},
 	} {
-		_, err := Decode([]byte(c.doc), now)
+		_, err := Read([]byte(c.doc), now)
 		if err == nil {
 			t.Errorf("%s was accepted", c.what)
 			continue
@@ -193,7 +195,7 @@ func FuzzGloTECDecode(f *testing.F) {
 	f.Add(synthetic(f, flat))
 	f.Add([]byte(`{"type":"FeatureCollection","features":[],"time_tag":"2026-10-09T11:55:00Z"}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		g, err := Decode(data, now)
+		g, err := Read(data, now)
 		if err != nil {
 			return
 		}
@@ -217,7 +219,7 @@ func BenchmarkGloTECDecode(b *testing.B) {
 	b.SetBytes(int64(len(data)))
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := Decode(data, now); err != nil {
+		if _, err := Read(data, now); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -313,5 +315,30 @@ func BenchmarkGloTECNewest(b *testing.B) {
 		if _, _, ok := Newest(idx, now); !ok {
 			b.Fatal("no grid named")
 		}
+	}
+}
+
+// TestAGridOfTooManyPointsIsRefusedAsItIsRead is I-5: a body within the
+// byte bound holding far more points than GloTEC's 5184 is refused once the
+// count passes them, never read whole into memory first - a hostile 8 MB of
+// empty points would otherwise cost about a hundred megabytes.
+func TestAGridOfTooManyPointsIsRefusedAsItIsRead(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"time_tag":"2026-10-09T11:30:00Z","features":[{}`)
+	for b.Len() < maxBytes-16 {
+		b.WriteString(",{}")
+	}
+	b.WriteString("]}")
+	body := []byte(b.String())
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := Read(body, time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC))
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, errLayout) {
+		t.Errorf("a grid of %d bytes of empty points: %v; want the layout refused", len(body), err)
+	}
+	if used := after.TotalAlloc - before.TotalAlloc; used > 4<<20 {
+		t.Errorf("refusing it took %d MB", used>>20)
 	}
 }

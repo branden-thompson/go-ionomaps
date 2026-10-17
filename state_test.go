@@ -1,0 +1,139 @@
+package ionomaps_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"net/url"
+	"testing"
+	"time"
+
+	ionomaps "github.com/branden-thompson/go-ionomaps"
+)
+
+// restarted is a new library on the same NOAA and GIRO, as after the
+// host's restart, with the state given restored.
+func restarted(t *testing.T, n *noaa, c *clock, state []byte) *ionomaps.Library {
+	t.Helper()
+	l, err := ionomaps.New(n, ionomaps.Options{Clock: c.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Restore(state); err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
+// TestTheThrottleOutlivesARestart is R-5.8 (watchpost D-213): a library
+// restored from the state the last one exported asks GIRO nothing within
+// the hour of the last burst; past it, its burst asks each station from
+// the reading time held. A library given no state bursts at once.
+func TestTheThrottleOutlivesARestart(t *testing.T) {
+	l, n, c := giroLibrary(t)
+	update(t, l)
+	update(t, l)
+	asked, heardAt := len(n.giro.asks), c.Now().Add(-5*time.Minute)
+	state := l.State()
+	c.Add(5 * time.Minute)
+	again := restarted(t, n, c, state)
+	for range 5 {
+		if s := update(t, again); s.Reason == ionomaps.StationsNext {
+			t.Fatalf("restored within the hour, GIRO is due at %v", c.Now())
+		}
+		c.Add(10 * time.Minute)
+	}
+	if len(n.giro.asks) != asked {
+		t.Fatalf("restored within the hour, GIRO was asked %d times", len(n.giro.asks)-asked)
+	}
+	c.Add(10 * time.Minute)
+	if s := update(t, again); s.Reason != ionomaps.StationsNext {
+		t.Fatalf("past the hour the restored library's reason is %v", s.Reason)
+	}
+	update(t, again)
+	if len(n.giro.asks) != asked+40 {
+		t.Fatalf("the restored library's burst asked %d", len(n.giro.asks)-asked)
+	}
+	u, _ := url.Parse(n.giro.asks[asked])
+	if from := u.Query().Get("fromDate"); from != heardAt.UTC().Format("2006/01/02 15:04:05") {
+		t.Errorf("the restored burst asks from %s; want the reading time held, %v", from, heardAt)
+	}
+
+	fresh := restarted(t, n, c, nil)
+	if s := update(t, fresh); s.Reason != ionomaps.StationsNext {
+		t.Errorf("a library given no state: reason %v; want GIRO due", s.Reason)
+	}
+}
+
+// TestTheStateHoldsNoReading is watchpost D-213 and brief GC-2: the state
+// is times, a back-off and the rotation's places - never a reading, which
+// GIRO's terms keep from being stored.
+func TestTheStateHoldsNoReading(t *testing.T) {
+	l, _, _ := giroLibrary(t)
+	update(t, l)
+	update(t, l)
+	state := l.State()
+	if len(state) == 0 || bytes.Contains(state, []byte("7.5")) || bytes.Contains(state, []byte("3.4")) {
+		t.Errorf("the state is %s; it holds a reading's value", state)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(state, &keys); err != nil {
+		t.Fatal(err)
+	}
+	for k := range keys {
+		switch k {
+		case "v", "burst", "pause", "backoff", "seeded", "heard", "poll", "probe", "out":
+		default:
+			t.Errorf("the state carries %q", k)
+		}
+	}
+}
+
+// TestABadStateIsRefused is watchpost D-213 and R-3.3: a state that is not
+// one this library wrote, or that would hold GIRO back or ask it from the
+// future, is refused with ErrBadState and leaves the library as new; an
+// empty one, a first run's, restores nothing and is no error.
+func TestABadStateIsRefused(t *testing.T) {
+	l, n, c := giroLibrary(t)
+	update(t, l)
+	update(t, l)
+	good := l.State()
+	edit := func(key string, v any) []byte {
+		var m map[string]any
+		if err := json.Unmarshal(good, &m); err != nil {
+			t.Fatal(err)
+		}
+		m[key] = v
+		b, _ := json.Marshal(m)
+		return b
+	}
+	now := c.Now().Unix()
+	for name, state := range map[string][]byte{
+		"not JSON":                      []byte("{held"),
+		"another version":               edit("v", 2),
+		"too big":                       append(edit("out", []string{}), bytes.Repeat([]byte(" "), 70_000)...),
+		"a burst in the future":         edit("burst", now+3600),
+		"a pause past fifteen minutes":  edit("pause", now+3600),
+		"a back-off past fifteen":       edit("backoff", 3600),
+		"a station code not GIRO's":     edit("heard", map[string]int64{"al945": now - 60}),
+		"a station never seeded":        edit("heard", map[string]int64{"ZZ999": now - 60}),
+		"a reading time in the future":  edit("heard", map[string]int64{"AL945": now + 60}),
+		"a rotation place below zero":   edit("poll", -1),
+		"a left-out station not GIRO's": edit("out", []string{"../x"}),
+	} {
+		again, err := ionomaps.New(n, ionomaps.Options{Clock: c.Now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := again.Restore(state); !errors.Is(err, ionomaps.ErrBadState) {
+			t.Errorf("%s: restored with %v", name, err)
+			continue
+		}
+		if s := update(t, again); s.Reason != ionomaps.StationsNext {
+			t.Errorf("%s: after a refused state the reason is %v; want the library as new", name, s.Reason)
+		}
+	}
+	if err := restarted(t, n, c, good).Restore(nil); err != nil {
+		t.Errorf("an empty state: %v", err)
+	}
+}

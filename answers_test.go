@@ -4,6 +4,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/grid"
 )
 
 // flatSnapshot is a snapshot of one hour whose fields are the same in every
@@ -16,7 +18,7 @@ func flatSnapshot(at time.Time, fo, muf float32) Snapshot {
 		}
 		return f
 	}
-	return Snapshot{Computed: at, Hours: []Hour{{At: at.Truncate(time.Hour), FoF2: field(fo), MUF3000: field(muf)}}, Inputs: Inputs{F107Mean: 150}}
+	return Snapshot{Computed: at, Now: Hour{At: at, FoF2: field(fo), MUF3000: field(muf)}, Inputs: Inputs{F107Mean: 150}}
 }
 
 var noonUTC = time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
@@ -25,7 +27,7 @@ var noonUTC = time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 // at many places in one call, one reading each, in order.
 func TestReadingsForManyPointsInOneCall(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	got, err := s.At([]LatLon{{40, -100}, {-30, 150}, {0, 0}}, noonUTC.Add(20*time.Minute))
+	got, err := s.Readings([]LatLon{{40, -100}, {-30, 150}, {0, 0}})
 	if err != nil || len(got) != 3 {
 		t.Fatalf("%d readings, %v", len(got), err)
 	}
@@ -44,7 +46,7 @@ func TestEachBandsStatusForAPath(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	from := LatLon{Lat: 40, Lon: -100}
 	to := LatLon{Lat: 40, Lon: -64.8} // about 3000 km east along the parallel's great circle
-	got, err := s.Path(from, []LatLon{to}, noonUTC)
+	got, err := s.Path(from, []LatLon{to})
 	if err != nil || len(got) != 1 || len(got[0].Bands) != len(AllBands()) {
 		t.Fatalf("%v, %v", got, err)
 	}
@@ -67,7 +69,7 @@ func TestEachBandsStatusForAPath(t *testing.T) {
 			t.Errorf("%v under the MUF: %v by %v; open, or closed by the lower limit and named so", b.Band, b.Status, b.Limit)
 		}
 	}
-	near, _ := s.Path(from, []LatLon{{Lat: 40, Lon: -94}}, noonUTC) // about 500 km: its own hop, far shorter
+	near, _ := s.Path(from, []LatLon{{Lat: 40, Lon: -94}}) // about 500 km: its own hop, far shorter
 	if m := mufOf(near[0].Bands); m > 0.6*muf {
 		t.Errorf("a 500 km path's MUF %.2f is not well below the 3000 km path's %.2f", m, muf)
 	}
@@ -87,7 +89,7 @@ func mufOf(bands []BandStatus) float64 {
 // place takes its upper limit from foF2 there.
 func TestShortPathsUseFoF2(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	got, err := s.Bands([]LatLon{{37.7, -97.3}}, 400, noonUTC)
+	got, err := s.Bands([]LatLon{{37.7, -97.3}}, 400)
 	if err != nil || len(got) != 1 {
 		t.Fatalf("%v, %v", got, err)
 	}
@@ -112,12 +114,12 @@ func TestTheAnswersRefuseBadInput(t *testing.T) {
 		name string
 		err  error
 	}{
-		{"65 places", func() error { _, err := s.At(many, noonUTC); return err }()},
-		{"off the globe", func() error { _, err := s.At([]LatLon{{91, 0}}, noonUTC); return err }()},
-		{"no number", func() error { _, err := s.Path(LatLon{math.NaN(), 0}, []LatLon{{0, 0}}, noonUTC); return err }()},
-		{"no radius", func() error { _, err := s.Bands([]LatLon{{0, 0}}, 0, noonUTC); return err }()},
-		{"a radius past 2000 km", func() error { _, err := s.Bands([]LatLon{{0, 0}}, 2500, noonUTC); return err }()},
-		{"an hour not held", func() error { _, err := s.At([]LatLon{{0, 0}}, noonUTC.Add(3*time.Hour)); return err }()},
+		{"65 places", func() error { _, err := s.Readings(many); return err }()},
+		{"off the globe", func() error { _, err := s.Readings([]LatLon{{91, 0}}); return err }()},
+		{"no number", func() error { _, err := s.Path(LatLon{math.NaN(), 0}, []LatLon{{0, 0}}); return err }()},
+		{"no radius", func() error { _, err := s.Bands([]LatLon{{0, 0}}, 0); return err }()},
+		{"a radius past 2000 km", func() error { _, err := s.Bands([]LatLon{{0, 0}}, 2500); return err }()},
+		{"no field", func() error { _, err := (Snapshot{Computed: noonUTC}).Readings([]LatLon{{0, 0}}); return err }()},
 	} {
 		if c.err == nil {
 			t.Errorf("%s was answered", c.name)
@@ -129,10 +131,10 @@ func TestTheAnswersRefuseBadInput(t *testing.T) {
 // the bands say no data, never a guess.
 func TestAPlaceWithNoDataHasNoStatus(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	for i := range s.Hours[0].FoF2.Values {
-		s.Hours[0].FoF2.NoData.Set(i)
+	for i := range s.Now.FoF2.Values {
+		s.Now.FoF2.NoData.set(i)
 	}
-	got, err := s.Bands([]LatLon{{0, 0}}, 400, noonUTC)
+	got, err := s.Bands([]LatLon{{0, 0}}, 400)
 	if err != nil || got[0].Bands[0].Status != StatusNoData {
 		t.Errorf("a place with no foF2: %+v, %v", got, err)
 	}
@@ -148,11 +150,11 @@ func TestAPlaceWithNoDataHasNoStatus(t *testing.T) {
 func TestTheDaysOpenHours(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	day := noonUTC.Truncate(24 * time.Hour)
-	near, err := s.Bands([]LatLon{{37.7, -97.3}}, 400, noonUTC)
+	near, err := s.Bands([]LatLon{{37.7, -97.3}}, 400)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := s.Path(LatLon{37.7, -97.3}, []LatLon{{40.7, -74}}, noonUTC)
+	path, err := s.Path(LatLon{37.7, -97.3}, []LatLon{{40.7, -74}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,8 +169,8 @@ func TestTheDaysOpenHours(t *testing.T) {
 			}
 		}
 	}
-	upperOnly := func(lim func(typicalHour, *[24]typicalHour) hourLimits) func(typicalHour, *[24]typicalHour) hourLimits {
-		return func(t typicalHour, day *[24]typicalHour) hourLimits {
+	upperOnly := func(lim func(*typicalHour, *[24]typicalHour) hourLimits) func(*typicalHour, *[24]typicalHour) hourLimits {
+		return func(t *typicalHour, day *[24]typicalHour) hourLimits {
 			h := lim(t, day)
 			h.absorbed = notAbsorbed
 			return h
@@ -178,8 +180,8 @@ func TestTheDaysOpenHours(t *testing.T) {
 	withHours := func(open [][]Span) []BandStatus { return withOpenHours(statuses(1, true, LimitMUF), open) }
 	total := map[string]time.Duration{}
 	for name, bands := range map[string][]BandStatus{
-		"near-vertical": withHours(openHours(typical, upperOnly(s.areaLimit(LatLon{37.7, -97.3}, 400)))),
-		"a path":        withHours(openHours(typical, upperOnly(s.pathLimit(LatLon{37.7, -97.3}, LatLon{40.7, -74})))),
+		"near-vertical": withHours(openHours(&typical, upperOnly(s.areaLimit(LatLon{37.7, -97.3}, 400)))),
+		"a path":        withHours(openHours(&typical, upperOnly(s.pathLimit(LatLon{37.7, -97.3}, LatLon{40.7, -74})))),
 	} {
 		last := 25 * time.Hour
 		for _, b := range bands {
@@ -227,13 +229,13 @@ func partly(bands []BandStatus) bool {
 // withStations is a snapshot whose nearest station is near everywhere west
 // of 35°W and far, and unscored, east of it.
 func withStations(s Snapshot) Snapshot {
-	f := s.Hours[0].FoF2
+	f := s.Now.FoF2
 	s.NearestKm, s.NearestUnscored = make([]float32, len(f.Values)), newBitset(len(f.Values))
 	for i := range s.NearestKm {
 		s.NearestKm[i] = 100
-		if lon, _, _ := f.CellCentre(i%f.Cols, i/f.Cols); lon > -35 {
+		if _, lon := grid.Centre(i); lon > -35 {
 			s.NearestKm[i] = 3000
-			s.NearestUnscored.Set(i)
+			s.NearestUnscored.set(i)
 		}
 	}
 	return s
@@ -248,46 +250,46 @@ func withStations(s Snapshot) Snapshot {
 func TestAnswersCarryTheNearestStationDistance(t *testing.T) {
 	s := withStations(flatSnapshot(noonUTC, 7, 21))
 	near, far := LatLon{40, -100}, LatLon{40, 0}
-	at, err := s.At([]LatLon{near, far}, noonUTC)
+	at, err := s.Readings([]LatLon{near, far})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if at[0].Nearest != (Nearest{Km: 100, Known: true}) || at[1].Nearest != (Nearest{Km: 3000, Unscored: true, Known: true}) {
 		t.Errorf("At: %+v and %+v; want 100 km scored, 3000 km unscored", at[0].Nearest, at[1].Nearest)
 	}
-	bands, err := s.Bands([]LatLon{near, far}, 400, noonUTC)
+	bands, err := s.Bands([]LatLon{near, far}, 400)
 	if err != nil || bands[0].Nearest.Km != 100 || bands[1].Nearest != at[1].Nearest || len(bands[0].Bands) != len(AllBands()) {
 		t.Errorf("Bands: %+v, %+v (%v); want each origin's own", bands[0].Nearest, bands[1].Nearest, err)
 	}
-	paths, err := s.Path(near, []LatLon{{40, -64.8}, far}, noonUTC)
+	paths, err := s.Path(near, []LatLon{{40, -64.8}, far})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if paths[0].Nearest.Km != 100 || paths[0].Nearest.Unscored {
 		t.Errorf("a path wholly west of 35°W: %+v; want 100 km, scored", paths[0].Nearest)
 	}
-	if mid, _ := s.At([]LatLon{{56, -50}}, noonUTC); mid[0].Nearest.Km != 100 { // the long path's middle, near a station
+	if mid, _ := s.Readings([]LatLon{{56, -50}}); mid[0].Nearest.Km != 100 { // the long path's middle, near a station
 		t.Fatalf("the long path's middle reads %+v; the test needs it near a station", mid[0].Nearest)
 	}
 	if paths[1].Nearest != (Nearest{Km: 3000, Unscored: true, Known: true}) {
 		t.Errorf("a path whose far control point is 3000 km from any station: %+v; want that point's", paths[1].Nearest)
 	}
 	blank := withStations(flatSnapshot(noonUTC, 7, 21))
-	for i := range blank.Hours[0].FoF2.Values {
-		blank.Hours[0].FoF2.NoData.Set(i)
+	for i := range blank.Now.FoF2.Values {
+		blank.Now.FoF2.NoData.set(i)
 	}
-	if p, _ := blank.Path(near, []LatLon{far}, noonUTC); p[0].Nearest.Km != 100 || p[0].Bands[0].Status != StatusNoData {
+	if p, _ := blank.Path(near, []LatLon{far}); p[0].Nearest.Km != 100 || p[0].Bands[0].Status != StatusNoData {
 		t.Errorf("a path with no value at its middle: %+v, %v; want its middle's nearest, 100 km, and no data", p[0].Nearest, p[0].Bands[0].Status)
 	}
 	on := withStations(flatSnapshot(noonUTC, 7, 21))
 	clear(on.NearestKm) // a station at every cell's centre
-	if p, _ := on.Path(near, []LatLon{far}, noonUTC); p[0].Nearest != (Nearest{Km: 0, Unscored: p[0].Nearest.Unscored, Known: true}) {
+	if p, _ := on.Path(near, []LatLon{far}); p[0].Nearest != (Nearest{Km: 0, Unscored: p[0].Nearest.Unscored, Known: true}) {
 		t.Errorf("a path whose control points each sit on a station: %+v; want known, 0 km", p[0].Nearest)
 	}
 	plain := flatSnapshot(noonUTC, 7, 21)
-	a, _ := plain.At([]LatLon{near}, noonUTC)
-	b, _ := plain.Bands([]LatLon{near}, 400, noonUTC)
-	p, _ := plain.Path(near, []LatLon{far}, noonUTC)
+	a, _ := plain.Readings([]LatLon{near})
+	b, _ := plain.Bands([]LatLon{near}, 400)
+	p, _ := plain.Path(near, []LatLon{far})
 	if a[0].Nearest != (Nearest{}) || b[0].Nearest != (Nearest{}) || p[0].Nearest != (Nearest{}) {
 		t.Errorf("no station assimilated, and one is known: %+v, %+v, %+v", a[0].Nearest, b[0].Nearest, p[0].Nearest)
 	}

@@ -18,11 +18,15 @@ type giroSide struct {
 	asks     []string               // the URLs asked, in order
 	rows     map[string][]time.Time // a station's readings, when set
 	refuse   int                    // the ask, counting from 1, answered 429
+	retry    string                 // the Retry-After that 429 carries, when set
 	cancel   func()                 // called at the ask refuse names, in place of refusing
 	silent   map[string]bool        // stations that answer with no reading
 	speak    bool                   // stations answer with readings; NOAA's own tests leave it off
 	score    map[string]string      // a station's confidence score, 95 when unset
 	speakers int                    // when set, only the first this many asks give readings
+	at       time.Time              // when set, every station's one reading is at this time
+	truncate bool                   // every reply cut in half
+	reformat bool                   // every reply a page that is no reply
 }
 
 // giroAnswer answers one GIRO ask: the station's reply in FastChar's
@@ -35,7 +39,7 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 			g.cancel()
 			return ionomaps.Response{}, context.Canceled
 		}
-		return ionomaps.Response{Status: 429}, nil
+		return ionomaps.Response{Status: 429, Rate: ionomaps.RateHeaders{RetryAfter: g.retry}}, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return ionomaps.Response{}, err
@@ -45,6 +49,9 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 	body := "# Location: " + "GEO" + " ( " + placeOf(code) + " ), URSI-Code " + code + ", A STATION\n" +
 		"# Time                    " + "CS" + "   foF2 " + "QD M(D) QD\n"
 	times := []time.Time{n.clock.Now().Add(-5 * time.Minute)}
+	if !g.at.IsZero() {
+		times = []time.Time{g.at}
+	}
 	if t, ok := g.rows[code]; ok {
 		times = t
 	}
@@ -56,6 +63,12 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 		for _, at := range times {
 			body += at.UTC().Format("2006-01-02T15:04:05.000Z") + "  " + score + "  7.500 // 3.40 //\n"
 		}
+	}
+	switch {
+	case g.reformat:
+		body = "<html><body>This page has moved.</body></html>\n"
+	case g.truncate:
+		body = body[:len(body)/2]
 	}
 	return ionomaps.Response{Status: 200, Body: []byte(body)}, nil
 }
@@ -106,12 +119,12 @@ func update(t *testing.T, l *ionomaps.Library) ionomaps.Snapshot {
 func TestNOAAComesFirstThenTheStations(t *testing.T) {
 	l, n, _ := giroLibrary(t)
 	first := update(t, l)
-	if first.Early != ionomaps.StationsNext || len(n.giro.asks) != 0 {
-		t.Fatalf("the first update: reason %v and %d GIRO asks; want StationsNext and none", first.Early, len(n.giro.asks))
+	if first.Reason != ionomaps.StationsNext || len(n.giro.asks) != 0 {
+		t.Fatalf("the first update: reason %v and %d GIRO asks; want StationsNext and none", first.Reason, len(n.giro.asks))
 	}
 	second := update(t, l)
-	if second.Early != ionomaps.Fresh || len(n.giro.asks) != 40 {
-		t.Errorf("the second update: reason %v and %d GIRO asks; want fresh and 40 (39 and the probe)", second.Early, len(n.giro.asks))
+	if second.Reason != ionomaps.Fresh || len(n.giro.asks) != 40 {
+		t.Errorf("the second update: reason %v and %d GIRO asks; want fresh and 40 (39 and the probe)", second.Reason, len(n.giro.asks))
 	}
 	if held, _ := ionomaps.HeldReadings(l); held != 40 {
 		t.Errorf("%d stations' readings held; every station asked answered one", held)
@@ -127,7 +140,7 @@ func TestGIROIsNeverAskedMoreThanHourly(t *testing.T) {
 	asked := len(n.giro.asks)
 	for range 5 {
 		c.Add(10 * time.Minute)
-		if s := update(t, l); s.Early == ionomaps.StationsNext {
+		if s := update(t, l); s.Reason == ionomaps.StationsNext {
 			t.Fatal("GIRO said due within the hour of its burst")
 		}
 	}
@@ -135,8 +148,8 @@ func TestGIROIsNeverAskedMoreThanHourly(t *testing.T) {
 		t.Errorf("%d GIRO asks within the hour after the burst", len(n.giro.asks)-asked)
 	}
 	c.Add(11 * time.Minute)
-	if s := update(t, l); s.Early != ionomaps.StationsNext {
-		t.Errorf("an hour after the burst the update is %v; GIRO is due", s.Early)
+	if s := update(t, l); s.Reason != ionomaps.StationsNext {
+		t.Errorf("an hour after the burst the update is %v; GIRO is due", s.Reason)
 	}
 }
 
@@ -199,7 +212,7 @@ func TestA429IsSeenByTheLibraryNotRetried(t *testing.T) {
 		t.Errorf("a refusal at the third ask left %d asked; the burst stops there", len(n.giro.asks))
 	}
 	c.Add(10 * time.Minute)
-	if s := update(t, l); s.Early == ionomaps.StationsNext {
+	if s := update(t, l); s.Reason == ionomaps.StationsNext {
 		t.Error("GIRO said due within its hour after a refused burst")
 	}
 }
@@ -217,8 +230,78 @@ func TestACancelledBurstSpendsTheHoursBudget(t *testing.T) {
 		t.Errorf("the burst went on after the host cancelled it: %d asks", asked)
 	}
 	c.Add(10 * time.Minute)
-	if s := update(t, l); s.Early == ionomaps.StationsNext || len(n.giro.asks) != asked {
+	if s := update(t, l); s.Reason == ionomaps.StationsNext || len(n.giro.asks) != asked {
 		t.Error("a cancelled burst gave its hour back")
+	}
+}
+
+// TestABurstStoppedBeforeItsFirstAskKeepsTheHour is R-5.3 and L-F4: a
+// burst whose context has ended before its first ask asks GIRO nothing, so
+// it spends no hour - the next update makes the burst - and the snapshot is
+// said Unfinished.
+func TestABurstStoppedBeforeItsFirstAskKeepsTheHour(t *testing.T) {
+	l, n, _ := giroLibrary(t)
+	update(t, l)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s, err := l.Update(ctx, ionomaps.UpdateOptions{})
+	if err != nil || s.Reason != ionomaps.Unfinished || len(n.giro.asks) != 0 {
+		t.Fatalf("a burst stopped before it began: reason %v, %d asks (%v)", s.Reason, len(n.giro.asks), err)
+	}
+	if s := update(t, l); s.Reason != ionomaps.Fresh || len(n.giro.asks) != 40 {
+		t.Errorf("the next update: reason %v, %d GIRO asks; want the burst", s.Reason, len(n.giro.asks))
+	}
+}
+
+// TestNoStationsAsksGIRONothing is R-9.9 (watchpost D-214): with the "no
+// stations" option GIRO is never asked and no station's reading is on the
+// field - NOAA's and the climatology's alone, said by choice - however many
+// hours go by; set after a burst, the readings held leave the field with no
+// request, and cleared, they come back with none.
+func TestNoStationsAsksGIRONothing(t *testing.T) {
+	none := ionomaps.UpdateOptions{NoStations: true}
+	l, n, c := giroLibrary(t)
+	for range 13 {
+		s, err := l.Update(context.Background(), none)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Reason == ionomaps.StationsNext || !s.Inputs.NoStations || s.Inputs.Stations != 0 || len(s.NearestKm) != 0 {
+			t.Fatalf("with no stations: reason %v, said %v, %d stations, %d distances", s.Reason, s.Inputs.NoStations, s.Inputs.Stations, len(s.NearestKm))
+		}
+		c.Add(10 * time.Minute)
+	}
+	if len(n.giro.asks) != 0 {
+		t.Fatalf("GIRO asked %d times with no stations", len(n.giro.asks))
+	}
+
+	l, n, _ = giroLibrary(t)
+	if s := update(t, l); s.Reason != ionomaps.StationsNext {
+		t.Fatalf("control: the first update's reason is %v", s.Reason)
+	}
+	if _, err := l.Update(context.Background(), none); err != nil || len(n.giro.asks) != 0 {
+		t.Fatalf("no stations set after StationsNext: %d GIRO asks (%v)", len(n.giro.asks), err)
+	}
+
+	l, n, _ = giroLibrary(t)
+	first := update(t, l)
+	with := update(t, l)
+	asked := len(n.giro.asks)
+	if with.Inputs.Stations == 0 || with.Inputs.NoStations {
+		t.Fatalf("control: the burst assimilated %d stations", with.Inputs.Stations)
+	}
+	without, err := l.Update(context.Background(), none)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := without.Readings([]ionomaps.LatLon{seededAt})
+	g, _ := first.Readings([]ionomaps.LatLon{seededAt})
+	if without.Inputs.Stations != 0 || !without.Inputs.NoStations || r[0].FoF2 != g[0].FoF2 || len(n.giro.asks) != asked {
+		t.Errorf("no stations set after a burst: %d stations, foF2 %v at the seeded station (GloTEC's %v), %d new asks", without.Inputs.Stations, r[0].FoF2, g[0].FoF2, len(n.giro.asks)-asked)
+	}
+	back := update(t, l)
+	if back.Inputs.Stations == 0 || back.Inputs.NoStations || len(n.giro.asks) != asked {
+		t.Errorf("no stations cleared: %d stations, %d new asks", back.Inputs.Stations, len(n.giro.asks)-asked)
 	}
 }
 
@@ -242,8 +325,8 @@ func TestOldReadingsAreLetGo(t *testing.T) {
 	update(t, l)
 	c.Add(73 * time.Hour)
 	n.list(t, c.Now().Add(-30*time.Minute), 7)
-	if s := update(t, l); s.Early != ionomaps.StationsNext {
-		t.Fatalf("three days on, the update is %v; GIRO is due", s.Early)
+	if s := update(t, l); s.Reason != ionomaps.StationsNext {
+		t.Fatalf("three days on, the update is %v; GIRO is due", s.Reason)
 	}
 	if held, _ := ionomaps.HeldReadings(l); held != 0 {
 		t.Errorf("%d readings three days old still held", held)
@@ -258,15 +341,15 @@ var seededAt = ionomaps.LatLon{Lat: 45.1, Lon: -83.6}
 // GloTEC's 7 - the snapshot says how many were used and how old the oldest
 // is, and every cell how far its nearest station is.
 func TestStationsAreAssimilatedIntoTheField(t *testing.T) {
-	l, _, c := giroLibrary(t)
+	l, _, _ := giroLibrary(t)
 	before := update(t, l)
 	after := update(t, l)
-	b, _ := before.At([]ionomaps.LatLon{seededAt}, c.Now())
-	a, _ := after.At([]ionomaps.LatLon{seededAt}, c.Now())
+	b, _ := before.Readings([]ionomaps.LatLon{seededAt})
+	a, _ := after.Readings([]ionomaps.LatLon{seededAt})
 	if !(a[0].FoF2 > b[0].FoF2+0.2) {
 		t.Errorf("foF2 at Alpena is %v before the burst and %v after; its reading is 7.5 over GloTEC's 7", b[0].FoF2, a[0].FoF2)
 	}
-	if after.Inputs.Stations != 40 || after.Inputs.OldestReading.IsZero() || len(after.NearestKm) != len(after.Hours[0].FoF2.Values) {
+	if after.Inputs.Stations != 40 || after.Inputs.OldestReading.IsZero() || len(after.NearestKm) != len(after.Now.FoF2.Values) {
 		t.Errorf("after the burst: %d stations, oldest %v, %d distances", after.Inputs.Stations, after.Inputs.OldestReading, len(after.NearestKm))
 	}
 	if before.Inputs.Stations != 0 || before.NearestKm != nil {
@@ -302,7 +385,7 @@ func TestAnUnscoredStationIsSaid(t *testing.T) {
 	update(t, l)
 	s := update(t, l)
 	cell := func(p ionomaps.LatLon) int {
-		f := s.Hours[0].FoF2
+		f := s.Now.FoF2
 		row := int((f.North - p.Lat) / (f.North - f.South) * float64(f.Rows))
 		col := int((p.Lon - f.West) / (f.East - f.West) * float64(f.Cols))
 		return row*f.Cols + col
@@ -313,7 +396,7 @@ func TestAnUnscoredStationIsSaid(t *testing.T) {
 	if s.NearestUnscored.Has(cell(ionomaps.LatLon{Lat: 50.1, Lon: 4.6})) {
 		t.Error("Dourbes' cell, its nearest station scored, is marked")
 	}
-	r, err := s.At([]ionomaps.LatLon{seededAt, {Lat: 50.1, Lon: 4.6}}, s.Computed)
+	r, err := s.Readings([]ionomaps.LatLon{seededAt, {Lat: 50.1, Lon: 4.6}})
 	if err != nil || !r[0].Nearest.Unscored || r[1].Nearest.Unscored || !r[0].Nearest.Known || r[0].Nearest.Km > 200 {
 		t.Errorf("the answers at Alpena and Dourbes: %+v, %+v (%v); want Alpena's unscored and near, Dourbes' scored", r[0].Nearest, r[1].Nearest, err)
 	}

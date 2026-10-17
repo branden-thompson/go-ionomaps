@@ -14,7 +14,9 @@
 #   scripts/gate --fuzz     the fuzz legs alone
 #
 # Settings, each written on the run's log line when given:
-#   GATE_FUZZ_TIME=D        how long each fuzz target runs (30s by default)
+#   GATE_FUZZ_EXECS=Nx      how many runs each fuzz target makes (FUZZ_EXECS
+#                           below by default): a count, not a time (H-11)
+#   GATE_FUZZ_LIMIT=S       the wall-clock seconds a fuzz leg may take (600)
 #
 # EVERY RUN IS LOGGED to 06_docs/gate-runs.md when that file exists: HEAD, the
 # git tree that was tested (this log left out), the mode, the result (and the
@@ -29,7 +31,31 @@ cd "$root" || exit 2
 
 GOVULNCHECK_PIN="v1.8.0"
 TARGETS="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
-FUZZ_TIME="${GATE_FUZZ_TIME:-30s}"
+
+# THE FUZZ BUDGET IS A COUNT OF RUNS, NOT A STRETCH OF TIME (watchpost H-11,
+# as go-tuiMaps' gate D-9): with `-fuzztime <duration>` the engine can report
+# its own deadline as a failure. A count has no wall clock, so each fuzz leg
+# also runs under FUZZ_LIMIT seconds and fails as TIME LIMIT past them.
+# THE COUNT IS PER TARGET, the targets differing by thousands of times in
+# runs a second; a target with no row runs the default, named. GATE_FUZZ_EXECS
+# sets every target's count.
+fuzz_execs() {
+  [ -n "${GATE_FUZZ_EXECS:-}" ] && { echo "$GATE_FUZZ_EXECS"; return; }
+  case "$1" in
+    FuzzAnswersNeverReturnNaN) echo "40000x" ;; # about a minute (2026-10-17, Apple M5 Pro)
+    FuzzAReachNeverReturnsNaN) echo "1500x" ;; # a reach is the whole globe's circuits; about a minute (2026-10-17, Apple M5 Pro)
+    *)                         echo "$FUZZ_EXECS_DEFAULT" ;;
+  esac
+}
+FUZZ_EXECS_DEFAULT="200000x"
+FUZZ_EXECS="${GATE_FUZZ_EXECS:-$FUZZ_EXECS_DEFAULT}"
+FUZZ_LIMIT="${GATE_FUZZ_LIMIT:-600}"
+case "$FUZZ_EXECS" in
+  *[!0-9x]*|x|''|*x*x*|*[!x]) echo "gate: GATE_FUZZ_EXECS must be a count of runs such as 200000x, not '$FUZZ_EXECS'"; exit 2 ;;
+esac
+case "$FUZZ_LIMIT" in
+  ''|*[!0-9]*|0) echo "gate: GATE_FUZZ_LIMIT must be a whole number of seconds above zero, not '$FUZZ_LIMIT'"; exit 2 ;;
+esac
 
 quick=0 docs=0 fuzzonly=0 modes=0
 for arg in "$@"; do
@@ -54,6 +80,7 @@ export GOTOOLCHAIN="${GOTOOLCHAIN:-$FLOOR_TOOLCHAIN}"
 export GOFLAGS="${GOFLAGS:--mod=readonly}"
 
 failures=""
+p10_not_run=""
 started_at=$SECONDS
 pass() { echo "  ok      $1"; }
 fail() { echo "  FAILED  $1"; failures="${failures}  FAILED  $1"$'\n'; }
@@ -67,6 +94,57 @@ leg() {
     fail "$name [$((SECONDS - started))s]"
     printf '%s\n' "$out" | sed 's/^/          /'
   fi
+}
+
+# limited runs a command under a wall-clock limit in seconds, its process
+# group ended at the limit: TIME LIMIT, exit 124. The watchdog ends its own
+# sleep when the command finishes first, so no sleep outlives the leg holding
+# the leg's output open (go-tuiMaps' gate, as it is there).
+limited() {
+  local limit="$1" pid dog rc dogrc
+  shift
+  perl -e 'setpgrp(0, 0); exec { $ARGV[0] } @ARGV or die "cannot run $ARGV[0]: $!\n"' -- "$@" &
+  pid=$!
+  (
+    fired=0
+    nap=""
+    trap 'if [ "$fired" = 0 ]; then [ -n "$nap" ] && kill "$nap" 2>/dev/null; exit 0; fi' TERM
+    sleep "$limit" &
+    nap=$!
+    wait "$nap"
+    if kill -0 "$pid" 2>/dev/null; then
+      fired=1
+      kill -TERM -- "-$pid" 2>/dev/null
+      sleep 5 &
+      nap=$!
+      wait "$nap" || wait "$nap"
+      kill -KILL -- "-$pid" 2>/dev/null
+      exit 124
+    fi
+    exit 0
+  ) &
+  dog=$!
+  wait "$pid"
+  rc=$?
+  kill -TERM "$dog" 2>/dev/null
+  wait "$dog"
+  dogrc=$?
+  if [ "$dogrc" = 124 ]; then
+    echo "TIME LIMIT: stopped after ${limit}s of wall-clock time - slow or stalled, it did not finish (GATE_FUZZ_LIMIT overrides it)"
+    return 124
+  fi
+  return "$rc"
+}
+
+# scanner_is_pinned reports whether the govulncheck on PATH was built from the
+# pinned module version, read from the binary's own build record, with no
+# call to the vulnerability database ("govulncheck -version" asks it, and an
+# unreachable one hides the version line; go-tuiMaps' gate).
+scanner_is_pinned() {
+  local bin record
+  bin="$(command -v govulncheck)" || return 1
+  record="$(GOTOOLCHAIN=local go version -m "$bin" 2>/dev/null)" || return 1
+  printf '%s\n' "$record" | awk -v pin="$GOVULNCHECK_PIN" '$1 == "mod" && $2 == "golang.org/x/vuln" && $3 == pin { found = 1 } END { exit !found }'
 }
 
 # gofmt_clean fails, naming the files, when gofmt would change any Go file
@@ -103,7 +181,9 @@ log_run() {
   why="$(printf '%s' "$failures" | sed -n 's/^  FAILED  \(.*\) \[[0-9]*s\]$/\1/p; s/^  FAILED  \([^[]*\)$/\1/p' | paste -sd ';' - | sed 's/;/; /g')"
   [ -n "$why" ] && result="FAILED: $why"
   [ "$rc" = 0 ] && result="green"
-  [ -n "${GATE_FUZZ_TIME:-}" ] && overrides="GATE_FUZZ_TIME=$GATE_FUZZ_TIME"
+  [ "$rc" = 0 ] && [ -n "$p10_not_run" ] && result="green without P10: $p10_not_run not run"
+  overrides="$( { [ -n "${GATE_FUZZ_EXECS:-}" ] && printf 'GATE_FUZZ_EXECS=%s ' "$GATE_FUZZ_EXECS"; [ -n "${GATE_FUZZ_LIMIT:-}" ] && printf 'GATE_FUZZ_LIMIT=%s' "$GATE_FUZZ_LIMIT"; } | sed 's/ $//')"
+  [ -z "$overrides" ] && overrides="-"
   printf '| %s | %s | %s | %s | %s | %s | %s |\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse --short HEAD 2>/dev/null || echo none)" \
     "$(tested_tree || echo unknown)" "$mode" "$result" "$((SECONDS - started_at))" "$overrides" >> 06_docs/gate-runs.md
 }
@@ -138,7 +218,7 @@ if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ]; then
   done
 fi
 
-# --- fuzzing: every target, each for FUZZ_TIME ---------------------------------
+# --- fuzzing: every target, each for FUZZ_EXECS runs ----------------------------
 if [ "$docs" = 0 ] && { [ "$quick" = 0 ] || [ "$fuzzonly" = 1 ]; }; then
   if ! listed="$(go test -list '^Fuzz' ./... 2>&1)"; then
     fail "the fuzz targets cannot be listed"
@@ -148,17 +228,17 @@ if [ "$docs" = 0 ] && { [ "$quick" = 0 ] || [ "$fuzzonly" = 1 ]; }; then
     for dir in $(go list -f '{{.Dir}}' ./...); do
       for target in $(cd "$dir" && go test -list '^Fuzz' . 2>/dev/null | grep '^Fuzz'); do
         count=$((count + 1))
-        leg "fuzz $target, $FUZZ_TIME" go test -run '^$' -fuzz "^${target}\$" -fuzztime "$FUZZ_TIME" "$dir"
+        execs="$(fuzz_execs "$target")"
+        leg "fuzz $target, $execs" limited "$FUZZ_LIMIT" go test -run '^$' -fuzz "^${target}\$" -fuzztime "$execs" "$dir"
       done
     done
-    [ "$fuzzonly" = 1 ] && [ "$count" = 0 ] && fail "the fuzz lane found no fuzz target to run"
-    [ "$count" = 0 ] && echo "  note    no fuzz target yet"
+    [ "$count" = 0 ] && fail "no fuzz target was found to run: the module's targets cannot be missing"
   fi
 fi
 
 # --- the full lane's slow legs --------------------------------------------------
 if [ "$mode" = "full" ]; then
-  if command -v govulncheck >/dev/null 2>&1 && govulncheck -version 2>/dev/null | grep -q "govulncheck@$GOVULNCHECK_PIN"; then
+  if scanner_is_pinned; then
     leg "vulnerability scan, govulncheck $GOVULNCHECK_PIN, at the floor, $FLOOR_TOOLCHAIN" env GOTOOLCHAIN="$FLOOR_TOOLCHAIN" govulncheck ./...
   else
     fail "govulncheck $GOVULNCHECK_PIN is not on PATH: go install golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_PIN"
@@ -169,7 +249,6 @@ if [ "$mode" = "full" ]; then
 fi
 
 # --- P10, where the harness is set up -------------------------------------------
-p10_not_run=""
 if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ]; then
   if ! command -v a2dh >/dev/null 2>&1; then
     p10_not_run="the P10 check (a2dh is not on PATH)"
@@ -189,6 +268,9 @@ if [ -n "$failures" ]; then
   exit 1
 fi
 log_run 0
+if [ -n "$p10_not_run" ]; then
+  echo "gate: green without P10 - NOT RUN on this machine, and not assumed: $p10_not_run."
+  exit 0
+fi
 echo "gate: green"
-[ -n "$p10_not_run" ] && echo "NOT RUN on this machine, and not assumed: $p10_not_run."
 exit 0

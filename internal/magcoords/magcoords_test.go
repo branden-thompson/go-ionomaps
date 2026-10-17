@@ -122,7 +122,7 @@ func TestOurCoordinatesAgreeWithApex(t *testing.T) {
 		if d := math.Abs(math.Mod(ql-p[3]+540, 360)-180) * math.Cos(p[2]*math.Pi/180); d > 0.5 {
 			t.Errorf("%v, %v: QD longitude %.3f; Apex.nc %.3f", p[0], p[1], ql, p[3])
 		}
-		ours := muf(qd, MLT(ql, at), at)
+		ours := muf(qd, MLTFrom(ql, SubsolarQD(at)), at)
 		theirs := muf(p[2], p[5], at)
 		dmuf = append(dmuf, math.Abs(ours-theirs))
 	}
@@ -154,9 +154,9 @@ func TestOurMLTAgreesWithPyIRI(t *testing.T) {
 		at := june1.Add(time.Duration(h) * time.Hour)
 		for _, p := range s.points {
 			_, ql, _ := QD(p[0], p[1], at)
-			d := math.Abs(math.Mod(MLT(ql, at)-p[4+i]+36, 24)-12) * 15 * math.Cos(p[2]*math.Pi/180)
+			d := math.Abs(math.Mod(MLTFrom(ql, SubsolarQD(at))-p[4+i]+36, 24)-12) * 15 * math.Cos(p[2]*math.Pi/180)
 			if d > 0.6 {
-				t.Errorf("%v, %v at %02d UT: MLT %.3f h; PyIRI %.3f h", p[0], p[1], h, MLT(ql, at), p[4+i])
+				t.Errorf("%v, %v at %02d UT: MLT %.3f h; PyIRI %.3f h", p[0], p[1], h, MLTFrom(ql, SubsolarQD(at)), p[4+i])
 			}
 		}
 	}

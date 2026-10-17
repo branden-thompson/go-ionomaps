@@ -20,7 +20,7 @@ func expected(row, col int) (fo, m3 float64) {
 	lat, lon := 89-2*float64(row), -179+2*float64(col)
 	qdlat, qdlon, _ := magcoords.QD(lat, lon, noon)
 	h := climatology.NewHour(climatology.Refits(), noon, 150)
-	return h.At(qdlat, magcoords.MLT(qdlon, noon))
+	return h.At(qdlat, magcoords.MLTFrom(qdlon, magcoords.SubsolarQD(noon)))
 }
 
 // flatGloTEC is a GloTEC grid whose foF2 rises with latitude, 5 MHz at the
@@ -72,7 +72,7 @@ func TestEveryCellIsTheClimatologyAtItsCentre(t *testing.T) {
 	for i := range grid.Cells {
 		lat, lon := 89-2*float64(i/180), -179+2*float64(i%180)
 		qdlat, qdlon, _ := magcoords.QD(lat, lon, noon)
-		fo, m3 := h.At(qdlat, magcoords.MLT(qdlon, noon))
+		fo, m3 := h.At(qdlat, magcoords.MLTFrom(qdlon, magcoords.SubsolarQD(noon)))
 		if b.FoF2[i] != float32(fo) || b.M3000[i] != float32(m3) {
 			t.Fatalf("cell %d: %v, %v; the climatology at its centre gives %v, %v", i, b.FoF2[i], b.M3000[i], float32(fo), float32(m3))
 		}

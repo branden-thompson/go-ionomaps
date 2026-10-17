@@ -15,7 +15,8 @@ const (
 	seedSpreadMHz = 0.225
 	seedUpdates   = 56
 	liveReadings  = 5
-	offsetBasis   = "the live offset over PLAN's week, 56 updates, mean -0.51 MHz, SD 0.23 (watchpost D-105; go-ionomaps 02-analysis/evidence/offset.py)"
+	offsetBasis   = "GIRO's stations against GloTEC over a week in early October 2026"
+	offsetSource  = "the live offset over PLAN's week, 56 updates, mean -0.51 MHz, SD 0.23 (watchpost D-105; go-ionomaps 02-analysis/evidence/offset.py)"
 )
 
 // typicalOffset is the typical offset learned so far: a running mean and
@@ -49,7 +50,7 @@ func (o *typicalOffset) learn(live float64, newest time.Time) {
 // offset is the snapshot's Offset: the live offset when measured, the
 // typical offset and its spread.
 func (o typicalOffset) offset(live float64, measured, corrected bool) Offset {
-	s := Offset{TypicalMHz: float32(o.mean), SpreadMHz: float32(math.Sqrt(o.sum / o.n)), Measured: measured, Corrected: corrected, Basis: offsetBasis}
+	s := Offset{TypicalMHz: float32(o.mean), SpreadMHz: float32(math.Sqrt(o.sum / o.n)), Measured: measured, Corrected: corrected, Basis: offsetBasis, Source: offsetSource}
 	if measured {
 		s.LiveMHz = float32(live)
 	}

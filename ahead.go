@@ -12,28 +12,36 @@ const maxAhead = 24
 
 var errNotAhead = errors.New("ionomaps: an hour ahead is from 1 to 24")
 
-// Ahead is the hour k hours after the snapshot's, 1 to 24, built when asked
-// (D-60): the climatology's foF2 and M(3000)F2 at the snapshot's F10.7 mean,
-// MUF(3000) their product, marked typical - never a forecast, and never a
-// field from now (R-1.3). About 35 ms an hour; a host stepping through the
+// Ahead is the hour k hours after the snapshot's, 1 to 24, as a snapshot of
+// its own, built when asked (D-60): the climatology's foF2 and M(3000)F2 at
+// the snapshot's F10.7 mean, MUF(3000) their product, marked typical -
+// never a forecast (R-1.3). It carries none of now's measurements: no D-RAP
+// disturbance and no live offset, which hold for now alone (watchpost
+// D-216, L-F2); the stations' distances stay, the hours ahead's typical
+// error read by them. About 35 ms an hour; a host stepping through the
 // hours keeps the ones it has.
 //
 // Source: the climatology (PyIRI's method, watchpost D-114); R-1.3.
-func (s Snapshot) Ahead(k int) (Hour, error) {
+func (s Snapshot) Ahead(k int) (Snapshot, error) {
 	if k < 1 || k > maxAhead {
-		return Hour{}, errNotAhead
+		return Snapshot{}, errNotAhead
 	}
-	if len(s.Hours) == 0 {
-		return Hour{}, errNoHour
+	if len(s.Now.FoF2.Values) == 0 {
+		return Snapshot{}, errNoField
 	}
-	at := s.Hours[0].At.Add(time.Duration(k) * time.Hour)
+	at := s.Now.At.Add(time.Duration(k) * time.Hour)
 	b := background.Build(at, float64(s.Inputs.F107Mean), nil)
 	fo, muf := newField(), newField()
 	for i, f := range b.FoF2 {
 		fo.put(i, f)
 		muf.put(i, f*b.M3000[i])
 	}
-	return Hour{At: at, FoF2: fo, MUF3000: muf, Typical: true}, nil
+	a := s.clone()
+	a.Now = Hour{At: at, FoF2: fo, MUF3000: muf, Typical: true}
+	a.Background = Backgrounds{FoF2: Climatology, M3000: Climatology}
+	a.Disturbance, a.Inputs.DRAPValid = Field{}, time.Time{}
+	a.Offset = Offset{TypicalMHz: s.Offset.TypicalMHz, SpreadMHz: s.Offset.SpreadMHz, Basis: s.Offset.Basis, Source: s.Offset.Source}
+	return a, nil
 }
 
 // typicalError is the hours ahead's typical error by distance to the
@@ -45,5 +53,6 @@ func typicalError() TypicalError {
 		{UpToKm: 1000, FoF2MHz: 0.87, MUF3000MHz: 3.25},
 		{UpToKm: 2000, FoF2MHz: 1.22, MUF3000MHz: 4.33},
 		{UpToKm: 0, FoF2MHz: 1.37, MUF3000MHz: 4.73},
-	}, Basis: "the climatology against GIRO's stations over PLAN's week, readings of unknown score taken (watchpost D-134, D-181; go-ionomaps 02-analysis/evidence/week.py section 11, WEEK_TAKE_UNKNOWN=1)"}
+	}, Basis: "measured against GIRO's stations over a week in early October 2026",
+		Source: "the climatology against GIRO's stations over PLAN's week, readings of unknown score taken (watchpost D-134, D-181; go-ionomaps 02-analysis/evidence/week.py section 11, WEEK_TAKE_UNKNOWN=1)"}
 }

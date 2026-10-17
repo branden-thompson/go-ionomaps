@@ -5,8 +5,10 @@
 package glotec
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"time"
 
@@ -90,26 +92,24 @@ func FoF2(nmF2 float64) float64 {
 	return 8.98e-6 * math.Sqrt(nmF2)
 }
 
-// Decode reads one grid, asked at now. The layout, the time and the size are
+// Read reads one grid, asked at now. The layout, the time and the size are
 // checked whole; a cell past its bounds is refused, counted and marked.
 //
 // Source: NOAA SWPC GloTEC's GeoJSON product, as served.
-func Decode(data []byte, now time.Time) (Grid, error) {
+func Read(data []byte, now time.Time) (Grid, error) {
 	if len(data) > maxBytes {
 		return Grid{}, errTooLarge
 	}
-	var doc document
-	err := json.Unmarshal(data, &doc)
+	doc, err := readDocument(data)
 	if err != nil {
-		return Grid{}, errNotJSON
+		return Grid{}, err
 	}
 	valid, err := time.Parse(time.RFC3339, doc.TimeTag)
 	timed := err == nil && !valid.IsZero()
 	if !timed {
 		return Grid{}, errNoTime
 	}
-	future := valid.After(now.Add(clockSkew))
-	if future {
+	if valid.After(now.Add(clockSkew)) {
 		return Grid{}, errFuture
 	}
 	if len(doc.Features) != gridCells {
@@ -130,6 +130,81 @@ func Decode(data []byte, now time.Time) (Grid, error) {
 		}
 	}
 	return g, nil
+}
+
+// maxKeys is the most top-level keys a grid's document may hold: GloTEC's
+// has a handful.
+const maxKeys = 16
+
+// readDocument reads the grid's time and points as they come, refusing it
+// once the points pass GloTEC's count, so a body of many small points never
+// reaches memory whole (I-5).
+func readDocument(data []byte) (document, error) {
+	var doc document
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return document{}, errNotJSON
+	}
+	for range maxKeys {
+		if !dec.More() {
+			break
+		}
+		key, err := dec.Token()
+		if err != nil {
+			return document{}, errNotJSON
+		}
+		switch key {
+		case "time_tag":
+			err = dec.Decode(&doc.TimeTag)
+		case "features":
+			doc.Features, err = readFeatures(dec)
+		default:
+			var skip json.RawMessage
+			err = dec.Decode(&skip)
+		}
+		if errors.Is(err, errLayout) {
+			return document{}, err
+		}
+		if err != nil {
+			return document{}, errNotJSON
+		}
+	}
+	if dec.More() {
+		return document{}, errNotJSON // more keys than GloTEC's document has
+	}
+	if _, err := dec.Token(); err != nil {
+		return document{}, errNotJSON
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return document{}, errNotJSON // more after the grid: not GloTEC's document
+	}
+	return doc, nil
+}
+
+// readFeatures reads the points one at a time, at most GloTEC's count; one
+// more is the layout refused.
+func readFeatures(dec *json.Decoder) ([]feature, error) {
+	if t, err := dec.Token(); err != nil || t != json.Delim('[') {
+		return nil, errNotJSON
+	}
+	out := make([]feature, 0, gridCells)
+	for range gridCells + 1 {
+		if !dec.More() {
+			break
+		}
+		if len(out) == gridCells {
+			return nil, errLayout
+		}
+		var f feature
+		if err := dec.Decode(&f); err != nil {
+			return nil, errNotJSON
+		}
+		out = append(out, f)
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, errNotJSON
+	}
+	return out, nil
 }
 
 // place puts one point's values in its cell; false, and nothing put, when

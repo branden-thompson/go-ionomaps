@@ -17,9 +17,9 @@ func asksSoFar(n *noaa) int {
 }
 
 // TestTheAnswersFetchNothing is R-3.5: the answers read the snapshot held -
-// a counting fetcher sees no ask from At, Bands, Path or Reach.
+// a counting fetcher sees no ask from Readings, Bands, Path or Reach.
 func TestTheAnswersFetchNothing(t *testing.T) {
-	l, n, c := library(t)
+	l, n, _ := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
 	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil {
@@ -30,17 +30,16 @@ func TestTheAnswersFetchNothing(t *testing.T) {
 		t.Fatal("control: the update asked nothing, so the count measures nothing")
 	}
 	here, there := ionomaps.LatLon{Lat: 40, Lon: -100}, ionomaps.LatLon{Lat: 51, Lon: 0}
-	now := c.Now()
-	if _, err := s.At([]ionomaps.LatLon{here, there}, now); err != nil {
+	if _, err := s.Readings([]ionomaps.LatLon{here, there}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Bands([]ionomaps.LatLon{here}, 400, now); err != nil {
+	if _, err := s.Bands([]ionomaps.LatLon{here}, 400); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Path(here, []ionomaps.LatLon{there}, now); err != nil {
+	if _, err := s.Path(here, []ionomaps.LatLon{there}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Reach(here, 14.2, now); err != nil {
+	if _, err := s.Reach(here, 14.2); err != nil {
 		t.Fatal(err)
 	}
 	if after := asksSoFar(n); after != before {
@@ -58,18 +57,18 @@ func TestAHeldSnapshotIsUnchangedByTheNextUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	const cell = 4000
-	was, computed := held.Hours[0].FoF2.Values[cell], held.Computed
+	was, computed := held.Now.FoF2.Values[cell], held.Computed
 	c.Add(10 * time.Minute)
 	n.list(t, c.Now().Add(-2*time.Minute), 11)
 	next, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.Hours[0].FoF2.Values[cell] == was {
+	if next.Now.FoF2.Values[cell] == was {
 		t.Fatalf("control: the next grid did not change the cell (%v), so this proves nothing", was)
 	}
-	if held.Hours[0].FoF2.Values[cell] != was || !held.Computed.Equal(computed) {
-		t.Errorf("the held snapshot changed: foF2 %v (was %v), computed %v", held.Hours[0].FoF2.Values[cell], was, held.Computed)
+	if held.Now.FoF2.Values[cell] != was || !held.Computed.Equal(computed) {
+		t.Errorf("the held snapshot changed: foF2 %v (was %v), computed %v", held.Now.FoF2.Values[cell], was, held.Computed)
 	}
 }
 

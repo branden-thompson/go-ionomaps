@@ -76,6 +76,9 @@ type Library struct {
 	giro         giro.Asker // GIRO's throttle, stations and readings held (G9)
 	stationsNext bool       // the last update was NOAA's, GIRO due: the next makes the burst (D-63)
 
+	unread  []string     // NOAA's files the last update fetched and could not read (L-F5)
+	typical *typicalDays // the typical days the snapshots share (P-4)
+
 	offset typicalOffset // the typical offset learned from this library's updates (D-105)
 	opts   UpdateOptions // the options the last snapshot was built with
 }
@@ -94,13 +97,13 @@ func New(f Fetcher, o Options) (*Library, error) {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Library{fetch: f, clock: clock, offset: seedOffset()}, nil
+	return &Library{fetch: f, clock: clock, offset: seedOffset(), typical: &typicalDays{}}, nil
 }
 
 // Sources is every source the library reads or is built from, with its
 // hosts, terms and citation: a host credits them, and allows only those hosts
 // (R-4.1, watchpost D-113). Each call builds the list afresh, so it is the
-// host's own copy.
+// host's own copy; no library is needed to read it.
 //
 // Source: this library; each entry's terms and citation as NOTICE gives them.
-func (l *Library) Sources() []Source { return terms.All() }
+func Sources() []Source { return terms.All() }

@@ -28,6 +28,25 @@ func Centre(i int) (lat, lon float64) {
 	return 89 - Step*float64(i/Cols), -179 + Step*float64(i%Cols)
 }
 
+// CellOf is the cell a place falls in, longitudes wrapped and the poles in
+// the outermost rows; false for a place that is no number or a latitude off
+// the globe.
+//
+// Source: this library.
+func CellOf(lat, lon float64) (int, bool) {
+	nowhere := math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0)
+	if nowhere {
+		return 0, false
+	}
+	if lat < -90 || lat > 90 {
+		return 0, false
+	}
+	lon = math.Mod(math.Mod(lon+180, 360)+360, 360)
+	col := min(int(lon/Step), Cols-1)
+	row := min(max(int((90-lat)/Step), 0), Rows-1)
+	return row*Cols + col, true
+}
+
 // Sample is a field's value at a place, bilinear between the four cell
 // centres around it, longitudes wrapped across the antimeridian and
 // latitudes held to the outermost rows; false for a field not on the grid,
@@ -35,8 +54,7 @@ func Centre(i int) (lat, lon float64) {
 //
 // Source: this library.
 func Sample(values []float32, lat, lon float64) (float64, bool) {
-	sized := len(values) == Cells
-	if !sized {
+	if len(values) != Cells {
 		return 0, false
 	}
 	nowhere := math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0)

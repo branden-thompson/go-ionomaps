@@ -86,8 +86,7 @@ func Read(body []byte, now time.Time) (Levels, error) {
 	if err != nil {
 		return Levels{}, errNoTime
 	}
-	future := valid.After(now.Add(clockSkew))
-	if future {
+	if valid.After(now.Add(clockSkew)) {
 		return Levels{}, errFuture
 	}
 	l := Levels{Valid: valid}

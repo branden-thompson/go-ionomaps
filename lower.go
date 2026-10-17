@@ -35,6 +35,19 @@ const (
 	NoiseQuietRural
 )
 
+// noiseEnvironments are each category's P.372 environment, by Noise.
+var noiseEnvironments = [...]limits.Environment{NoiseResidential: limits.Residential, NoiseCity: limits.City,
+	NoiseRural: limits.Rural, NoiseQuietRural: limits.QuietRural}
+
+// environment is the category's P.372 environment; the default,
+// residential, for a value that is no category.
+func (n Noise) environment() limits.Environment {
+	if int(n) >= len(noiseEnvironments) {
+		return limits.Residential
+	}
+	return noiseEnvironments[n]
+}
+
 // circuit is the reference circuit on one path in one hour (R-2.4): the
 // path, its middle's control point, the foE the E layer screens with, foF2
 // at the receiver (galactic noise is heard above it), the sunspot number,
@@ -86,7 +99,7 @@ func (s Snapshot) newCircuit(read reader, from, to LatLon, sun *sunTrack, day *[
 		return circuit{}, false
 	}
 	c := circuit{from: from, to: to, km: km, mid: mid, screenFoE: mid.FoE, rxFoF2: rx,
-		flux: float64(s.Inputs.F107Mean), r12: limits.R12FromFlux(float64(s.Inputs.F107Mean)), sun: sun, env: limits.Environment(s.Noise)}
+		flux: float64(s.Inputs.F107Mean), r12: limits.R12FromFlux(float64(s.Inputs.F107Mean)), sun: sun, env: s.Noise.environment()}
 	if km > eHopKm { // the higher foE of the points 1000 km from each end (§4)
 		a, okA := s.controlPoint(read, from, to, screenAtKm/km, sun)
 		b, okB := s.controlPoint(read, from, to, 1-screenAtKm/km, sun)
@@ -174,13 +187,15 @@ func (c circuit) longDay(day *[24]typicalHour, ends [2]float64, dM float64, l lo
 	deltaL := limits.ElevationAngle(c.km/nL, limits.LongMirrorKm)
 	i90 := limits.IncidenceAngle(deltaL, limits.PenetrationKm)
 	aw := limits.WinterAnomaly(midLat, c.sun.at.Month())
-	pts := limits.PenetrationFractions(c.km, int(nL), deltaL)
+	fracs := limits.PenetrationFractions(c.km, int(nL), deltaL)
+	pts := make([]LatLon, len(fracs))
+	for i, fr := range fracs {
+		pts[i].Lat, pts[i].Lon = limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, fr)
+	}
 	for h := range day {
 		sum := 0.0
-		for _, fr := range pts {
-			lat, lon := limits.Along(c.from.Lat, c.from.Lon, c.to.Lat, c.to.Lon, fr)
-			_, chi, _ := day[h].sun.sunAt(lat, lon)
-			sum += math.Sqrt(math.Max(math.Cos(chi*math.Pi/180), 0)) // none where the sun is down (§5.3.2)
+		for _, p := range pts {
+			sum += math.Sqrt(math.Max(day[h].sun.cosZenith(p.Lat, p.Lon), 0)) // none where the sun is down (§5.3.2)
 		}
 		d.fl[h] = limits.LongLUF(c.r12, sum, i90, l.slant, l.fH, aw)
 	}
@@ -346,7 +361,13 @@ func (c circuit) absorption(n int, delta, f, cosI110 float64) float64 {
 // Open where the circuit reaches +13 dB, Absorbed where it would without
 // the absorption, Weak where it would not even then.
 func (c circuit) lowerStatus(b Band, upper float64) Status {
-	f := math.Min(b.HighMHz(), upper)
+	return c.lowerAt(math.Min(b.HighMHz(), upper))
+}
+
+// lowerAt is the lower limit's status at a frequency: Open where the
+// circuit reaches +13 dB, Absorbed where it would without the absorption,
+// Weak where it would not even then (R-2.4, D-70).
+func (c circuit) lowerAt(f float64) Status {
 	snr, ok := c.snr(f, true)
 	if !ok || snr >= limits.RequiredSNR {
 		return Open
@@ -429,6 +450,6 @@ func destination(p LatLon, bearing, km float64) LatLon {
 }
 
 // circuitAt is the circuit in a typical hour of a typical day.
-func (s Snapshot) circuitAt(t typicalHour, day *[24]typicalHour, from, to LatLon) (circuit, bool) {
+func (s Snapshot) circuitAt(t *typicalHour, day *[24]typicalHour, from, to LatLon) (circuit, bool) {
 	return s.newCircuit(t.read, from, to, t.sun, day)
 }

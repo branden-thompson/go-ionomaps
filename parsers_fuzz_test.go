@@ -32,7 +32,7 @@ func FuzzEveryInputParser(f *testing.F) {
 				}
 			}
 		}
-		if g, err := glotec.Decode(body, now); err == nil {
+		if g, err := glotec.Read(body, now); err == nil {
 			for _, v := range g.FoF2 {
 				if !finite(float64(v)) {
 					t.Fatal("GloTEC: a cell that is no number")

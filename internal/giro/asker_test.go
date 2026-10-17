@@ -22,6 +22,26 @@ func TestABurstNeedsTheClock(t *testing.T) {
 	}
 }
 
+// TestABurstStoppedBeforeItsFirstAskSpendsNoHour is R-5.3 and L-F4: a
+// burst whose context has already ended asks nothing and leaves GIRO due;
+// one stopped after an ask has spent the hour.
+func TestABurstStoppedBeforeItsFirstAskSpendsNoHour(t *testing.T) {
+	var a Asker
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	asked := 0
+	ask := func(context.Context, string) (int, string, []byte, error) { asked++; return 200, "", nil, nil }
+	a.Burst(ctx, now, ask)
+	if asked != 0 || !a.BurstDue(now) {
+		t.Errorf("%d asks; GIRO due after a burst that asked nothing: %v", asked, a.BurstDue(now))
+	}
+	ctx, cancel = context.WithCancel(context.Background())
+	a.Burst(ctx, now, func(c context.Context, code string) (int, string, []byte, error) { cancel(); return ask(c, code) })
+	if asked != 1 || a.BurstDue(now) {
+		t.Errorf("%d asks; GIRO due after a burst that asked: %v", asked, a.BurstDue(now))
+	}
+}
+
 // TestAReplyIsHeldOnlyForItsStation is R-5.2: a reply is held under the
 // station it says it is, never another's code.
 func TestAReplyIsHeldOnlyForItsStation(t *testing.T) {

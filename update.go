@@ -2,6 +2,7 @@ package ionomaps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -65,11 +66,19 @@ type UpdateOptions struct {
 	// (watchpost D-187), Residential by default; the band statuses' lower
 	// limit moves with it. A change needs no request.
 	Noise Noise
+
+	// NoStations asks GIRO nothing and puts no station's reading on the
+	// field: NOAA's and the climatology's alone (watchpost D-214), for a
+	// host whose use GIRO's terms do not cover, or that wants none. The
+	// snapshot's Inputs.NoStations says so. A change needs no request:
+	// readings already held leave the field, and come back when it is
+	// cleared.
+	NoStations bool
 }
 
 // Update asks NOAA for what is new and returns the hour's snapshot (G4.2,
-// watchpost D-151): GloTEC's newest grid, found through its index, and the
-// daily solar file, at most once a day; foF2 from GloTEC (the climatology,
+// watchpost D-151): the daily solar file first, at most once a day, then
+// GloTEC's newest grid, found through its index; foF2 from GloTEC (the climatology,
 // named, without it or past an hour old), M(3000)F2 from the climatology,
 // MUF(3000) their product, with GIRO's readings up to an hour old
 // assimilated onto both (G5, D-64), NearestKm and NearestUnscored saying
@@ -77,19 +86,31 @@ type UpdateOptions struct {
 // the next call makes GIRO's burst (D-63). Within ten minutes of the last
 // ask, or while backing off, the last snapshot comes back said too soon
 // (R-5.4), rebuilt from what is held when the options have changed, nothing
-// asked. With nothing held and no F10.7 mean to be had there is no field:
-// the error says when NOAA is asked again.
+// asked. An update its context stops - a deadline, or the host's cancel - is
+// built from what is held and said Unfinished, with no back-off (L-F4).
+// With no F10.7 mean to be had there is no field: the error wraps
+// ErrNoField, and the context's own error when it stopped the update, and
+// says when NOAA is asked again.
 //
 // Source: watchpost D-39, D-63, D-64, D-101, D-104, D-105, D-111, D-151; this library.
 func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock().UTC()
+	if o.NoStations {
+		l.stationsNext = false // no burst is made while the host wants none
+	}
 	if l.stationsNext && l.made { // NOAA's snapshot went out: now the burst (D-63)
 		l.stationsNext = false
 		l.giro.Burst(ctx, now, l.giroFetch())
 		l.giro.LetGo(now)
 		s := l.build(now, o) // NOAA's fields held, the stations' readings now on them
+		if ctx.Err() != nil {
+			s.Reason = Unfinished                 // stopped mid-burst: the readings that came are on the field
+			l.stationsNext = l.giro.BurstDue(now) // stopped before its first ask: the burst is still to make
+		} else if l.giro.Paused(now) {
+			s.Reason = GIROPaused // GIRO refused the burst: the readings that came are on the field
+		}
 		l.last, l.opts = s, o
 		return s.clone(), nil
 	}
@@ -97,9 +118,11 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	if early {
 		return l.early(now, o)
 	}
-	answered, refused := l.refreshGrid(ctx, now)
-	if !refused {
-		refused = l.refreshSolar(ctx, now) // a refusal stops the update (D-39)
+	l.unread = l.unread[:0]
+	refused := l.refreshSolar(ctx, now) // first: with no F10.7 mean there is no field at all (L-F4)
+	answered := false
+	if !refused { // a refusal stops the update (D-39)
+		answered, refused = l.refreshGrid(ctx, now)
 	}
 	if !refused {
 		refused = l.refreshDRAP(ctx, now)
@@ -107,21 +130,23 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	if !refused {
 		refused = l.refreshScales(ctx, now)
 	}
-	cancelled := ctx.Err() != nil
-	if cancelled {
-		return l.early(now, o) // the host's, not NOAA's: no back-off, no ten minutes spent
+	stopped := ctx.Err() != nil
+	if stopped {
+		return l.unfinished(ctx, now, o) // the host's, not NOAA's: no back-off, no ten minutes spent
 	}
 	l.notBefore, l.backOff = nextAsk(now, l.backOff, refused)
 	if !l.solar.OK {
-		return Snapshot{Computed: now, Early: Offline}, l.notYet()
+		return Snapshot{Computed: now, Reason: Offline}, l.notYet()
 	}
 	s := l.build(now, o)
 	l.giro.LetGo(now)
 	switch {
 	case !answered:
-		s.Early = Offline
-	case l.giro.BurstDue(now):
-		s.Early, l.stationsNext = StationsNext, true // shown at once; the host updates again for the stations (D-63)
+		s.Reason = Offline
+	case !o.NoStations && l.giro.BurstDue(now):
+		s.Reason, l.stationsNext = StationsNext, true // shown at once; the host updates again for the stations (D-63)
+	case !o.NoStations && l.giro.Paused(now):
+		s.Reason = GIROPaused // the stations' readings are the last held until the pause ends
 	}
 	l.last, l.made, l.opts = s, true, o
 	return s.clone(), nil
@@ -133,19 +158,37 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 // none, the error that says when.
 func (l *Library) early(now time.Time, o UpdateOptions) (Snapshot, error) {
 	if !l.made {
-		return Snapshot{Computed: now, Early: TooSoon}, l.notYet()
+		return Snapshot{Computed: now, Reason: TooSoon}, l.notYet()
 	}
 	if o != l.opts {
 		l.last, l.opts = l.build(l.last.Computed, o), o
 	}
 	s := l.last.clone()
-	s.Early = TooSoon
+	s.Reason = TooSoon
 	return s, nil
 }
 
-// notYet is the error for an update with no field to give.
+// unfinished is the answer to an update its context stopped: the snapshot
+// built now from what is held, said Unfinished; with no F10.7 mean held,
+// no field, and an error that wraps the context's own and says which.
+func (l *Library) unfinished(ctx context.Context, now time.Time, o UpdateOptions) (Snapshot, error) {
+	if !l.solar.OK {
+		why := "the host cancelled it"
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			why = "its deadline passed"
+		}
+		return Snapshot{Computed: now, Reason: Unfinished}, fmt.Errorf("%w yet: the update stopped before NOAA's solar data arrived (%s); update again: %w", ErrNoField, why, ctx.Err())
+	}
+	s := l.build(now, o)
+	s.Reason = Unfinished
+	l.last, l.made, l.opts = s, true, o
+	return s.clone(), nil
+}
+
+// notYet is the error for an update with no field to give, once NOAA's
+// next ask is set: a stopped update gives its own (unfinished).
 func (l *Library) notYet() error {
-	return fmt.Errorf("ionomaps: no field yet: NOAA's solar data could not be read; it is asked again at the first update after %s", l.notBefore.Format("15:04:05 UTC"))
+	return fmt.Errorf("%w yet: NOAA's solar data could not be read; it is asked again at the first update after %s", ErrNoField, l.notBefore.Format("15:04:05 UTC"))
 }
 
 // nextAsk is when NOAA may next be asked, and the back-off then: ten
@@ -196,8 +239,9 @@ func (l *Library) refreshGrid(ctx context.Context, now time.Time) (answered, ref
 	if !ok {
 		return true, refused
 	}
-	g, err := glotec.Decode(r.Body, now)
+	g, err := glotec.Read(r.Body, now)
 	if err != nil {
+		l.unread = append(l.unread, "GloTEC")
 		return true, false // a changed format: the grid held stays, and its age says so
 	}
 	l.grid, l.gridName = &g, name
@@ -233,9 +277,11 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 		return false // unchanged since it was read: the mean held stands
 	}
 	l.solar = solar.Hold(l.solar, r.Body, now)
-	if l.solar.Taken.Equal(now) {
-		l.solarVal = r.Validators // the mean is this file's
+	if !l.solar.Taken.Equal(now) {
+		l.unread = append(l.unread, "solar") // the mean held stands
+		return false
 	}
+	l.solarVal = r.Validators // the mean is this file's
 	return false
 }
 
@@ -249,6 +295,7 @@ func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool)
 	}
 	g, err := drap.ParseTable(r.Body, now)
 	if err != nil {
+		l.unread = append(l.unread, "D-RAP")
 		return false
 	}
 	l.drap, l.drapVal = &g, r.Validators
@@ -266,6 +313,7 @@ func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused boo
 	}
 	s, err := scales.Read(r.Body, now)
 	if err != nil {
+		l.unread = append(l.unread, "scales")
 		return false
 	}
 	l.scales, l.scalesVal = &s, r.Validators
@@ -296,7 +344,10 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		g = nil
 	}
 	b := background.Build(now, l.solar.Mean, g)
-	res, oldest, newest := l.assimilated(b, now)
+	res, oldest, newest := assimilate.Result{FoF2: b.FoF2, M3000: b.M3000}, time.Time{}, time.Time{}
+	if !o.NoStations {
+		res, oldest, newest = l.assimilated(b, now)
+	}
 	overGloTEC := b.FoF2From == background.GloTEC
 	measured := overGloTEC && res.Used >= liveReadings
 	if measured {
@@ -317,19 +368,21 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 	}
 	s := Snapshot{
 		Computed:   now,
-		Hours:      []Hour{{At: now, FoF2: fo, MUF3000: muf}},
+		Now:        Hour{At: now, FoF2: fo, MUF3000: muf},
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
-			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected},
+			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected, NoStations: o.NoStations,
+			Refused: slices.Clone(l.unread)},
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),
 		Offset:          l.offset.offset(res.MeanResidual, measured, corrected),
 		Noise:           o.Noise,
 		Scales:          scalesOf(l.scales, now),
+		typical:         l.typical,
 	}
 	if s.Background.FoF2 == GloTEC {
-		s.Inputs.GloTECValid = g.Valid
+		s.Inputs.GloTECValid, s.Inputs.GloTECFilled = g.Valid, b.Filled
 	}
 	if d := l.drap; d != nil && now.Sub(d.Valid) <= drapMaxAge {
 		s.Disturbance = newField()
@@ -363,7 +416,7 @@ func newField() Field {
 func (f Field) put(i int, v float32) {
 	usable := v > 0 && !math.IsInf(float64(v), 0)
 	if !usable {
-		f.NoData.Set(i)
+		f.NoData.set(i)
 		return
 	}
 	f.Values[i] = v
@@ -372,14 +425,12 @@ func (f Field) put(i int, v float32) {
 // clone is a snapshot in slices of its own (P-6).
 func (s Snapshot) clone() Snapshot {
 	c := s
-	c.Hours = make([]Hour, len(s.Hours))
-	for i, h := range s.Hours {
-		c.Hours[i] = Hour{At: h.At, MUF3000: h.MUF3000.owned(), FoF2: h.FoF2.owned()}
-	}
+	c.Now = Hour{At: s.Now.At, MUF3000: s.Now.MUF3000.owned(), FoF2: s.Now.FoF2.owned(), Typical: s.Now.Typical}
 	c.Disturbance = s.Disturbance.owned()
 	c.NearestKm = slices.Clone(s.NearestKm)
 	c.NearestUnscored = Bitset{bits: slices.Clone(s.NearestUnscored.bits), n: s.NearestUnscored.n}
 	c.Scales.Outlook = slices.Clone(s.Scales.Outlook)
+	c.Inputs.Refused = slices.Clone(s.Inputs.Refused)
 	c.TypicalError.Bands = slices.Clone(s.TypicalError.Bands)
 	return c
 }

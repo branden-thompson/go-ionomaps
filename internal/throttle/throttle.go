@@ -6,6 +6,7 @@
 package throttle
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -35,16 +36,13 @@ type GIRO struct {
 //
 // Source: watchpost D-39.
 func (g *GIRO) Due(now time.Time) bool {
-	noClock := now.IsZero()
-	if noClock {
+	if now.IsZero() {
 		return false
 	}
-	paused := now.Before(g.pauseTo)
-	if paused {
+	if now.Before(g.pauseTo) {
 		return false
 	}
-	first := g.burstAt.IsZero()
-	if first {
+	if g.burstAt.IsZero() {
 		return true
 	}
 	return !now.Before(g.burstAt.Add(Every))
@@ -59,8 +57,7 @@ func (g *GIRO) Start(now time.Time, want int) int {
 	if want <= 0 {
 		return 0
 	}
-	due := g.Due(now)
-	if !due {
+	if !g.Due(now) {
 		return 0
 	}
 	g.burstAt = now
@@ -72,6 +69,9 @@ func (g *GIRO) Start(now time.Time, want int) int {
 //
 // Source: watchpost D-39.
 func (g *GIRO) Refused(now time.Time, retryAfter string) {
+	if now.IsZero() {
+		return // a pause cannot be timed without the time, as Due and Start refuse
+	}
 	g.backOff = min(max(2*g.backOff, firstBackOff), MaxPause)
 	pause := g.backOff
 	if d, ok := RetryAfter(retryAfter, now); ok {
@@ -80,10 +80,55 @@ func (g *GIRO) Refused(now time.Time, retryAfter string) {
 	g.pauseTo = now.Add(pause)
 }
 
+// Holding reports whether a refusal's pause holds now.
+//
+// Source: watchpost D-39.
+func (g *GIRO) Holding(now time.Time) bool {
+	if now.IsZero() {
+		return false // no pause is judged without the time
+	}
+	return now.Before(g.pauseTo)
+}
+
 // Answered ends the back-off: the next refusal pauses 60 s again.
 //
 // Source: watchpost D-39.
 func (g *GIRO) Answered() { g.backOff = 0 }
+
+// State is the throttle's state as a host keeps it across restarts
+// (watchpost D-213): when the last burst began, when a pause ends, and the
+// back-off a next refusal doubles.
+type State struct {
+	BurstAt, PauseTo time.Time
+	BackOff          time.Duration
+}
+
+// errBadState is a state no throttle could have reached by now.
+var errBadState = errors.New("throttle: the state is not one a throttle reaches")
+
+// Kept is the throttle's state, to keep.
+//
+// Source: watchpost D-213.
+func (g GIRO) Kept() State { return State{BurstAt: g.burstAt, PauseTo: g.pauseTo, BackOff: g.backOff} }
+
+// Resume is the throttle a state kept describes, checked against now: a
+// burst begun after now, a pause ending more than MaxPause from now, or a
+// back-off outside 0 to MaxPause would hold GIRO back longer than any
+// refusal does, so it is refused.
+//
+// Source: watchpost D-213; D-39's limits.
+func Resume(s State, now time.Time) (GIRO, error) {
+	if now.IsZero() {
+		return GIRO{}, errBadState // nothing is checked against no time
+	}
+	if s.BurstAt.After(now) || s.PauseTo.After(now.Add(MaxPause)) {
+		return GIRO{}, errBadState
+	}
+	if s.BackOff < 0 || s.BackOff > MaxPause {
+		return GIRO{}, errBadState
+	}
+	return GIRO{burstAt: s.BurstAt, pauseTo: s.PauseTo, backOff: s.BackOff}, nil
+}
 
 // RetryAfter is a Retry-After header as a pause: seconds, or a date, held
 // to 0 to MaxPause; false for no header, or one that is no time.
@@ -109,8 +154,7 @@ func RetryAfter(s string, now time.Time) (time.Duration, bool) {
 	if !dated {
 		return 0, false
 	}
-	past := at.Before(now)
-	if past {
+	if at.Before(now) {
 		return 0, true
 	}
 	return min(at.Sub(now), MaxPause), true

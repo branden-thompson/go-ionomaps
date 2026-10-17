@@ -87,11 +87,7 @@ func TestTheLibraryOpensNoConnectionOfItsOwn(t *testing.T) {
 // its terms; one read at run time names its hosts, bare host names; the host
 // can read them all from the library.
 func TestEverySourceCarriesItsTerms(t *testing.T) {
-	l, err := ionomaps.New(&noFetch{}, ionomaps.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sources := l.Sources()
+	sources := ionomaps.Sources()
 	runtime := 0
 	for _, s := range sources {
 		if s.Name == "" || s.Terms == "" {
@@ -108,7 +104,7 @@ func TestEverySourceCarriesItsTerms(t *testing.T) {
 		t.Errorf("%d run-time hosts; GIRO and NOAA are read at run time", runtime)
 	}
 	sources[0].Name = "changed by the host"
-	if l.Sources()[0].Name == "changed by the host" {
+	if ionomaps.Sources()[0].Name == "changed by the host" {
 		t.Error("a host's change to the list reached the library's own")
 	}
 }
@@ -118,12 +114,8 @@ func TestEverySourceCarriesItsTerms(t *testing.T) {
 // that allows those hosts alone allows every request; one planted on another
 // host is caught.
 func TestEveryRequestGoesToAnExportedHost(t *testing.T) {
-	l, err := ionomaps.New(&noFetch{}, ionomaps.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var hosts []string
-	for _, s := range l.Sources() {
+	for _, s := range ionomaps.Sources() {
 		hosts = append(hosts, s.Hosts...)
 	}
 	for name, f := range libraryFiles(t) {
@@ -170,12 +162,8 @@ func onHost(address string, hosts []string) bool {
 // its own, smaller than NOAA's grid; and the library's own checks are those
 // same bounds - one carrier each.
 func TestEveryRunTimeSourceCarriesItsByteBound(t *testing.T) {
-	l, err := ionomaps.New(&noFetch{}, ionomaps.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	bound := map[string]int{}
-	for _, s := range l.Sources() {
+	for _, s := range ionomaps.Sources() {
 		if len(s.Hosts) > 0 && s.MaxBytes <= 0 {
 			t.Errorf("%s is asked at run time with no byte bound", s.Name)
 		}
@@ -186,7 +174,7 @@ func TestEveryRunTimeSourceCarriesItsByteBound(t *testing.T) {
 	if giro, noaa := bound["lgdc.uml.edu"], bound["services.swpc.noaa.gov"]; giro <= 0 || giro >= noaa {
 		t.Errorf("GIRO's bound %d, NOAA's %d: GIRO's replies are its stations' rows, NOAA's largest a grid", giro, noaa)
 	}
-	if _, err := glotec.Decode(make([]byte, bound["services.swpc.noaa.gov"]+1), time.Now()); err == nil {
+	if _, err := glotec.Read(make([]byte, bound["services.swpc.noaa.gov"]+1), time.Now()); err == nil {
 		t.Error("GloTEC decodes a grid past NOAA's bound")
 	}
 	now := time.Now()

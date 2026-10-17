@@ -25,11 +25,11 @@ var (
 func TestDaytimeAbsorptionClosesTheLowBands(t *testing.T) {
 	day := flatSnapshot(noonUTC, 7, 21)
 	night := flatSnapshot(noonUTC.Add(12*time.Hour), 7, 21)
-	d, err := day.Path(westEnd, []LatLon{eastEnd}, noonUTC)
+	d, err := day.Path(westEnd, []LatLon{eastEnd})
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := night.Path(westEnd, []LatLon{eastEnd}, noonUTC.Add(12*time.Hour))
+	n, err := night.Path(westEnd, []LatLon{eastEnd})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,20 +58,22 @@ func TestDaytimeAbsorptionClosesTheLowBands(t *testing.T) {
 	if !(luf >= highest && luf <= next) {
 		t.Errorf("the LUF %.2f MHz is not between the highest absorbed band's top %.2f and the next open band's %.2f", luf, highest, next)
 	}
-	c, ok := day.newCircuit(hourReader(day.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC), nil)
+	c, ok := day.newCircuit(hourReader(day.Now), westEnd, eastEnd, newSunTrack(noonUTC), nil)
 	if snr, okS := c.snr(luf, true); !ok || !okS || math.Abs(snr-limits.RequiredSNR) > 0.2 {
 		t.Errorf("the S/N at the LUF is %v (%v, %v); want +13 dB", snr, ok, okS)
 	}
 }
 
-// TestTheNoiseEnvironmentMovesTheLowerLimit is D-187: a noisier
-// environment needs more signal, so its LUF is higher; the environment is
-// the snapshot's, set by the update's options.
+// TestTheNoiseEnvironmentMovesTheLowerLimit is D-187 and C-22: a noisier
+// environment needs more signal, so its LUF is higher - city, residential,
+// rural, quiet rural, each its own P.372 category; the environment is the
+// snapshot's, set by the update's options, and a value that is no category
+// is the default, residential.
 func TestTheNoiseEnvironmentMovesTheLowerLimit(t *testing.T) {
 	luf := func(env Noise) float64 {
 		s := flatSnapshot(noonUTC, 7, 21)
 		s.Noise = env
-		p, _ := s.Path(westEnd, []LatLon{eastEnd}, noonUTC)
+		p, _ := s.Path(westEnd, []LatLon{eastEnd})
 		for _, b := range p[0].Bands {
 			if b.Status == Absorbed {
 				return float64(b.LimitMHz)
@@ -79,9 +81,12 @@ func TestTheNoiseEnvironmentMovesTheLowerLimit(t *testing.T) {
 		}
 		return 0
 	}
-	city, res, quiet := luf(NoiseCity), luf(NoiseResidential), luf(NoiseQuietRural)
-	if !(city > res && res > quiet) {
-		t.Errorf("LUF: city %.2f, residential %.2f, quiet rural %.2f MHz; noisier is higher", city, res, quiet)
+	city, res, rural, quiet := luf(NoiseCity), luf(NoiseResidential), luf(NoiseRural), luf(NoiseQuietRural)
+	if !(city > res && res > rural && rural > quiet) {
+		t.Errorf("LUF: city %.2f, residential %.2f, rural %.2f, quiet rural %.2f MHz; noisier is higher", city, res, rural, quiet)
+	}
+	if none := luf(Noise(9)); none != res {
+		t.Errorf("a noise that is no category: LUF %.2f; want residential's %.2f", none, res)
 	}
 }
 
@@ -91,7 +96,7 @@ func TestTheNoiseEnvironmentMovesTheLowerLimit(t *testing.T) {
 // midnight.
 func TestTheTypicalDayKeepsTheLowerLimit(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	p, _ := s.Path(westEnd, []LatLon{eastEnd}, noonUTC)
+	p, _ := s.Path(westEnd, []LatLon{eastEnd})
 	b80 := p[0].Bands[1]
 	day := noonUTC.Truncate(24 * time.Hour)
 	at := func(h int) bool {
@@ -113,7 +118,7 @@ func TestTheTypicalDayKeepsTheLowerLimit(t *testing.T) {
 // absorption's limit; without the day no long circuit is made.
 func TestTheLongPathHasALowerLimit(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	p, err := s.Path(LatLon{Lat: 40, Lon: -100}, []LatLon{{Lat: 40, Lon: 0}}, noonUTC)
+	p, err := s.Path(LatLon{Lat: 40, Lon: -100}, []LatLon{{Lat: 40, Lon: 0}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +137,7 @@ func TestTheLongPathHasALowerLimit(t *testing.T) {
 	if closed == 0 {
 		t.Error("no band was closed by the lower limit past 7000 km")
 	}
-	if _, ok := s.newCircuit(hourReader(s.Hours[0]), LatLon{Lat: 40, Lon: -100}, LatLon{Lat: 40, Lon: 0}, newSunTrack(noonUTC), nil); ok {
+	if _, ok := s.newCircuit(hourReader(s.Now), LatLon{Lat: 40, Lon: -100}, LatLon{Lat: 40, Lon: 0}, newSunTrack(noonUTC), nil); ok {
 		t.Error("a long circuit was made with no typical day")
 	}
 }
@@ -146,7 +151,7 @@ func TestTheLongPathIsP533s(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	day := s.typicalDay(noonUTC)
 	from, to := LatLon{Lat: 20, Lon: -60}, LatLon{Lat: 20, Lon: 40}
-	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), &day)
+	c, ok := s.newCircuit(hourReader(s.Now), from, to, newSunTrack(noonUTC), &day)
 	if !ok || c.km <= shortToKm {
 		t.Fatalf("a %v km circuit (%v); the test needs one past 9000 km", c.km, ok)
 	}
@@ -165,7 +170,7 @@ func TestTheLongPathIsP533s(t *testing.T) {
 	fM, fH := math.Inf(1), 0.0
 	for _, fr := range []float64{dM / (2 * c.km), 1 - dM/(2*c.km)} {
 		lat, lon := limits.Along(from.Lat, from.Lon, to.Lat, to.Lon, fr)
-		fo, m3, _ := hourReader(s.Hours[0])(LatLon{lat, lon})
+		fo, m3, _ := hourReader(s.Now)(LatLon{lat, lon})
 		gh := magcoords.Gyro(lat, lon, noonUTC)
 		fH += gh / 2
 		noonH := int(math.Mod(math.Round(12-lon/15)+48, 24))
@@ -200,11 +205,11 @@ func TestTheLongPathIsP533s(t *testing.T) {
 		t.Errorf("fL at noon %v; eq. (33) through the day, decayed, gives %v", c.long.fL, want)
 	}
 	midnight := noonUTC.Add(-12 * time.Hour) // the path's middle is at 10° W: local midnight about 00:40
-	night, _ := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(midnight.Add(time.Hour)), &day)
+	night, _ := s.newCircuit(hourReader(s.Now), from, to, newSunTrack(midnight.Add(time.Hour)), &day)
 	if math.Abs(night.long.fL-night.long.fLN) > 1e-9 || !(c.long.fL > c.long.fLN) {
 		t.Errorf("fL %v at night (night LUF %v), %v at noon; the night LUF by night, above it by day", night.long.fL, night.long.fLN, c.long.fL)
 	}
-	mid, _ := s.newCircuit(hourReader(s.Hours[0]), LatLon{Lat: 20, Lon: -40}, LatLon{Lat: 20, Lon: 40}, newSunTrack(noonUTC), &day)
+	mid, _ := s.newCircuit(hourReader(s.Now), LatLon{Lat: 20, Lon: -40}, LatLon{Lat: 20, Lon: 40}, newSunTrack(noonUTC), &day)
 	if !(mid.km > longFromKm && mid.km < shortToKm) {
 		t.Fatalf("a %v km circuit; the blend needs 7000 to 9000", mid.km)
 	}
@@ -219,8 +224,8 @@ func TestTheLongPathIsP533s(t *testing.T) {
 // noon the area's 160 m is absorbed, at midnight open.
 func TestTheNearVerticalAreaHasALowerLimit(t *testing.T) {
 	day, night := flatSnapshot(noonUTC, 7, 21), flatSnapshot(noonUTC.Add(12*time.Hour), 7, 21)
-	a, _ := day.Bands([]LatLon{{Lat: 45, Lon: 0}}, 400, noonUTC)
-	b, _ := night.Bands([]LatLon{{Lat: 45, Lon: 0}}, 400, noonUTC.Add(12*time.Hour))
+	a, _ := day.Bands([]LatLon{{Lat: 45, Lon: 0}}, 400)
+	b, _ := night.Bands([]LatLon{{Lat: 45, Lon: 0}}, 400)
 	if statusOf(a[0].Bands, Band160m) != Absorbed || statusOf(b[0].Bands, Band160m) != Open {
 		t.Errorf("the area's 160 m: %v at noon, %v at midnight; want absorbed, open", statusOf(a[0].Bands, Band160m), statusOf(b[0].Bands, Band160m))
 	}
@@ -234,7 +239,7 @@ func TestALongPathTooWeakForTheCircuitIsWeak(t *testing.T) {
 	night := noonUTC.Add(12 * time.Hour)
 	s := flatSnapshot(night, 7, 21)
 	from, to := destination(LatLon{Lat: 45, Lon: 0}, 270, 2500), destination(LatLon{Lat: 45, Lon: 0}, 90, 2500)
-	p, err := s.Path(from, []LatLon{to}, night)
+	p, err := s.Path(from, []LatLon{to})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,12 +268,12 @@ func TestALongPathTooWeakForTheCircuitIsWeak(t *testing.T) {
 func TestTheCircuitCountsP533sModes(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	from, to := LatLon{40, -100}, LatLon{40, -64.8} // about 3000 km, sunrise along it
-	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), nil)
+	c, ok := s.newCircuit(hourReader(s.Now), from, to, newSunTrack(noonUTC), nil)
 	if !ok {
 		t.Fatal("no circuit")
 	}
-	a, _ := s.controlPoint(hourReader(s.Hours[0]), from, to, 1000/c.km, newSunTrack(noonUTC))
-	b, _ := s.controlPoint(hourReader(s.Hours[0]), from, to, 1-1000/c.km, newSunTrack(noonUTC))
+	a, _ := s.controlPoint(hourReader(s.Now), from, to, 1000/c.km, newSunTrack(noonUTC))
+	b, _ := s.controlPoint(hourReader(s.Now), from, to, 1-1000/c.km, newSunTrack(noonUTC))
 	if a.FoE == b.FoE || c.screenFoE != math.Max(a.FoE, b.FoE) {
 		t.Errorf("screening's foE %v; the points 1000 km from each end give %v and %v, the higher wanted (and different, for the test to measure)", c.screenFoE, a.FoE, b.FoE)
 	}
@@ -287,7 +292,7 @@ func TestTheCircuitCountsP533sModes(t *testing.T) {
 		t.Errorf("at %v MHz over %.0f km %d modes counted; three E modes and the %d F2 modes the E layer does not screen (of six)", f, c.km, got, unscreened)
 	}
 	high := flatSnapshot(noonUTC, 12, 43.2) // a high, low-lying F2 layer: its two-hop mode over 6900 km would leave below the horizon
-	long, okL := high.newCircuit(hourReader(high.Hours[0]), destination(LatLon{45, -40}, 270, 3450), destination(LatLon{45, -40}, 90, 3450), newSunTrack(noonUTC), nil)
+	long, okL := high.newCircuit(hourReader(high.Now), destination(LatLon{45, -40}, 270, 3450), destination(LatLon{45, -40}, 90, 3450), newSunTrack(noonUTC), nil)
 	if !okL {
 		t.Fatal("no circuit at 6900 km")
 	}
@@ -311,7 +316,7 @@ func TestTheCircuitCountsP533sModes(t *testing.T) {
 // MHz, under a 21.04 MHz MUF, is open.
 func TestABandTheMUFCutsIsJudgedAtTheMUF(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	p, _ := s.Path(LatLon{40, -100}, []LatLon{{40, -64.8}}, noonUTC)
+	p, _ := s.Path(LatLon{40, -100}, []LatLon{{40, -64.8}})
 	if muf := mufOf(p[0].Bands); !(muf > 21 && muf < 21.45) {
 		t.Fatalf("the MUF is %.2f; the test needs it inside 15 m", muf)
 	}
@@ -324,7 +329,7 @@ func TestABandTheMUFCutsIsJudgedAtTheMUF(t *testing.T) {
 // hears galactic noise only above foF2 there.
 func TestGalacticNoiseIsHeardAboveFoF2(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC), nil)
+	c, _ := s.newCircuit(hourReader(s.Now), westEnd, eastEnd, newSunTrack(noonUTC), nil)
 	if c.noise(5) != limits.NoiseFactor(limits.Residential, 5, false) || c.noise(10) != limits.NoiseFactor(limits.Residential, 10, true) {
 		t.Errorf("noise at 5 and 10 MHz under foF2 7: %v, %v", c.noise(5), c.noise(10))
 	}
@@ -349,7 +354,7 @@ func TestTheAreasPathIsCentredOnIt(t *testing.T) {
 // 100 km at those points - each read where the mode crosses 90 km.
 func TestAModesAbsorptionIsEq20(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	c, _ := s.newCircuit(hourReader(s.Hours[0]), westEnd, eastEnd, newSunTrack(noonUTC), nil)
+	c, _ := s.newCircuit(hourReader(s.Now), westEnd, eastEnd, newSunTrack(noonUTC), nil)
 	n, f := 2, 3.8
 	delta := limits.ElevationAngle(c.km/float64(n), 250)
 	cosI := math.Cos(limits.IncidenceAngle(delta, limits.ELayerKm) * math.Pi / 180)
@@ -374,7 +379,7 @@ func TestAModesAbsorptionIsEq20(t *testing.T) {
 // takes Lh out with Li, as both are the D region's.
 func TestTheAuroralZoneAddsItsLoss(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
-	read, sun := hourReader(s.Hours[0]), newSunTrack(noonUTC)
+	read, sun := hourReader(s.Now), newSunTrack(noonUTC)
 	north, ok := s.newCircuit(read, LatLon{64.8, -147.7}, LatLon{69.6, 18.9}, sun, nil) // Fairbanks to Tromsø, over the pole
 	if !ok {
 		t.Fatal("no circuit")
@@ -404,7 +409,7 @@ func TestTheAuroralZoneAddsItsLoss(t *testing.T) {
 func TestLhIsReadAtTable1dsPoints(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 21)
 	from, to := LatLon{64.8, -147.7}, LatLon{69.6, 18.9}
-	c, _ := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), nil)
+	c, _ := s.newCircuit(hourReader(s.Now), from, to, newSunTrack(noonUTC), nil)
 	dmax := limits.Dmax(c.mid.FoF2, c.mid.M3000, c.mid.FoE)
 	if !(c.km > dmax) {
 		t.Fatalf("the path, %.0f km, is within dmax %.0f: the test needs it past", c.km, dmax)
@@ -438,7 +443,7 @@ func TestAnEModeTakesItsOwnLh(t *testing.T) {
 	s := flatSnapshot(noonUTC, 7, 28) // M(3000)F2 4: dmax under 4000 km
 	from := LatLon{40, -60}
 	to := destination(from, 0, 3950) // north from 40° N into the auroral zone
-	c, ok := s.newCircuit(hourReader(s.Hours[0]), from, to, newSunTrack(noonUTC), nil)
+	c, ok := s.newCircuit(hourReader(s.Now), from, to, newSunTrack(noonUTC), nil)
 	if !ok || c.lhE == c.lhF2 {
 		t.Fatalf("E and F2 Lh %v, %v (%v): the test needs them different", c.lhE, c.lhF2, ok)
 	}

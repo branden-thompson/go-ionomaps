@@ -118,3 +118,41 @@ func FuzzRateHeaders(f *testing.F) {
 		}
 	})
 }
+
+// TestAThrottleStateIsCheckedOnResume is watchpost D-213: a state kept
+// comes back as it was - the burst's hour and a pause still holding - and
+// one that would hold GIRO back longer than any refusal, or that began a
+// burst in the future, is refused.
+func TestAThrottleStateIsCheckedOnResume(t *testing.T) {
+	var g GIRO
+	g.Start(t0, 40)
+	g.Refused(t0.Add(time.Minute), "600")
+	now := t0.Add(2 * time.Minute)
+	back, err := Resume(g.Kept(), now)
+	if err != nil || back != g {
+		t.Fatalf("restored %+v (%v); kept %+v", back, err, g)
+	}
+	if back.Due(t0.Add(30*time.Minute)) || !back.Due(t0.Add(time.Hour)) {
+		t.Error("the restored throttle forgot the burst's hour")
+	}
+	for name, s := range map[string]State{
+		"a burst in the future":    {BurstAt: now.Add(time.Second)},
+		"a pause past MaxPause":    {PauseTo: now.Add(MaxPause + time.Second)},
+		"a back-off past MaxPause": {BackOff: MaxPause + time.Second},
+		"a back-off below zero":    {BackOff: -time.Second},
+	} {
+		if _, err := Resume(s, now); err == nil {
+			t.Errorf("%s: restored", name)
+		}
+	}
+	if _, err := Resume(g.Kept(), time.Time{}); err == nil {
+		t.Error("a state restored against no time")
+	}
+	var none GIRO
+	if none.Refused(time.Time{}, "60"); none.Holding(t0) || none.Holding(time.Time{}) || none.backOff != 0 {
+		t.Errorf("a refusal with no time paused GIRO: %+v", none)
+	}
+	if _, err := Resume(State{PauseTo: now.Add(MaxPause)}, now); err != nil {
+		t.Errorf("a pause of MaxPause from now was refused: %v", err)
+	}
+}

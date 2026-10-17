@@ -49,8 +49,7 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 	if !sized {
 		return Result{}, errBackground
 	}
-	tooMany := len(readings) > maxReadings
-	if tooMany {
+	if len(readings) > maxReadings {
 		return Result{}, errTooMany // the fit is a cubic solve and a distance a cell a reading
 	}
 	r := Result{FoF2: append([]float32(nil), foBack...), M3000: append([]float32(nil), mBack...)}
@@ -98,8 +97,7 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 //
 // Source: watchpost D-105.
 func Shifted(foF2 []float32, by float64) ([]float32, bool) {
-	sized := len(foF2) == grid.Cells
-	if !sized {
+	if len(foF2) != grid.Cells {
 		return nil, false
 	}
 	finite := !math.IsNaN(by) && !math.IsInf(by, 0)

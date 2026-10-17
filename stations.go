@@ -64,7 +64,7 @@ func unscoredCells(cells []bool) Bitset {
 	out := newBitset(len(cells))
 	for i, u := range cells {
 		if u {
-			out.Set(i)
+			out.set(i)
 		}
 	}
 	return out

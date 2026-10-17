@@ -15,7 +15,7 @@ import (
 func globalField() Field {
 	f := newField()
 	for i := range f.Values {
-		f.NoData.Set(i)
+		f.NoData.set(i)
 	}
 	return f
 }
@@ -30,14 +30,13 @@ func TestTheGridIsTwoDegrees(t *testing.T) {
 	if w, h := (f.East-f.West)/float64(f.Cols), (f.North-f.South)/float64(f.Rows); w != 2 || h != 2 {
 		t.Errorf("a cell is %v° by %v°; want 2° by 2°", w, h)
 	}
-	if lon, lat, ok := f.CellCentre(0, 0); !ok || lon != -179 || lat != 89 {
-		t.Errorf("the first cell's centre is %v, %v; want -179, 89 (rows from the north, each west to east)", lon, lat)
-	}
-	if lon, lat, ok := f.CellCentre(179, 89); !ok || lon != 179 || lat != -89 {
-		t.Errorf("the last cell's centre is %v, %v; want 179, -89", lon, lat)
-	}
-	if _, _, ok := f.CellCentre(180, 0); ok {
-		t.Error("a cell past the last column has a centre")
+	for _, c := range []struct {
+		at   LatLon
+		cell int
+	}{{LatLon{89, -179}, 0}, {LatLon{89, -177}, 1}, {LatLon{87, -179}, f.Cols}, {LatLon{-89, 179}, f.Cols*f.Rows - 1}} {
+		if i, ok := cellIndex(f, c.at); !ok || i != c.cell {
+			t.Errorf("%+v falls in cell %d; want %d (rows from the north, each west to east)", c.at, i, c.cell)
+		}
 	}
 }
 
@@ -70,20 +69,20 @@ func TestAGlobalFieldIsAValidTuimapsGrid(t *testing.T) {
 // cell with no known value says so in NoData rather than in its value.
 func TestAFieldSaysWhenAndFromWhat(t *testing.T) {
 	at := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
-	s := Snapshot{Computed: at.Add(3 * time.Minute), Hours: []Hour{{At: at, FoF2: globalField(), MUF3000: globalField()}},
+	s := Snapshot{Computed: at.Add(3 * time.Minute), Now: Hour{At: at, FoF2: globalField(), MUF3000: globalField()},
 		Background: Backgrounds{FoF2: GloTEC, M3000: Climatology}}
-	if s.Hours[0].At != at || s.Computed.Before(s.Hours[0].At) {
-		t.Errorf("valid %v, computed %v", s.Hours[0].At, s.Computed)
+	if s.Now.At != at || s.Computed.Before(s.Now.At) {
+		t.Errorf("valid %v, computed %v", s.Now.At, s.Computed)
 	}
 	if s.Background.FoF2.String() != "GloTEC" || s.Background.M3000.String() != "climatology" || NoBackground.String() != "none" {
 		t.Errorf("backgrounds named %q, %q and %q", s.Background.FoF2, s.Background.M3000, NoBackground)
 	}
-	f := s.Hours[0].FoF2
+	f := s.Now.FoF2
 	if !f.NoData.Has(0) {
 		t.Error("an empty field's cells do not say they have no value")
 	}
 	f.NoData = newBitset(len(f.Values))
-	f.NoData.Set(5)
+	f.NoData.set(5)
 	if !f.NoData.Has(5) || f.NoData.Has(4) || f.NoData.Has(-1) || f.NoData.Has(len(f.Values)) {
 		t.Error("NoData does not say exactly which cells have no value")
 	}

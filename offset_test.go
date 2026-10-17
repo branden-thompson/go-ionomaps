@@ -3,6 +3,7 @@ package ionomaps_test
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestTheLiveOffsetIsCarried(t *testing.T) {
 func TestTheTypicalOffsetLearnsFromUpdates(t *testing.T) {
 	l, n, c := giroLibrary(t)
 	first := update(t, l)
-	if !near(first.Offset.TypicalMHz, seedMHz) || !near(first.Offset.SpreadMHz, seedSpread) || first.Offset.Basis == "" {
+	if !near(first.Offset.TypicalMHz, seedMHz) || !near(first.Offset.SpreadMHz, seedSpread) || !listenable(first.Offset.Basis) || !strings.Contains(first.Offset.Source, "D-105") {
 		t.Errorf("before any reading the typical offset is %+v; want the seed, -0.5 and 0.225, with its basis", first.Offset)
 	}
 	mean, sum := seedMHz, seedSpread*seedSpread*seedWeight
@@ -123,10 +124,10 @@ func TestTheNoReadingsCorrectionIsNamed(t *testing.T) {
 		t.Fatalf("corrected %v asked, %v not asked; want true, false", s.Offset.Corrected, as.Offset.Corrected)
 	}
 	for _, i := range []int{0, 4000, 16199} {
-		if !near(s.Hours[0].FoF2.Values[i], 7+seedMHz) || !near(as.Hours[0].FoF2.Values[i], 7) {
-			t.Fatalf("cell %d: foF2 %v corrected, %v as is; want 6.5 and 7", i, s.Hours[0].FoF2.Values[i], as.Hours[0].FoF2.Values[i])
+		if !near(s.Now.FoF2.Values[i], 7+seedMHz) || !near(as.Now.FoF2.Values[i], 7) {
+			t.Fatalf("cell %d: foF2 %v corrected, %v as is; want 6.5 and 7", i, s.Now.FoF2.Values[i], as.Now.FoF2.Values[i])
 		}
-		ratio := float64(s.Hours[0].MUF3000.Values[i] / as.Hours[0].MUF3000.Values[i])
+		ratio := float64(s.Now.MUF3000.Values[i] / as.Now.MUF3000.Values[i])
 		if math.Abs(ratio-6.5/7) > 1e-5 {
 			t.Fatalf("cell %d: MUF(3000) moved by %v; foF2 by 6.5/7", i, ratio)
 		}
@@ -148,8 +149,8 @@ func TestTheNoReadingsCorrectionIsNamed(t *testing.T) {
 	n.giro.speak = false // the readings held are now over an hour old, and no new ones come
 	l.Update(context.Background(), correct)
 	learned := seedMHz + (0.5-seedMHz)/(seedWeight+1)
-	if s, _ := l.Update(context.Background(), correct); !s.Offset.Corrected || !near(s.Hours[0].FoF2.Values[0], 7+learned) {
-		t.Errorf("after learning: corrected %v, foF2 %v; want GloTEC's 7 moved by the typical offset learned, %.5f", s.Offset.Corrected, s.Hours[0].FoF2.Values[0], learned)
+	if s, _ := l.Update(context.Background(), correct); !s.Offset.Corrected || !near(s.Now.FoF2.Values[0], 7+learned) {
+		t.Errorf("after learning: corrected %v, foF2 %v; want GloTEC's 7 moved by the typical offset learned, %.5f", s.Offset.Corrected, s.Now.FoF2.Values[0], learned)
 	}
 	l, _, _ = library(t)
 	if s, err := l.Update(context.Background(), correct); err != nil || s.Background.FoF2 != ionomaps.Climatology || s.Offset.Corrected {
@@ -183,8 +184,8 @@ func TestTogglingTheCorrectionMakesNoRequest(t *testing.T) {
 		if on {
 			want += seedMHz
 		}
-		if s.Offset.Corrected != on || !near(s.Hours[0].FoF2.Values[0], want) || s.Early != ionomaps.TooSoon || !s.Computed.Equal(first.Computed) {
-			t.Errorf("turned to %v: corrected %v, foF2 %v, %v, computed %v; want %v, %v, too soon, the last snapshot's time", on, s.Offset.Corrected, s.Hours[0].FoF2.Values[0], s.Early, s.Computed, on, want)
+		if s.Offset.Corrected != on || !near(s.Now.FoF2.Values[0], want) || s.Reason != ionomaps.TooSoon || !s.Computed.Equal(first.Computed) {
+			t.Errorf("turned to %v: corrected %v, foF2 %v, %v, computed %v; want %v, %v, too soon, the last snapshot's time", on, s.Offset.Corrected, s.Now.FoF2.Values[0], s.Reason, s.Computed, on, want)
 		}
 	}
 	on, off := ionomaps.UpdateOptions{CorrectNoReadings: true}, ionomaps.UpdateOptions{}
@@ -217,7 +218,7 @@ func TestTheNoiseIsTheUpdatesOption(t *testing.T) {
 	n.take()
 	c.Add(time.Minute)
 	s, _ = l.Update(context.Background(), ionomaps.UpdateOptions{Noise: ionomaps.NoiseQuietRural})
-	if a := n.take(); len(a) != 0 || s.Noise != ionomaps.NoiseQuietRural || s.Early != ionomaps.TooSoon {
-		t.Errorf("the noise changed within ten minutes: asked %v, noise %v, %v", a, s.Noise, s.Early)
+	if a := n.take(); len(a) != 0 || s.Noise != ionomaps.NoiseQuietRural || s.Reason != ionomaps.TooSoon {
+		t.Errorf("the noise changed within ten minutes: asked %v, noise %v, %v", a, s.Noise, s.Reason)
 	}
 }

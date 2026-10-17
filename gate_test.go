@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // plantModule is a throwaway module holding the gate and the given files.
@@ -93,5 +94,52 @@ func TestTheGateFailsOnWhatItCatches(t *testing.T) {
 func TestTheGateRefusesTwoModes(t *testing.T) {
 	if out, ok := runGate(t, plantModule(t, nil), "--quick", "--docs"); ok || !strings.Contains(out, "one mode at most") {
 		t.Errorf("two modes were taken:\n%s", out)
+	}
+}
+
+// TestAGateWithoutP10SaysSo is C-9: where P10 cannot run, the gate is
+// "green without P10" - on its last line and on the run's log line - never a
+// plain "green", so no one counts a run P10 never saw.
+func TestAGateWithoutP10SaysSo(t *testing.T) {
+	root := plantModule(t, map[string]string{"06_docs/gate-runs.md": "| When | HEAD | Tree | Mode | Result | Seconds | Overrides |\n|---|---|---|---|---|---|---|\n"})
+	out, ok := runGate(t, root, "--quick")
+	if !ok || !strings.Contains(out, "gate: green without P10") {
+		t.Fatalf("a clean module with no .a2dh.yml:\n%s", out)
+	}
+	runs, err := os.ReadFile(filepath.Join(root, "06_docs", "gate-runs.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(runs)), "\n")
+	if last := lines[len(lines)-1]; !strings.Contains(last, "| green without P10:") {
+		t.Errorf("the run is logged as %q", last)
+	}
+}
+
+// TestTheGateRefusesAFuzzBudgetThatIsNoCount is H-11: the fuzz budget is a
+// count of runs; a time, or anything else, is refused before a leg runs.
+func TestTheGateRefusesAFuzzBudgetThatIsNoCount(t *testing.T) {
+	root := plantModule(t, nil)
+	for _, v := range []string{"30s", "200000", "x", "2x0x"} {
+		cmd := exec.Command(filepath.Join(root, "scripts", "gate"), "--quick")
+		cmd.Env = append(os.Environ(), "GATE_ROOT="+root, "GOFLAGS=", "GATE_FUZZ_EXECS="+v)
+		if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "must be a count of runs") {
+			t.Errorf("GATE_FUZZ_EXECS=%s was taken:\n%s", v, out)
+		}
+	}
+}
+
+// TestAFuzzLegThatFinishesIsNotHeldByItsLimit is H-11's wall-clock limit as
+// first ported: a fuzz leg that finished at once waited out the whole limit,
+// its watchdog's sleep holding the leg's output open. A leg done in a second
+// is done in a second, well inside a limit of a minute.
+func TestAFuzzLegThatFinishesIsNotHeldByItsLimit(t *testing.T) {
+	root := plantModule(t, map[string]string{"fuzz_test.go": "package lib\n\nimport \"testing\"\n\nfunc FuzzAnswer(f *testing.F) {\n\tf.Add(1)\n\tf.Fuzz(func(t *testing.T, n int) { _ = n })\n}\n"})
+	cmd := exec.Command(filepath.Join(root, "scripts", "gate"), "--fuzz")
+	cmd.Env = append(os.Environ(), "GATE_ROOT="+root, "GOFLAGS=", "GATE_FUZZ_EXECS=10x", "GATE_FUZZ_LIMIT=60")
+	started := time.Now()
+	out, err := cmd.CombinedOutput()
+	if took := time.Since(started); err != nil || took > 40*time.Second {
+		t.Errorf("a fuzz leg of ten runs took %v (%v):\n%s", took, err, out)
 	}
 }

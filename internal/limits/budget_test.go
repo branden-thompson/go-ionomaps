@@ -72,11 +72,11 @@ func TestTheLossesFollowP533(t *testing.T) {
 	if !close6(ew, want) {
 		t.Errorf("a two-hop mode's field: %v dB(1 µV/m); eqs. (17), (18) give %v", ew, want)
 	}
-	pr := ReceivedPower(10, []float64{ew, ew})
+	pr := PowerFromField(10, SumFields([]float64{ew, ew}))
 	if !close6(pr, ew+10*math.Log10(2)-20-107.2) {
 		t.Errorf("two equal modes received at %v dBW; their power summed, %v", pr, ew+10*math.Log10(2)-20-107.2)
 	}
-	if !math.IsInf(ReceivedPower(10, nil), -1) {
+	if !math.IsInf(PowerFromField(10, SumFields(nil)), -1) {
 		t.Error("no mode was received as power")
 	}
 }
@@ -119,7 +119,7 @@ func TestTheBudgetRefusesBadInput(t *testing.T) {
 		"incidence past 90": IncidenceAngle(91, 110), "incidence below ground": IncidenceAngle(30, -1),
 		"no hops": SlantRange(0, 1000, 20), "a hop of no length": SlantRange(1, 0, 20),
 		"no foF2": MirrorHeight(0, 2.5, 3, 50, 4, 1000), "no foE": MirrorHeight(9, 0, 3, 50, 4, 1000), "no frequency": MirrorHeight(9, 2.5, 3, 50, 0, 1000), "an M(3000)F2 of no use": MirrorHeight(9, 2.5, math.NaN(), 50, 4, 1000),
-		"an M(3000)F2 past the method": MirrorHeight(9, 2.5, 9, 50, 4, 1000), "power at no frequency": ReceivedPower(0, []float64{10}),
+		"an M(3000)F2 past the method": MirrorHeight(9, 2.5, 9, 50, 4, 1000), "power at no frequency": PowerFromField(0, SumFields([]float64{10})),
 		"fs of no foE": ScreeningFrequency(0, 20), "Lm of no basic MUF": AboveMUFLoss(false, 10, 0),
 		"a field of no frequency": ModeField(0, 2000, 5, 0, 1, 0), "a field of no hops": ModeField(10, 2000, 5, 0, 0, 0), "a field with no loss": ModeField(10, 2000, math.NaN(), 0, 1, 0),
 		"noise of no frequency": NoiseFactor(Residential, 0, false), "noise of no environment": NoiseFactor(9, 3, false),

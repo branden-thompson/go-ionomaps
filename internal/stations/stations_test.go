@@ -178,3 +178,52 @@ func TestAnUpdateAsksOnlySinceTheLastReading(t *testing.T) {
 		t.Errorf("a station not in the list is asked from %v", got)
 	}
 }
+
+// TestAListStateIsCheckedOnApply is watchpost D-213: a list's state
+// comes back onto a fresh seed as it was - each station asked from its
+// reading time, the rotations where they stood - and is the list's own copy;
+// one naming a station the seed does not, a time after now, or a rotation
+// place below zero is refused, the list left as it was.
+func TestAListStateIsCheckedOnApply(t *testing.T) {
+	l, _ := Seed(t0)
+	live := l.Live(t0)
+	l.Heard(live[0], t0.Add(-20*time.Minute), Place{})
+	l.Plan(t0, 10)
+	kept := l.Record()
+	now := t0.Add(30 * time.Minute)
+	back, _ := Seed(now)
+	if err := back.Apply(kept, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := back.Since(live[0], now); !got.Equal(t0.Add(-20 * time.Minute)) {
+		t.Errorf("restored, %s is asked from %v; its reading was at %v", live[0], got, t0.Add(-20*time.Minute))
+	}
+	a, _ := back.Plan(now, 10)
+	b, _ := l.Plan(now, 10)
+	if !slices.Equal(a, b) {
+		t.Errorf("the restored rotation polls %v; the kept list %v", a, b)
+	}
+	kept.Heard[live[1]] = t0
+	if back.Since(live[1], now).Equal(t0) {
+		t.Error("a change to the state kept reached the restored list")
+	}
+	for name, s := range map[string]State{
+		"no seed time":                {Heard: map[string]time.Time{}},
+		"seeded in the future":        {Seeded: now.Add(time.Second)},
+		"a station never seeded":      {Seeded: t0, Heard: map[string]time.Time{"ZZ999": t0}},
+		"heard in the future":         {Seeded: t0, Heard: map[string]time.Time{live[0]: now.Add(time.Second)}},
+		"a poll place below zero":     {Seeded: t0, PollAt: -1},
+		"a probe place below zero":    {Seeded: t0, ProbeAt: -1},
+		"left out, never seeded":      {Seeded: t0, LeftOut: []string{"ZZ999"}},
+		"a probe place past the list": {Seeded: t0, ProbeAt: 10000},
+		"more left out than stations": {Seeded: t0, LeftOut: make([]string, 10000)},
+	} {
+		fresh, _ := Seed(now)
+		if err := fresh.Apply(s, now); err == nil {
+			t.Errorf("%s: restored", name)
+		}
+		if !fresh.seeded.Equal(now) || len(fresh.heard) != 0 {
+			t.Errorf("%s: a refused state changed the list", name)
+		}
+	}
+}

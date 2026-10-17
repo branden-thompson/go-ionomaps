@@ -2,6 +2,7 @@ package ionomaps
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -58,6 +59,20 @@ func (b Band) HighMHz() float64 {
 	return bandTops[b]
 }
 
+// bandNames are each band's name, by Band.
+var bandNames = [...]string{Band160m: "160m", Band80m: "80m", Band60m: "60m", Band40m: "40m", Band30m: "30m", Band20m: "20m", Band17m: "17m",
+	Band15m: "15m", Band12m: "12m", Band10m: "10m"}
+
+// String names a band, "20m"; "no band" for a value that is none.
+//
+// Source: this library.
+func (b Band) String() string {
+	if b < Band160m || b > Band10m {
+		return "no band"
+	}
+	return bandNames[b]
+}
+
 // AllBands are the bands, lowest first.
 //
 // Source: this library.
@@ -78,6 +93,20 @@ const (
 	Weak                       // below the upper limit, the reference circuit short of +13 dB even without absorption: closed (D-70)
 )
 
+// statusNames are each status's name, by Status.
+var statusNames = [...]string{StatusNoData: "no data", Open: "open", AboveUpper: "above the upper limit", Disturbed: "disturbed",
+	Absorbed: "absorbed", Weak: "weak"}
+
+// String names a status, "open"; "no status" for a value that is none.
+//
+// Source: this library.
+func (s Status) String() string {
+	if int(s) >= len(statusNames) {
+		return "no status"
+	}
+	return statusNames[s]
+}
+
 // Limit is which limit decided a band's status.
 type Limit uint8
 
@@ -90,6 +119,20 @@ const (
 	LimitAbsorption       // the LUF: the reference circuit's +13 dB, under the day's absorption (R-2.4)
 	LimitCircuit          // the reference circuit's +13 dB, out of reach even without absorption (D-70)
 )
+
+// limitNames are each limit's name, by Limit.
+var limitNames = [...]string{LimitNone: "none", LimitMUF: "MUF", LimitFoF2: "foF2", LimitDRAP: "D-RAP", LimitAbsorption: "LUF",
+	LimitCircuit: "the reference circuit"}
+
+// String names a limit, "MUF"; "no limit name" for a value that is none.
+//
+// Source: this library.
+func (l Limit) String() string {
+	if int(l) >= len(limitNames) {
+		return "no limit name"
+	}
+	return limitNames[l]
+}
 
 // BandStatus is one band's answer: its status and the limit that decided
 // it, and the spans of the UTC day it is typically open (R-2.8).
@@ -128,24 +171,29 @@ type Answer struct {
 	Nearest Nearest
 }
 
+// ErrNoField is the error, wrapped, when there is no field to give: an
+// update that could make none, or an answer from a snapshot that holds
+// none. errors.Is finds it; the words say why, and when to try again.
+var ErrNoField = errors.New("ionomaps: no field")
+
 // The answers' refusals (R-3.5): each says what was wrong, never what to do
 // with the library's own data.
 var (
 	errTooManyPlaces = errors.New("ionomaps: more than 64 places in one call")
 	errBadPlace      = errors.New("ionomaps: a place is off the globe or no number")
 	errBadRadius     = errors.New("ionomaps: the radius is not above 0 and at most 2000 km")
-	errNoHour        = errors.New("ionomaps: the snapshot holds no hour for that moment")
+	errNoField       = fmt.Errorf("%w in the snapshot", ErrNoField)
 )
 
 // maxPlaces is the most places one call answers (R-3.5).
 const maxPlaces = 64
 
-// At is foF2 and MUF(3000) at each place, in the hour that holds the moment
+// Readings are foF2 and MUF(3000) at each place, in the snapshot's hour
 // (R-2.1, R-2.3).
 //
 // Source: this library's fields.
-func (s Snapshot) At(points []LatLon, at time.Time) ([]Reading, error) {
-	h, err := s.hourFor(points, at)
+func (s Snapshot) Readings(points []LatLon) ([]Reading, error) {
+	h, err := s.hourFor(points)
 	if err != nil {
 		return nil, err
 	}
@@ -159,20 +207,20 @@ func (s Snapshot) At(points []LatLon, at time.Time) ([]Reading, error) {
 }
 
 // Bands is each band's status over the near-vertical area around each place,
-// within the radius (km), its upper limit foF2 there, and the hours of the
-// UTC day each is typically open, from the climatology (R-2.2, R-2.8); and
+// within the radius (km), in the snapshot's hour: its upper limit foF2
+// there, and the hours of the UTC day each is typically open, from the climatology (R-2.2, R-2.8); and
 // the place's nearest station (R-2.11).
 //
 // Source: watchpost D-24, D-73, D-135, D-185; this library's foF2; the climatology.
-func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([]Answer, error) {
+func (s Snapshot) Bands(origins []LatLon, radiusKm float64) ([]Answer, error) {
 	if !(radiusKm > 0) || radiusKm > 2000 {
 		return nil, errBadRadius
 	}
-	h, err := s.hourFor(origins, at)
+	h, err := s.hourFor(origins)
 	if err != nil {
 		return nil, err
 	}
-	day, sun := s.typicalDay(at), newSunTrack(at)
+	day, sun := s.typicalDay(h.At), newSunTrack(h.At)
 	out := make([]Answer, len(origins))
 	for i, p := range origins {
 		fo, ok := cellAt(h.FoF2, p)
@@ -183,24 +231,24 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64, at time.Time) ([]Ans
 			bands = absorb(bands, c, float64(fo))
 		}
 		bands = disturb(bands, float64(mhz), disturbed)
-		out[i] = Answer{Bands: withOpenHours(bands, openHours(day, s.areaLimit(p, radiusKm))), Nearest: s.nearestAt(h.FoF2, p)}
+		out[i] = Answer{Bands: withOpenHours(bands, openHours(&day, s.areaLimit(p, radiusKm))), Nearest: s.nearestAt(h.FoF2, p)}
 	}
 	return out, nil
 }
 
-// Path is each band's status on the path from one place to each other, its
-// upper limit the path's basic MUF by ITU-R P.533-14, and the hours of the
+// Path is each band's status on the path from one place to each other, in
+// the snapshot's hour: its upper limit the path's basic MUF by ITU-R P.533-14, and the hours of the
 // UTC day each is typically open, from the climatology (R-2.2, R-2.7, R-2.8);
 // and the nearest station to the control point furthest from any (R-2.11).
 //
 // Source: ITU-R P.533-14 §3.5 (02-analysis/evidence/p533-equations.md);
 // foE from P.1239-4 §4; the gyrofrequency from IGRF-14; watchpost D-135, D-185.
-func (s Snapshot) Path(from LatLon, to []LatLon, at time.Time) ([]Answer, error) {
-	h, err := s.hourFor(append([]LatLon{from}, to...), at)
+func (s Snapshot) Path(from LatLon, to []LatLon) ([]Answer, error) {
+	h, err := s.hourFor(append([]LatLon{from}, to...))
 	if err != nil {
 		return nil, err
 	}
-	day, sun := s.typicalDay(at), newSunTrack(at)
+	day, sun := s.typicalDay(h.At), newSunTrack(h.At)
 	out := make([]Answer, len(to))
 	for i, p := range to {
 		muf, frac, ok := s.pathMUF(hourReader(h), from, p, sun)
@@ -211,7 +259,7 @@ func (s Snapshot) Path(from LatLon, to []LatLon, at time.Time) ([]Answer, error)
 			bands = absorb(bands, c, muf)
 		}
 		bands = disturb(bands, mhz, disturbed)
-		out[i] = Answer{Bands: withOpenHours(bands, openHours(day, s.pathLimit(from, p))), Nearest: s.pathNearest(h.FoF2, places)}
+		out[i] = Answer{Bands: withOpenHours(bands, openHours(&day, s.pathLimit(from, p))), Nearest: s.pathNearest(h.FoF2, places)}
 	}
 	return out, nil
 }
@@ -330,6 +378,15 @@ func newSunTrack(at time.Time) *sunTrack {
 	return t
 }
 
+// cosZenith is the cosine of the sun's zenith angle at a place at the
+// track's moment, held to -1 to 1: what sunAt's zenith angle is the arc
+// cosine of.
+func (t *sunTrack) cosZenith(lat, lon float64) float64 {
+	r := math.Pi / 180
+	sl, cl := math.Sincos(lat * r)
+	return math.Max(-1, math.Min(1, sl*t.sin[0]+cl*t.cos[0]*math.Cos((lon-t.lon[0])*r)))
+}
+
 // sunAt is the sun's declination and zenith angle at a place, degrees, and
 // at night the hours since it set (to ten minutes, within a day).
 func (t *sunTrack) sunAt(lat, lon float64) (decl, chi, sinceSunset float64) {
@@ -364,8 +421,8 @@ func statuses(limitMHz float64, ok bool, by Limit) []BandStatus {
 	return out
 }
 
-// hourFor is the hour that holds a moment, the places checked (R-3.5).
-func (s Snapshot) hourFor(places []LatLon, at time.Time) (Hour, error) {
+// hourFor is the snapshot's hour, the places checked (R-3.5).
+func (s Snapshot) hourFor(places []LatLon) (Hour, error) {
 	if len(places) > maxPlaces {
 		return Hour{}, errTooManyPlaces
 	}
@@ -375,12 +432,10 @@ func (s Snapshot) hourFor(places []LatLon, at time.Time) (Hour, error) {
 			return Hour{}, errBadPlace
 		}
 	}
-	for _, h := range s.Hours {
-		if !at.Before(h.At) && at.Before(h.At.Add(time.Hour)) {
-			return h, nil
-		}
+	if len(s.Now.FoF2.Values) == 0 {
+		return Hour{}, errNoField
 	}
-	return Hour{}, errNoHour
+	return s.Now, nil
 }
 
 // cellAt is a field's value at a place, from the cell it falls in; false
@@ -394,9 +449,14 @@ func cellAt(f Field, p LatLon) (float32, bool) {
 }
 
 // cellIndex is the cell of a field a place falls in; false where the field
-// has no cells.
+// has no cells, or the place is no number - a control point worked out from
+// one (L-F12).
 func cellIndex(f Field, p LatLon) (int, bool) {
 	if f.Cols <= 0 || f.Rows <= 0 || len(f.Values) != f.Cols*f.Rows {
+		return 0, false
+	}
+	finite := !math.IsNaN(p.Lat) && !math.IsInf(p.Lat, 0) && !math.IsNaN(p.Lon) && !math.IsInf(p.Lon, 0)
+	if !finite {
 		return 0, false
 	}
 	lon := math.Mod(math.Mod(p.Lon+180, 360)+360, 360) - 180

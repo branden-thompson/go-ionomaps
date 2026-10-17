@@ -101,8 +101,7 @@ func NewFit(obs []Obs, k Kernel) (Fit, error) {
 //
 // Source: as NewFit.
 func (f Fit) At(lat, lon float64) float64 {
-	unfitted := len(f.alpha) != len(f.obs)
-	if unfitted {
+	if len(f.alpha) != len(f.obs) {
 		return 0 // no fit: the background unchanged
 	}
 	nowhere := math.IsNaN(lat) || math.IsNaN(lon)
@@ -127,8 +126,7 @@ func distance(o Obs, lat, lon float64) float64 {
 // solve is the solution of a symmetric positive-definite system by its
 // Cholesky factor; false when it is not positive definite.
 func solve(a, b []float64, n int) ([]float64, bool) {
-	empty := n <= 0
-	if empty {
+	if n <= 0 {
 		return nil, false
 	}
 	misshapen := len(a) != n*n || len(b) != n

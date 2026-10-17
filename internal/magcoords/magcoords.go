@@ -241,28 +241,22 @@ func blendLongitude(a, b, w float64) float64 {
 // wrap360 is an angle in [0, 360).
 func wrap360(a float64) float64 { return math.Mod(math.Mod(a, 360)+360, 360) }
 
-// MLT is the magnetic local time, hours, of a quasi-dipole longitude at a
-// moment: its distance east of the subsolar point's quasi-dipole longitude,
-// turned to midnight, as PyIRI's Apex does (after Laundal and Richmond 2017).
-//
-// Source: PyIRI 0.1.7 (MIT), sh_library.Apex ('GEO_2_MLT'); Laundal and
-// Richmond (2017), Space Sci. Rev. 206, 27-59.
-func MLT(qdlon float64, at time.Time) float64 { return MLTFrom(qdlon, SubsolarQD(at)) }
-
 // SubsolarQD is the subsolar point's quasi-dipole longitude at a moment: an
 // hour's MLT for every place needs it once.
 //
-// Source: as MLT.
+// Source: as MLTFrom.
 func SubsolarQD(at time.Time) float64 {
 	slon, slat := Subsolar(at)
 	_, sqdlon, _ := QD(slat, slon, at)
 	return sqdlon
 }
 
-// MLTFrom is the magnetic local time of a quasi-dipole longitude, given the
-// subsolar point's.
+// MLTFrom is the magnetic local time, hours, of a quasi-dipole longitude,
+// given the subsolar point's: its distance east of it, turned to midnight,
+// as PyIRI's Apex does (after Laundal and Richmond 2017).
 //
-// Source: as MLT.
+// Source: PyIRI 0.1.7 (MIT), sh_library.Apex ('GEO_2_MLT'); Laundal and
+// Richmond (2017), Space Sci. Rev. 206, 27-59.
 func MLTFrom(qdlon, subsolarQDLon float64) float64 {
 	return math.Mod(math.Mod((qdlon-subsolarQDLon+180)/15, 24)+24, 24)
 }

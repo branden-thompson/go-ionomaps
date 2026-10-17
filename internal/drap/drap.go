@@ -86,8 +86,7 @@ func ParseTable(body []byte, now time.Time) (Grid, error) {
 			}
 			rows = append(rows, r)
 		case !lonsSeen && len(rows) == 0:
-			lons := lonsAre(text)
-			if !lons {
+			if !lonsAre(text) {
 				return Grid{}, errLayout
 			}
 			lonsSeen = true
@@ -136,8 +135,7 @@ func lonsAre(text string) bool {
 func row(text string, lat int) ([points]float32, error) {
 	var out [points]float32
 	head, rest, _ := strings.Cut(text, "|")
-	labelled := strings.TrimSpace(head) == strconv.Itoa(lat)
-	if !labelled {
+	if strings.TrimSpace(head) != strconv.Itoa(lat) {
 		return out, errLayout
 	}
 	f := strings.Fields(rest)

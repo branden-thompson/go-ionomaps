@@ -203,16 +203,6 @@ func ModeField(f, slant, li, lm float64, hops int, lh float64) float64 {
 	return 136.6 + TxPowerDBkW + AntennaDBi + 20*math.Log10(f) - loss
 }
 
-// ReceivedPower is the median power available from the reference circuit's
-// receiving antenna, dBW, the modes' field strengths summed in power (eqs.
-// 28, 43, 44 with every mode's gain 0 dBi); minus infinity with no mode.
-// No number for no frequency.
-//
-// Source: ITU-R P.533-14 eqs. (28), (43), (44).
-func ReceivedPower(f float64, fields []float64) float64 {
-	return PowerFromField(f, SumFields(fields))
-}
-
 // SumFields is the modes' field strengths summed in power, dB(1 µV/m) (eq.
 // 28); minus infinity with no mode.
 //

@@ -58,3 +58,29 @@ func TestASampleIsBilinearBetweenCentres(t *testing.T) {
 		t.Error("a field of the wrong size was sampled")
 	}
 }
+
+// TestAPlaceFallsInTheCellAroundIt: every cell's centre falls in that cell,
+// a place on a cell's edge in the cell to its south and east, longitudes
+// wrap, the poles fall in the outermost rows, and a place that is no number,
+// or a latitude off the globe, falls in none.
+func TestAPlaceFallsInTheCellAroundIt(t *testing.T) {
+	for i := 0; i < Cells; i++ {
+		lat, lon := Centre(i)
+		if got, ok := CellOf(lat, lon); !ok || got != i {
+			t.Fatalf("cell %d's centre falls in %d", i, got)
+		}
+	}
+	for _, c := range []struct {
+		lat, lon float64
+		want     int
+	}{{90, -180, 0}, {88, -178, Cols + 1}, {-90, 180, Cells - Cols}, {0, 181, (Rows / 2) * Cols}, {89, -541, Cols - 1}} {
+		if got, ok := CellOf(c.lat, c.lon); !ok || got != c.want {
+			t.Errorf("(%v, %v) falls in %d; want %d", c.lat, c.lon, got, c.want)
+		}
+	}
+	for _, p := range [][2]float64{{math.NaN(), 0}, {0, math.Inf(1)}, {90.5, 0}, {-91, 10}} {
+		if _, ok := CellOf(p[0], p[1]); ok {
+			t.Errorf("%v falls in a cell", p)
+		}
+	}
+}
