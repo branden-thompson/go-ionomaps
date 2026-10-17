@@ -145,3 +145,25 @@ func uncited(t *testing.T, name string, body []byte) []string {
 	}
 	return out
 }
+
+// TestTheNoticeCarriesPyIRIsLicenceInFull is watchpost F-215 (R-4.2): the
+// climatology ports PyIRI's method and ships NRL's refits from it, so the
+// NOTICE carries PyIRI's MIT licence whole - its copyright, the permission
+// notice MIT asks to accompany every copy, and the warranty's disclaimer.
+func TestTheNoticeCarriesPyIRIsLicenceInFull(t *testing.T) {
+	raw, err := os.ReadFile("NOTICE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notice := strings.Join(strings.Fields(string(raw)), " ")
+	for _, want := range []string{
+		"Copyright (c) 2023 victoriyaforsythe",
+		"Permission is hereby granted, free of charge, to any person obtaining a copy of this software",
+		"The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.",
+		`THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND`,
+	} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("the NOTICE does not carry PyIRI's licence: missing %q", want)
+		}
+	}
+}

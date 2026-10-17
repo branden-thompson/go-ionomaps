@@ -108,7 +108,7 @@ Size (estimates, L-F14): G0 1, G1 1, G2 2, G3 3 (with IGRF and the export), G4 1
 | G6.2 | Daytime absorption for the reference circuit | `TestDaytimeAbsorptionClosesTheLowBands` (80 m absorbed at local noon, open at night, mid-latitude) |
 | G6.3 | D-RAP disturbed | `TestADisturbanceMarksTheBandsItCovers` |
 | G6.4 | Statuses naming their limit | `TestEveryStatusNamesItsLimit` |
-| G7.1 | `Bands`, `Path`, `Reach`, many points in one call | `TestBestBandsForAnArea`, `TestTheDaysOpenHours`, `TestAFrequencysReachIsAField`, `TestTheSkipZoneIsReturned`, `TestReadingsForManyPointsInOneCall`, `TestAReadingAtAPointComesFromTheField`, `TestAnswersCarryTheNearestStationDistance`, `FuzzNoNaNOrInfLeavesTheLibrary` |
+| G7.1 | `Bands`, `Path`, `Reach`, many points in one call | `TestBestBandsForAnArea`, `TestTheDaysOpenHours`, `TestAFrequencysReachIsAField`, `TestTheSkipZoneIsReturned`, `TestReadingsForManyPointsInOneCall`, `TestAReadingAtAPointComesFromTheField`, `TestAnswersCarryTheNearestStationDistance`, `FuzzAnswersNeverReturnNaN` |
 | G7.2 | The host's inputs bounded (R-3.5): the answers refuse a non-finite or out-of-range origin, a radius that is not positive or above 2000 km, a frequency outside 1.8 to 30 MHz; an hour outside the snapshot returns no data; at most 64 places in one call; the answers make no fetch | `TestTheAnswersRefuseBadInput`, `FuzzAnswersNeverReturnNaN`, `TestTheAnswersFetchNothing` (a counting fetcher) |
 | G8.1 | Hours ahead: the climatology's hours from the day's cache, marked typical, with the typical error and its basis (D-109) | `TestHoursAheadAreTheClimatology`, `TestAnHourAheadIsMarkedTypical`, `TestTheTypicalErrorCarriesItsBasis` |
 
@@ -117,7 +117,7 @@ Size (estimates, L-F14): G0 1, G1 1, G2 2, G3 3 (with IGRF and the export), G4 1
 | # | Task | Test first |
 |---|---|---|
 | G9.1 | The burst cap, the hourly limit, 2 a minute, the back-off, `Retry-After` honoured | `TestAnUpdateNeverExceedsItsBurst`, `TestA429BacksOff`, `TestRetryAfterIsHonouredWhenSent` (a fake clock and a counting fetcher), `TestA429IsSeenByTheLibraryNotRetried`, `TestACancelledBurstSpendsTheHoursBudget`, `TestRetryAfterIsBoundedAt15Minutes`, `FuzzRateHeaders` |
-| G9.2 | Early answers from the last good snapshot | `TestAnEarlyUpdateAnswersFromTheLastField` |
+| G9.2 | Early answers from the last good snapshot | `TestAnUpdateTooSoonAnswersFromTheLast` |
 | G9.3 | The seed, the dark-station drop, one probe inside the 40 (D-87), rotation at 40 or more live | `TestAColdStartUsesTheSeedWithoutABurst`, `TestADarkStationIsDroppedAfterThreeDays`, `TestOneProbePerUpdate`, `TestTheProbeCountsInsideTheBurst` (40 live: 39 polled, 1 probe), `TestAboveFortyStationsRotate` |
 | G9.4 | Readings only since the last held, only the characteristics used; the last reading per station held, no more (R-5.2, P-11) | `TestAnUpdateAsksOnlySinceTheLastReading`, `TestOnlyTheLastReadingPerStationIsHeld` |
 | G9.5 | Concurrent callers merged; no goroutines of its own | `TestTheLibraryStartsNoGoroutines`, the race detector, `TestAHeldSnapshotIsUnchangedByTheNextUpdate` |
