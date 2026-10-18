@@ -26,6 +26,7 @@ type Snapshot struct {
 	TypicalError    TypicalError // the hours ahead's error, with its basis (watchpost D-109)
 
 	typical *typicalDays // the library's typical days, which the answers share (P-4); none for a snapshot made by hand
+	ahead   *aheadHours  // the library's climatology hours, which the hours ahead share (R-8.1); none for a snapshot made by hand
 }
 
 // Hour is one hour's fields, for the moment At.

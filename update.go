@@ -343,7 +343,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 	if g != nil && now.Sub(g.Valid) > gridMaxAge {
 		g = nil
 	}
-	b := background.Build(now, l.solar.Mean, g)
+	b := l.bg.background(now, l.solar.Mean, g)
 	res, oldest, newest := assimilate.Result{FoF2: b.FoF2, M3000: b.M3000}, time.Time{}, time.Time{}
 	if !o.NoStations {
 		res, oldest, newest = l.assimilated(b, now)
@@ -380,6 +380,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		Noise:           o.Noise,
 		Scales:          scalesOf(l.scales, now),
 		typical:         l.typical,
+		ahead:           l.ahead,
 	}
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid, s.Inputs.GloTECFilled = g.Valid, b.Filled

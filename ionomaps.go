@@ -76,8 +76,10 @@ type Library struct {
 	giro         giro.Asker // GIRO's throttle, stations and readings held (G9)
 	stationsNext bool       // the last update was NOAA's, GIRO due: the next makes the burst (D-63)
 
-	unread  []string     // NOAA's files the last update fetched and could not read (L-F5)
-	typical *typicalDays // the typical days the snapshots share (P-4)
+	unread  []string       // NOAA's files the last update fetched and could not read (L-F5)
+	typical *typicalDays   // the typical days the snapshots share (P-4)
+	ahead   *aheadHours    // the climatology hours the hours ahead are, shared (R-8.1, watchpost D-222)
+	bg      lastBackground // the last background, built on again when its inputs are the same (R-8.1)
 
 	offset typicalOffset // the typical offset learned from this library's updates (D-105)
 	opts   UpdateOptions // the options the last snapshot was built with
@@ -97,7 +99,7 @@ func New(f Fetcher, o Options) (*Library, error) {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Library{fetch: f, clock: clock, offset: seedOffset(), typical: &typicalDays{}}, nil
+	return &Library{fetch: f, clock: clock, offset: seedOffset(), typical: &typicalDays{}, ahead: &aheadHours{}}, nil
 }
 
 // Sources is every source the library reads or is built from, with its

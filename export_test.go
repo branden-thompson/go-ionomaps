@@ -15,3 +15,13 @@ func HeldReadings(l *Library) (n int, oldest time.Time) {
 	}
 	return len(l.giro.Readings()), oldest
 }
+
+// Built is how many climatology hours ahead and backgrounds the library has
+// worked out, for the tests of what it keeps (R-8.1).
+func Built(l *Library) (aheadHours, backgrounds int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.ahead.mu.Lock()
+	defer l.ahead.mu.Unlock()
+	return l.ahead.built, l.bg.built
+}

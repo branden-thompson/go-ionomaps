@@ -3,8 +3,6 @@ package ionomaps
 import (
 	"errors"
 	"time"
-
-	"github.com/branden-thompson/go-ionomaps/internal/background"
 )
 
 // maxAhead is the furthest hour ahead (R-1.3).
@@ -13,13 +11,14 @@ const maxAhead = 24
 var errNotAhead = errors.New("ionomaps: an hour ahead is from 1 to 24")
 
 // Ahead is the hour k hours after the snapshot's, 1 to 24, as a snapshot of
-// its own, built when asked (D-60): the climatology's foF2 and M(3000)F2 at
-// the snapshot's F10.7 mean, MUF(3000) their product, marked typical -
-// never a forecast (R-1.3). It carries none of now's measurements: no D-RAP
-// disturbance and no live offset, which hold for now alone (watchpost
-// D-216, L-F2); the stations' distances stay, the hours ahead's typical
-// error read by them. About 35 ms an hour; a host stepping through the
-// hours keeps the ones it has.
+// its own (D-60): the climatology's foF2 and M(3000)F2 at the start of that
+// UTC hour, at the snapshot's F10.7 mean, MUF(3000) their product, marked
+// typical - never a forecast (R-1.3). It carries none of now's
+// measurements: no D-RAP disturbance and no live offset, which hold for now
+// alone (watchpost D-216, L-F2); the stations' distances stay, the hours
+// ahead's typical error read by them. The library keeps the day's
+// climatology hours, so an hour is worked out once, about 35 ms, whichever
+// snapshot asks it (R-8.1, watchpost D-222).
 //
 // Source: the climatology (PyIRI's method, watchpost D-114); R-1.3.
 func (s Snapshot) Ahead(k int) (Snapshot, error) {
@@ -29,8 +28,8 @@ func (s Snapshot) Ahead(k int) (Snapshot, error) {
 	if len(s.Now.FoF2.Values) == 0 {
 		return Snapshot{}, errNoField
 	}
-	at := s.Now.At.Add(time.Duration(k) * time.Hour)
-	b := background.Build(at, float64(s.Inputs.F107Mean), nil)
+	at := s.Now.At.Add(time.Duration(k) * time.Hour).Truncate(time.Hour)
+	b := s.ahead.fields(at, s.Inputs.F107Mean)
 	fo, muf := newField(), newField()
 	for i, f := range b.FoF2 {
 		fo.put(i, f)

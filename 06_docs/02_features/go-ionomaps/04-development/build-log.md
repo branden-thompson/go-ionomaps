@@ -133,3 +133,8 @@ Hand mutants: fourteen, eleven killed at once; the three survivors (the one-hop 
 
 - **C-6:** the tables tool's `loadIGRF` ran to 80 lines, past P10's 60, unseen because the analyser reads only the functions a change touches. It reads the rows (`readRows`) and fills the tables (`fill`), each under 60; the tool's golden test against IAGA's own reference holds them to the same output.
 
+## What the library keeps (watchpost D-222, A-23)
+
+- **R-8.1 as written, now built:** an hour ahead was rebuilt from the climatology at every ask, about 35 ms, and an update with new options at the snapshot's moment remade the background, about 34 ms, its grid unchanged (watchpost's BUILD red team P-4; F-217). The HUM LEAD ruled the cache in before v0.1.0 (watchpost D-222). The day's climatology hours are kept and shared by the library's snapshots, an hour ahead being its hour's start as R-1.3 says; the last background is built on when its inputs are the same.
+- **Tests:** `TestTheDaysClimatologyHoursAreKept` (one hour ahead asked three times over two snapshots, worked out once) and `TestAnUnchangedBackgroundIsBuiltOn`, each shown to fail with its cache disabled by hand; the reproduction golden (G10.1) unchanged.
+
