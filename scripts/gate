@@ -44,6 +44,7 @@ fuzz_execs() {
   case "$1" in
     FuzzAnswersNeverReturnNaN) echo "40000x" ;; # about a minute (2026-10-17, Apple M5 Pro)
     FuzzAReachNeverReturnsNaN) echo "1500x" ;; # a reach is the whole globe's circuits; about a minute (2026-10-17, Apple M5 Pro)
+    FuzzARestoredStateNeverPanics) echo "20000x" ;; # each run a library and two updates; 48 s (2026-10-18, Apple M5 Pro), 200000x ran past the hosted runners' 600 s
     *)                         echo "$FUZZ_EXECS_DEFAULT" ;;
   esac
 }

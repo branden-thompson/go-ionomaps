@@ -147,3 +147,7 @@ Hand mutants: fourteen, eleven killed at once; the three survivors (the one-hop 
 - **The fault test reported nothing and passed (CN2-17):** its GIRO truncation cut only the header, so the reply read as one with no readings. It now cuts through a reading, and the case passes only when the rejection is reported. A GIRO 5xx is now no answer (CN2-15, `TestAServerErrorPausesGIRO`).
 - **`Inputs.Unread`** (D-229), and the README, checklist and API review's status lines (DN2-12).
 - **Hand mutants, each killed:** the state's bound disabled (`TestABadStateIsRefused`), and the 2 dB band set to 0 (`TestTheReachsLowerLimitIsHeldToTheCircuit`).
+
+## The restore fuzz target's count (after v0.1.0-rc.3)
+
+- **The hosted full gate on `31c2e19` failed** on both runners, and only on `FuzzARestoredStateNeverPanics`: the default 200,000 runs took 172 s on the reference machine and passed the leg's 600 s limit on the hosted runners - no crash, the clock. Each run builds a library and makes two updates, so the target gets its own count, as the answers' and the reach's have: 20,000, 48 s here on the gate's run. The library is unchanged; `v0.1.0-rc.3` stands on `31c2e19`.
