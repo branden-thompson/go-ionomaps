@@ -25,6 +25,14 @@ type igrf struct {
 
 var errIGRF = errors.New("tables: not IAGA's IGRF coefficient file")
 
+// igrfRow is one coefficient row of IAGA's table: g or h, its degree and
+// order, a value at each epoch and the secular variation last.
+type igrfRow struct {
+	gh   string
+	n, o int
+	vals []float64
+}
+
 // loadIGRF reads IAGA's coefficient table (igrfNNcoeffs.txt): its header
 // line of epochs, then one row a coefficient, g or h, degree, order, a value
 // at each epoch, and the secular variation last.
@@ -35,20 +43,30 @@ func loadIGRF(path string) (igrf, error) {
 	}
 	defer func() { _ = f.Close() }() // read only
 	var m igrf
-	type row struct {
-		gh   string
-		n, o int
-		vals []float64
+	rows, err := m.readRows(bufio.NewScanner(f))
+	if err != nil {
+		return igrf{}, err
 	}
-	var rows []row
-	sc := bufio.NewScanner(f)
+	if len(m.epochs) == 0 || len(rows) == 0 {
+		return igrf{}, errIGRF
+	}
+	if err := m.fill(rows); err != nil {
+		return igrf{}, err
+	}
+	return m, nil
+}
+
+// readRows reads the table's epochs into the model, and its coefficient
+// rows, the model's degree the highest among them.
+func (m *igrf) readRows(sc *bufio.Scanner) ([]igrfRow, error) {
+	var rows []igrfRow
 	for sc.Scan() {
 		fields := strings.Fields(sc.Text())
 		if len(fields) > 3 && fields[0] == "g/h" {
 			for _, e := range fields[3 : len(fields)-1] {
 				y, err := strconv.ParseFloat(e, 64)
 				if err != nil {
-					return igrf{}, errIGRF
+					return nil, errIGRF
 				}
 				m.epochs = append(m.epochs, y)
 			}
@@ -60,25 +78,26 @@ func loadIGRF(path string) (igrf, error) {
 		n, err1 := strconv.Atoi(fields[1])
 		o, err2 := strconv.Atoi(fields[2])
 		if err1 != nil || err2 != nil {
-			return igrf{}, errIGRF
+			return nil, errIGRF
 		}
-		r := row{gh: fields[0], n: n, o: o}
+		r := igrfRow{gh: fields[0], n: n, o: o}
 		for _, v := range fields[3:] {
 			x, err := strconv.ParseFloat(v, 64)
 			if err != nil {
-				return igrf{}, errIGRF
+				return nil, errIGRF
 			}
 			r.vals = append(r.vals, x)
 		}
 		rows = append(rows, r)
 		m.degree = max(m.degree, n)
 	}
-	if err := sc.Err(); err != nil {
-		return igrf{}, err
-	}
-	if len(m.epochs) == 0 || len(rows) == 0 {
-		return igrf{}, errIGRF
-	}
+	return rows, sc.Err()
+}
+
+// fill lays the rows into the model's coefficient tables, at each epoch and
+// for the secular variation; a row of the wrong length, or an order past its
+// degree, is not IAGA's table.
+func (m *igrf) fill(rows []igrfRow) error {
 	alloc := func() [][]float64 {
 		out := make([][]float64, m.degree+1)
 		for n := range out {
@@ -93,7 +112,7 @@ func loadIGRF(path string) (igrf, error) {
 	m.sg, m.sh = alloc(), alloc()
 	for _, r := range rows {
 		if len(r.vals) != len(m.epochs)+1 || r.o > r.n {
-			return igrf{}, errIGRF
+			return errIGRF
 		}
 		for e := range m.epochs {
 			if r.gh == "g" {
@@ -108,7 +127,7 @@ func loadIGRF(path string) (igrf, error) {
 			m.sh[r.n][r.o] = r.vals[len(m.epochs)]
 		}
 	}
-	return m, nil
+	return nil
 }
 
 // decimalYear is a moment as IAGA's decimal year: the year, and the part of
