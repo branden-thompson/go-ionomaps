@@ -16,12 +16,21 @@ func HeldReadings(l *Library) (n int, oldest time.Time) {
 	return len(l.giro.Readings()), oldest
 }
 
-// Built is how many climatology hours ahead and backgrounds the library has
-// worked out, for the tests of what it keeps (R-8.1).
-func Built(l *Library) (aheadHours, backgrounds int) {
+// Built is how many typical cells and backgrounds the library has worked
+// out, for the tests of what it keeps (R-8.1).
+func Built(l *Library) (cells, backgrounds int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.ahead.mu.Lock()
-	defer l.ahead.mu.Unlock()
-	return l.ahead.built, l.bg.built
+	l.typical.mu.Lock()
+	defer l.typical.mu.Unlock()
+	for _, d := range l.typical.days {
+		cells += int(d.filled.Load())
+	}
+	return cells, l.bg.built
+}
+
+// ReachExact is a reach whose every cell takes its own circuit, the
+// measure the polar grid is held to (watchpost D-227).
+func ReachExact(s Snapshot, origin LatLon, mhz float64) (ReachField, error) {
+	return s.reach(origin, mhz, false)
 }

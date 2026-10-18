@@ -3,6 +3,8 @@ package ionomaps
 import (
 	"errors"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/grid"
 )
 
 // maxAhead is the furthest hour ahead (R-1.3).
@@ -16,9 +18,9 @@ var errNotAhead = errors.New("ionomaps: an hour ahead is from 1 to 24")
 // typical - never a forecast (R-1.3). It carries none of now's
 // measurements: no D-RAP disturbance and no live offset, which hold for now
 // alone (watchpost D-216, L-F2); the stations' distances stay, the hours
-// ahead's typical error read by them. The library keeps the day's
-// climatology hours, so an hour is worked out once, about 35 ms, whichever
-// snapshot asks it (R-8.1, watchpost D-222).
+// ahead's typical error read by them. The hour's cells are the typical
+// day's, which the answers share, so each is worked out once a day whichever
+// snapshot or answer asks it (R-8.1, watchpost D-222).
 //
 // Source: the climatology (PyIRI's method, watchpost D-114); R-1.3.
 func (s Snapshot) Ahead(k int) (Snapshot, error) {
@@ -29,11 +31,18 @@ func (s Snapshot) Ahead(k int) (Snapshot, error) {
 		return Snapshot{}, errNoField
 	}
 	at := s.Now.At.Add(time.Duration(k) * time.Hour).Truncate(time.Hour)
-	b := s.ahead.fields(at, s.Inputs.F107Mean)
+	th := s.typicalHourAt(at)
 	fo, muf := newField(), newField()
-	for i, f := range b.FoF2 {
-		fo.put(i, f)
-		muf.put(i, f*b.M3000[i])
+	for i := range fo.Values {
+		lat, lon := grid.Centre(i)
+		f, m3, ok := th.read(LatLon{Lat: lat, Lon: lon})
+		if !ok {
+			fo.NoData.set(i)
+			muf.NoData.set(i)
+			continue
+		}
+		fo.put(i, float32(f))
+		muf.put(i, float32(f*m3))
 	}
 	a := s.clone()
 	a.Now = Hour{At: at, FoF2: fo, MUF3000: muf, Typical: true}

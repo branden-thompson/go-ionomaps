@@ -28,11 +28,21 @@ type ReachField struct {
 // Reach is where a frequency reaches from an origin in the snapshot's hour,
 // as the band statuses judge it: under the path's basic MUF by ITU-R
 // P.533-14 to every cell, and over the path's lower limit at the reference
-// circuit (watchpost D-205); and the skip zone inside it (R-2.9).
+// circuit (watchpost D-205) - the circuit worked out on a polar grid around
+// the origin and interpolated between its nodes (D-227), within the measured
+// share of cells of each cell's own circuit; and the skip zone inside it
+// (R-2.9).
 //
 // Source: ITU-R P.533-14 §3.5 and §5 to §7 (02-analysis/evidence/p533-equations.md,
 // p533-field-strength.md); watchpost D-76, D-205.
 func (s Snapshot) Reach(origin LatLon, mhz float64) (ReachField, error) {
+	return s.reach(origin, mhz, true)
+}
+
+// reach is Reach, each cell's lower limit read from the polar grid when
+// polar is true (watchpost D-227), else from the cell's own circuit - the
+// measure the grid is held to.
+func (s Snapshot) reach(origin LatLon, mhz float64, polar bool) (ReachField, error) {
 	if !(mhz >= 1.8 && mhz <= 30) {
 		return ReachField{}, errBadFrequency
 	}
@@ -44,6 +54,10 @@ func (s Snapshot) Reach(origin LatLon, mhz float64) (ReachField, error) {
 	read, sun, day := hourReader(h), newSunTrack(h.At), s.typicalDay(h.At)
 	skip := math.Inf(1)
 	closed := map[Status]int{}
+	var lower *lowerGrid
+	if polar {
+		lower = s.newLowerGrid(read, origin, sun, &day, mhz)
+	}
 	for i := range out.Field.Values {
 		lat, lon := grid.Centre(i)
 		cell := LatLon{Lat: lat, Lon: lon}
@@ -55,7 +69,11 @@ func (s Snapshot) Reach(origin LatLon, mhz float64) (ReachField, error) {
 		if mhz >= muf {
 			continue
 		}
-		if st := s.reachLower(read, origin, cell, sun, &day, mhz); st != Open {
+		st, gridded := lower.status(cell)
+		if !gridded {
+			st = s.reachLower(read, origin, cell, sun, &day, mhz)
+		}
+		if st != Open {
 			closed[st]++
 			continue
 		}

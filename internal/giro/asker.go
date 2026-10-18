@@ -12,6 +12,7 @@ import (
 const (
 	statusOK      = 200
 	statusRefused = 429
+	statusFailed  = 500 // and above: GIRO did not answer the ask
 )
 
 // heldFor is how long a reading is kept after it was taken: as long as a
@@ -148,7 +149,7 @@ func (a *Asker) ask(ctx context.Context, code string, now time.Time, fetch Fetch
 	if ctx.Err() != nil {
 		return true // the host's cancel: no refusal of GIRO's
 	}
-	refused := err != nil || status == statusRefused
+	refused := err != nil || status == statusRefused || status >= statusFailed
 	if refused {
 		a.thr.Refused(now, retryAfter)
 		return true

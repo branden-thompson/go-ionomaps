@@ -41,8 +41,8 @@ func TestTheDaysClimatologyHoursAreKept(t *testing.T) {
 	if _, err := later.Ahead(3); err != nil {
 		t.Fatal(err)
 	}
-	if hours, _ := ionomaps.Built(l); hours != 1 {
-		t.Errorf("one hour ahead asked three times over two snapshots was worked out %d times; once", hours)
+	if cells, _ := ionomaps.Built(l); cells != len(a.Now.FoF2.Values) {
+		t.Errorf("one hour ahead asked three times over two snapshots worked out %d cells; its %d, once", cells, len(a.Now.FoF2.Values))
 	}
 }
 

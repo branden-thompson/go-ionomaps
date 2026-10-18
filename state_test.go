@@ -109,17 +109,18 @@ func TestABadStateIsRefused(t *testing.T) {
 	}
 	now := c.Now().Unix()
 	for name, state := range map[string][]byte{
-		"not JSON":                      []byte("{held"),
-		"another version":               edit("v", 2),
-		"too big":                       append(edit("out", []string{}), bytes.Repeat([]byte(" "), 70_000)...),
-		"a burst in the future":         edit("burst", now+3600),
-		"a pause past fifteen minutes":  edit("pause", now+3600),
-		"a back-off past fifteen":       edit("backoff", 3600),
-		"a station code not GIRO's":     edit("heard", map[string]int64{"al945": now - 60}),
-		"a station never seeded":        edit("heard", map[string]int64{"ZZ999": now - 60}),
-		"a reading time in the future":  edit("heard", map[string]int64{"AL945": now + 60}),
-		"a rotation place below zero":   edit("poll", -1),
-		"a left-out station not GIRO's": edit("out", []string{"../x"}),
+		"not JSON":                         []byte("{held"),
+		"another version":                  edit("v", 2),
+		"too big":                          append(edit("out", []string{}), bytes.Repeat([]byte(" "), 70_000)...),
+		"a burst in the future":            edit("burst", now+3600),
+		"a pause past fifteen minutes":     edit("pause", now+3600),
+		"a back-off past fifteen":          edit("backoff", 3600),
+		"a station code not GIRO's":        edit("heard", map[string]int64{"al945": now - 60}),
+		"a station never seeded":           edit("heard", map[string]int64{"ZZ999": now - 60}),
+		"a reading time in the future":     edit("heard", map[string]int64{"AL945": now + 60}),
+		"a rotation place below zero":      edit("poll", -1),
+		"a rotation place no list reaches": edit("poll", int64(9223372036854775807)),
+		"a left-out station not GIRO's":    edit("out", []string{"../x"}),
 	} {
 		again, err := ionomaps.New(n, ionomaps.Options{Clock: c.Now})
 		if err != nil {
@@ -136,4 +137,26 @@ func TestABadStateIsRefused(t *testing.T) {
 	if err := restarted(t, n, c, good).Restore(nil); err != nil {
 		t.Errorf("an empty state: %v", err)
 	}
+}
+
+// FuzzARestoredStateNeverPanics is watchpost D-124 and D-213 against any
+// bytes a state file could hold: Restore refuses what the library could not
+// have reached, and whatever it takes, the updates after it - NOAA's and the
+// stations' burst - never panic.
+func FuzzARestoredStateNeverPanics(f *testing.F) {
+	f.Add([]byte(`{"v":1,"seeded":1760000000,"poll":9223372036854775807,"probe":0}`))
+	f.Add([]byte(`{"v":1,"seeded":1760000000,"poll":3,"probe":2,"heard":{"AL945":1760000100}}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, state []byte) {
+		_, n, c := giroLibrary(t)
+		again, err := ionomaps.New(n, ionomaps.Options{Clock: c.Now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again.Restore(state) != nil {
+			return
+		}
+		update(t, again)
+		update(t, again)
+	})
 }

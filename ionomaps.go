@@ -77,8 +77,7 @@ type Library struct {
 	stationsNext bool       // the last update was NOAA's, GIRO due: the next makes the burst (D-63)
 
 	unread  []string       // NOAA's files the last update fetched and could not read (L-F5)
-	typical *typicalDays   // the typical days the snapshots share (P-4)
-	ahead   *aheadHours    // the climatology hours the hours ahead are, shared (R-8.1, watchpost D-222)
+	typical *typicalDays   // the typical days the snapshots share, the answers' and the hours ahead's (P-4, R-8.1, watchpost D-222)
 	bg      lastBackground // the last background, built on again when its inputs are the same (R-8.1)
 
 	offset typicalOffset // the typical offset learned from this library's updates (D-105)
@@ -99,7 +98,7 @@ func New(f Fetcher, o Options) (*Library, error) {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Library{fetch: f, clock: clock, offset: seedOffset(), typical: &typicalDays{}, ahead: &aheadHours{}}, nil
+	return &Library{fetch: f, clock: clock, offset: seedOffset(), typical: &typicalDays{}}, nil
 }
 
 // Sources is every source the library reads or is built from, with its

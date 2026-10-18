@@ -4,7 +4,7 @@ Up: [design](design.md) · [rulings](../02-analysis/rulings.md)
 
 **What this is.** Before v0.1.0-rc.1 is tagged (watchpost D-206), the public API was read as a host
 developer meets it: the names, the shape of each call, and how easily a host invokes it. Every change
-is made before the tag, each listed in the release notes.
+is made before the tag, each listed in the table below and in the build log.
 
 ## Made
 
@@ -17,6 +17,7 @@ is made before the tag, each listed in the release notes.
 | `Snapshot.Early Reason` | `Snapshot.Reason Reason` | `s.Reason == ionomaps.TooSoon` reads as what it is |
 | `(*Library).Sources()`, which ignored its receiver | `ionomaps.Sources()` | static data reached through an instance made hosts build a library to read a list (C-5) |
 | `Band`, `Status`, `Limit` with no names | `String()` on each ("20m", "open", "MUF") | a host keys its rows by band, not by position in a slice, and logs read (L-F8) |
+| `Inputs.Refused`, which listed NOAA files fetched but unreadable, nothing refused | `Inputs.Unread`, the meaning unchanged | the name said a refusal where there was none (watchpost round 2 CN2-15, D-229; v0.1.0-rc.3) |
 | `Bitset.Set`, exported on an immutable snapshot | unexported; `Field.WithNoData(cells ...int) Field` returns a copy with those cells marked | a host could write into a snapshot documented as immutable (C-20); a host's tests still need no-data cells (L-F11) |
 | errors as text only; a stopped update said "too soon" | `ErrNoField`, wrapped, whenever there is no field to give, with the context's own error wrapped beside it when a deadline or cancel stopped the update; the reason `Unfinished` for a snapshot built from what is held after a stop | a host tells a slow link (`context.DeadlineExceeded`) from a closed mode (`context.Canceled`) and from NOAA's refusal without reading text; a library sentinel per cause would have duplicated the context's own (L-F4) |
 | - | `UpdateOptions.NoStations`, and `Inputs.NoStations` saying so | GIRO never asked and no reading on the field, for a host GIRO's terms do not cover (watchpost D-214) |

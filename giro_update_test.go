@@ -25,7 +25,7 @@ type giroSide struct {
 	score    map[string]string      // a station's confidence score, 95 when unset
 	speakers int                    // when set, only the first this many asks give readings
 	at       time.Time              // when set, every station's one reading is at this time
-	truncate bool                   // every reply cut in half
+	truncate bool                   // every reply cut off partway through its last reading
 	reformat bool                   // every reply a page that is no reply
 }
 
@@ -68,7 +68,7 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 	case g.reformat:
 		body = "<html><body>This page has moved.</body></html>\n"
 	case g.truncate:
-		body = body[:len(body)/2]
+		body = body[:len(body)-20] // through the last row's foF2: a reply cut short, as a dropped transfer leaves it
 	}
 	return ionomaps.Response{Status: 200, Body: []byte(body)}, nil
 }

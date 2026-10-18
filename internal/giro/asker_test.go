@@ -78,3 +78,18 @@ func TestAReadingIsLetGoAfterThreeDays(t *testing.T) {
 		t.Error("a reading 73 hours old is still held")
 	}
 }
+
+// TestAServerErrorPausesGIRO is D-39: GIRO's server failing an ask is no
+// answer - the burst stops and GIRO is paused, as for a refusal - never an
+// answer that lets the next station be asked at once.
+func TestAServerErrorPausesGIRO(t *testing.T) {
+	var a Asker
+	asked := 0
+	a.Burst(context.Background(), now, func(context.Context, string) (int, string, []byte, error) {
+		asked++
+		return 503, "", nil, nil
+	})
+	if asked != 1 || !a.Paused(now) {
+		t.Errorf("after a 503: %d asks, GIRO paused %v; want one ask and a pause", asked, a.Paused(now))
+	}
+}

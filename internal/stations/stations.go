@@ -185,7 +185,7 @@ func (l *List) rotation(live []string) []string {
 		}
 	}
 	for i := range n {
-		c := live[(l.pollAt+i)%n]
+		c := live[(l.pollAt%n+i)%n]
 		taken := false
 		for _, s := range out {
 			taken = taken || s == c
@@ -264,6 +264,11 @@ type State struct {
 	LeftOut         []string
 }
 
+// pollAtMost is the most polls a list reaches: a century of hourly bursts
+// of at most 40 (watchpost D-39). A state past it is not one the list
+// reached, and adding to it could overflow.
+const pollAtMost = 40 * 24 * 366 * 100
+
 // errBadState is a state this list could not have reached by now.
 var errBadState = errors.New("stations: the state is not one the list reaches")
 
@@ -277,12 +282,16 @@ func (l *List) Record() State {
 
 // Apply puts a state kept onto a seeded list, checked against now: every
 // station one the seed names, no time after now, no rotation place below
-// zero; a state that fails leaves the list as it was.
+// zero or past what a century of bursts reaches; a state that fails leaves
+// the list as it was.
 //
 // Source: watchpost D-213; R-3.3.
 func (l *List) Apply(s State, now time.Time) error {
 	if s.Seeded.IsZero() || s.Seeded.After(now) || s.PollAt < 0 || s.ProbeAt < 0 || s.ProbeAt >= len(l.known) {
 		return errBadState
+	}
+	if s.PollAt > pollAtMost {
+		return errBadState // more polls than a century of bursts
 	}
 	if len(s.Heard) > len(l.known) || len(s.LeftOut) > len(l.known) {
 		return errBadState // more stations than the seed names

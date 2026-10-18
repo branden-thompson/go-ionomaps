@@ -4,7 +4,7 @@ Up: [plan](../04-development/implementation-plan.md) · [API review](../03-archi
 
 | Field | Value |
 |---|---|
-| Status | **Open.** v0.1.0 is paired with watchpost 0.19.0 and go-tuiMaps v0.3.0 (watchpost D-1, D-3); it ships when watchpost 0.19.0 does. `v0.1.0-rc.1` is tagged at BUILD's exit for watchpost to pin and gate on (watchpost D-206) |
+| Status | **Open.** v0.1.0 is paired with watchpost 0.19.0 and go-tuiMaps v0.3.0 (watchpost D-1, D-3); it ships when watchpost 0.19.0 does. `v0.1.0-rc.1` was tagged at BUILD's exit for watchpost to pin and gate on (watchpost D-206), `v0.1.0-rc.2` for the day's climatology hours (watchpost D-222), and `v0.1.0-rc.3` for the BUILD red team's second round (watchpost D-225 to D-229) |
 | Who runs it | The coordinator prepares each row and shows its evidence; the HUM LEAD approves the tag |
 | The machine check | None in v0.1.0's gate: each row is ticked by hand with its evidence. A release candidate, `v0.1.0-rc.N`, is not held to the rows |
 | How a row is ticked | Its last cell becomes `[x]`, in the commit that holds its evidence, with the evidence named in the row |

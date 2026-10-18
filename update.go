@@ -372,7 +372,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
 			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected, NoStations: o.NoStations,
-			Refused: slices.Clone(l.unread)},
+			Unread: slices.Clone(l.unread)},
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),
@@ -380,7 +380,6 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		Noise:           o.Noise,
 		Scales:          scalesOf(l.scales, now),
 		typical:         l.typical,
-		ahead:           l.ahead,
 	}
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid, s.Inputs.GloTECFilled = g.Valid, b.Filled
@@ -431,7 +430,7 @@ func (s Snapshot) clone() Snapshot {
 	c.NearestKm = slices.Clone(s.NearestKm)
 	c.NearestUnscored = Bitset{bits: slices.Clone(s.NearestUnscored.bits), n: s.NearestUnscored.n}
 	c.Scales.Outlook = slices.Clone(s.Scales.Outlook)
-	c.Inputs.Refused = slices.Clone(s.Inputs.Refused)
+	c.Inputs.Unread = slices.Clone(s.Inputs.Unread)
 	c.TypicalError.Bands = slices.Clone(s.TypicalError.Bands)
 	return c
 }

@@ -18,8 +18,9 @@ type typicalCells []atomic.Uint64
 // typicalDayCells are a UTC day's typical hours at an F10.7 mean: each
 // hour's cells and the sun's track to it.
 type typicalDayCells struct {
-	hours [24]typicalCells
-	suns  [24]*sunTrack
+	hours  [24]typicalCells
+	suns   [24]*sunTrack
+	filled atomic.Int64 // cells worked out, for the tests of what is kept
 }
 
 // typicalKey names a typical day: its UTC midnight and the F10.7 mean.

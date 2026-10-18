@@ -2,6 +2,7 @@ package ionomaps
 
 import (
 	"math"
+	"sync/atomic"
 	"time"
 
 	"github.com/branden-thompson/go-ionomaps/internal/climatology"
@@ -16,12 +17,13 @@ type Span struct{ From, To time.Time }
 // typicalHour is the climatology for one hour of the day at the snapshot's
 // F10.7 mean, and the subsolar point's quasi-dipole longitude then.
 type typicalHour struct {
-	at    time.Time
-	hour  climatology.Hour
-	subQD float64
-	sun   *sunTrack
-	long  longMemo     // the day's §5.3 work by path, shared by its hours
-	cells typicalCells // the climatology at each 2° cell, as worked out
+	at     time.Time
+	hour   climatology.Hour
+	subQD  float64
+	sun    *sunTrack
+	long   longMemo      // the day's §5.3 work by path, shared by its hours
+	cells  typicalCells  // the climatology at each 2° cell, as worked out
+	filled *atomic.Int64 // the cells of the typical day worked out, for the tests of what is kept
 }
 
 // typicalDay is the climatology for each hour of the UTC day holding a
@@ -34,9 +36,20 @@ func (s Snapshot) typicalDay(at time.Time) [24]typicalHour {
 	for h := range day {
 		t := start.Add(time.Duration(h) * time.Hour)
 		day[h] = typicalHour{at: t, hour: climatology.NewHour(climatology.Refits(), t, float64(s.Inputs.F107Mean)), subQD: magcoords.SubsolarQD(t), sun: kept.suns[h], long: memo,
-			cells: kept.hours[h]}
+			cells: kept.hours[h], filled: &kept.filled}
 	}
 	return day
+}
+
+// typicalHourAt is the typical hour starting at a UTC hour's start, its
+// cells the typical day's, so an hour ahead and the answers read one
+// climatology (R-8.1, watchpost D-222).
+func (s Snapshot) typicalHourAt(at time.Time) typicalHour {
+	start := at.UTC().Truncate(24 * time.Hour)
+	kept := s.typical.day(start, s.Inputs.F107Mean)
+	h := int(at.Sub(start) / time.Hour)
+	return typicalHour{at: at, hour: climatology.NewHour(climatology.Refits(), at, float64(s.Inputs.F107Mean)), subQD: magcoords.SubsolarQD(at),
+		sun: kept.suns[h], cells: kept.hours[h], filled: &kept.filled}
 }
 
 // reader is foF2 and M(3000)F2 at a place in one hour; false where there is
@@ -70,6 +83,9 @@ func (t *typicalHour) read(p LatLon) (float64, float64, bool) {
 		qdlat, qdlon, _ := magcoords.QD(lat, lon, t.at)
 		w = packCell(t.hour.At(qdlat, magcoords.MLTFrom(qdlon, t.subQD)))
 		t.cells[i].Store(w)
+		if t.filled != nil {
+			t.filled.Add(1)
+		}
 	}
 	fo, m3 := unpackCell(w)
 	return fo, m3, fo > 0 && m3 > 0

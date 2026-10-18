@@ -25,8 +25,7 @@ type Snapshot struct {
 	Noise           Noise        // the man-made noise the reference circuit hears, as the update asked (D-187)
 	TypicalError    TypicalError // the hours ahead's error, with its basis (watchpost D-109)
 
-	typical *typicalDays // the library's typical days, which the answers share (P-4); none for a snapshot made by hand
-	ahead   *aheadHours  // the library's climatology hours, which the hours ahead share (R-8.1); none for a snapshot made by hand
+	typical *typicalDays // the library's typical days, which the answers and the hours ahead share (P-4, R-8.1); none for a snapshot made by hand
 }
 
 // Hour is one hour's fields, for the moment At.
@@ -130,7 +129,7 @@ type Inputs struct {
 	CoordsExtrapolated bool          // past IGRF-14's last year
 	NoStations         bool          // the host asked for no stations (UpdateOptions.NoStations): GIRO not asked, no reading on the field
 	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
-	Refused            []string      // NOAA's files this update fetched and could not read - "GloTEC", "solar", "D-RAP", "scales" - each the one held used instead, its age saying so
+	Unread             []string      // NOAA's files this update fetched and could not read - "GloTEC", "solar", "D-RAP", "scales" - each the one held used instead, its age saying so
 }
 
 // Reason is why a snapshot is not from new data (R-5.4).

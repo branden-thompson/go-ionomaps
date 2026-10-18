@@ -23,3 +23,14 @@ func BenchmarkReachKept(b *testing.B) {
 		_, _ = s.Reach(kansas, 10)
 	}
 }
+
+// BenchmarkAnHourAheadFirst is an hour ahead's cost on a day nothing has
+// read: its cells are the typical day's, worked out once and shared with the
+// answers (R-8.1, watchpost D-222).
+func BenchmarkAnHourAheadFirst(b *testing.B) {
+	for b.Loop() {
+		s := flatSnapshot(noonUTC, 7, 21)
+		s.typical = &typicalDays{}
+		_, _ = s.Ahead(3)
+	}
+}

@@ -22,8 +22,8 @@ func TestAFileThatCannotBeReadIsNamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(s.Inputs.Refused, "D-RAP") || !slices.Contains(s.Inputs.Refused, "scales") || slices.Contains(s.Inputs.Refused, "GloTEC") {
-		t.Errorf("refused %v; want D-RAP and the scales named, GloTEC not", s.Inputs.Refused)
+	if !slices.Contains(s.Inputs.Unread, "D-RAP") || !slices.Contains(s.Inputs.Unread, "scales") || slices.Contains(s.Inputs.Unread, "GloTEC") {
+		t.Errorf("refused %v; want D-RAP and the scales named, GloTEC not", s.Inputs.Unread)
 	}
 	n.drap, n.scales = nil, nil
 	n.mu.Lock()
@@ -32,13 +32,13 @@ func TestAFileThatCannotBeReadIsNamed(t *testing.T) {
 	n.mu.Unlock()
 	c.Add(10 * time.Minute)
 	s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{})
-	if !slices.Equal(s.Inputs.Refused, []string{"GloTEC"}) || s.Background.FoF2 != ionomaps.GloTEC {
-		t.Errorf("refused %v, background %v; want GloTEC named and the grid held used", s.Inputs.Refused, s.Background.FoF2)
+	if !slices.Equal(s.Inputs.Unread, []string{"GloTEC"}) || s.Background.FoF2 != ionomaps.GloTEC {
+		t.Errorf("refused %v, background %v; want GloTEC named and the grid held used", s.Inputs.Unread, s.Background.FoF2)
 	}
 	n.list(t, c.Now().Add(-5*time.Minute), 7)
 	c.Add(10 * time.Minute)
-	if s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); len(s.Inputs.Refused) != 0 {
-		t.Errorf("after a readable grid, refused %v", s.Inputs.Refused)
+	if s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); len(s.Inputs.Unread) != 0 {
+		t.Errorf("after a readable grid, refused %v", s.Inputs.Unread)
 	}
 }
 

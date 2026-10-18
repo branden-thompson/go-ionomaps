@@ -17,7 +17,7 @@ import (
 func TestEveryFaultIsReported(t *testing.T) {
 	half := func(b []byte) []byte { return b[:len(b)/2] }
 	refused := func(name string) func(ionomaps.Snapshot, error) bool {
-		return func(s ionomaps.Snapshot, _ error) bool { return slices.Contains(s.Inputs.Refused, name) }
+		return func(s ionomaps.Snapshot, _ error) bool { return slices.Contains(s.Inputs.Unread, name) }
 	}
 	noGloTEC := func(s ionomaps.Snapshot, _ error) bool {
 		return s.Background.FoF2 == ionomaps.Climatology && s.Inputs.GloTECValid.IsZero()
@@ -29,7 +29,6 @@ func TestEveryFaultIsReported(t *testing.T) {
 	noScales := func(s ionomaps.Snapshot, _ error) bool {
 		return s.Scales.Valid.IsZero() && s.Scales.R == ionomaps.ScaleUnset
 	}
-	noStations := func(s ionomaps.Snapshot, _ error) bool { return s.Inputs.Stations == 0 }
 	for _, c := range []struct {
 		input, fault string
 		set          func(n *noaa, c *clock)
@@ -65,7 +64,7 @@ func TestEveryFaultIsReported(t *testing.T) {
 		c.set(n, clk)
 		s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 		if !c.said(s, err) {
-			t.Errorf("%s %s: not said - reason %v, refused %v, background %v, error %v", c.input, c.fault, s.Reason, s.Inputs.Refused, s.Background.FoF2, err)
+			t.Errorf("%s %s: not said - reason %v, refused %v, background %v, error %v", c.input, c.fault, s.Reason, s.Inputs.Unread, s.Background.FoF2, err)
 		}
 		if err == nil && s.Reason == ionomaps.Fresh && c.input == "GloTEC" && c.fault == "stopped" {
 			t.Errorf("GloTEC stopped: said fresh")
@@ -79,8 +78,8 @@ func TestEveryFaultIsReported(t *testing.T) {
 		{"stopped", func(n *noaa, _ *clock) { n.giro.refuse = 1 }, func(s ionomaps.Snapshot, _ error) bool {
 			return s.Reason == ionomaps.GIROPaused && s.Inputs.Stations == 0
 		}},
-		{"truncated", func(n *noaa, _ *clock) { n.giro.truncate = true }, func(s ionomaps.Snapshot, _ error) bool { return s.Inputs.Rejected > 0 || s.Inputs.Stations == 0 }},
-		{"reformatted", func(n *noaa, _ *clock) { n.giro.reformat = true }, noStations},
+		{"truncated", func(n *noaa, _ *clock) { n.giro.truncate = true }, func(s ionomaps.Snapshot, _ error) bool { return s.Inputs.Rejected > 0 }},
+		{"reformatted", func(n *noaa, _ *clock) { n.giro.reformat = true }, func(s ionomaps.Snapshot, _ error) bool { return s.Inputs.Rejected > 0 && s.Inputs.Stations == 0 }},
 	} {
 		l, n, clk := giroLibrary(t)
 		c.set(n, clk)

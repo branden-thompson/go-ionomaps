@@ -5,7 +5,7 @@ frequency (foF2), as fields a terminal map can draw, with each amateur band's st
 limit (MUF, foF2) and its lower limit (the reference circuit's signal-to-noise, under D-layer
 absorption).
 
-**Status: v0.1.0, release candidate in preparation.** Built and gated with its first host, watchpost
+**Status: v0.1.0, at release candidate 3** (`v0.1.0-rc.3`). Built and gated with its first host, watchpost
 0.19.0. The design and its record are in `06_docs/02_features/go-ionomaps/`.
 
 ## How it works
