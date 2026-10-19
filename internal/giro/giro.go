@@ -79,7 +79,7 @@ var (
 )
 
 // fastChar is GIRO's FastChar service (D-39 governs every ask of it).
-const fastChar = "https://lgdc.uml.edu/fastchar/getbest"
+const fastChar = terms.FastChar
 
 // askTime is how FastChar takes a time: UTC, a space before the clock.
 const askTime = "2006/01/02 15:04:05"

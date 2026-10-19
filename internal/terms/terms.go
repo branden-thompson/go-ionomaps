@@ -25,6 +25,19 @@ const (
 	NOAAReplyBytes = 8 << 20
 )
 
+// The addresses the library asks at run time, each on a host All lists:
+// GloTEC's directory index and its grids by the names the index gives
+// (watchpost D-111, D-141), the daily solar file (D-104), D-RAP's table and
+// NOAA's scales, and GIRO's FastChar service (D-39). ionomapstest answers
+// these same addresses.
+const (
+	GloTECIndex = "https://services.swpc.noaa.gov/products/glotec/geojson_2d_urt/"
+	SolarFile   = "https://services.swpc.noaa.gov/text/daily-solar-indices.txt"
+	DRAPTable   = "https://services.swpc.noaa.gov/text/drap_global_frequencies.txt"
+	ScalesFile  = "https://services.swpc.noaa.gov/products/noaa-scales.json"
+	FastChar    = "https://lgdc.uml.edu/fastchar/getbest"
+)
+
 // Dataset is a third-party dataset committed to the repository: its path and
 // the source it comes from (R-4.3 lists those allowed).
 type Dataset struct {

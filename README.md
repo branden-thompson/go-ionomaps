@@ -45,6 +45,19 @@ savedState = lib.State() // keep it for the next start
 credits := ionomaps.Sources() // every source, its hosts, terms and citation
 ```
 
+**Testing against recorded days.** `ionomapstest` serves days recorded as the evidence's `dry_fetch.py`
+writes them - GloTEC grids, GIRO replies, NOAA's solar file - to the library at a clock, nothing dated
+after it, as `net/http/httptest` serves a handler; `ionomapstest.Write` makes synthetic days for a test,
+since no GIRO or NOAA file may be committed.
+
+```go
+rec, err := ionomapstest.Open(dir, solarFile)
+replay := rec.Replay(ionomapstest.Options{})
+lib, err := ionomaps.New(replay, ionomaps.Options{Clock: replay.Now})
+replay.SetNow(t)
+snap, err := lib.Update(ctx, ionomaps.UpdateOptions{})
+```
+
 The full API is in the package documentation (`go doc -all github.com/branden-thompson/go-ionomaps`);
 its shape, as reviewed for a host developer, is in
 `06_docs/02_features/go-ionomaps/03-architecture-design/api-review.md`.

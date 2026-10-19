@@ -15,16 +15,15 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
 	"github.com/branden-thompson/go-ionomaps/internal/scales"
 	"github.com/branden-thompson/go-ionomaps/internal/solar"
+	"github.com/branden-thompson/go-ionomaps/internal/terms"
 )
 
-// The addresses an update asks: GloTEC's directory index, its grids by the
-// names the index gives (watchpost D-111, D-141), and the daily solar file
-// (D-104).
+// The addresses an update asks, each defined once in internal/terms.
 const (
-	glotecIndex = "https://services.swpc.noaa.gov/products/glotec/geojson_2d_urt/"
-	solarFile   = "https://services.swpc.noaa.gov/text/daily-solar-indices.txt"
-	drapTable   = "https://services.swpc.noaa.gov/text/drap_global_frequencies.txt"
-	scalesFile  = "https://services.swpc.noaa.gov/products/noaa-scales.json"
+	glotecIndex = terms.GloTECIndex
+	solarFile   = terms.SolarFile
+	drapTable   = terms.DRAPTable
+	scalesFile  = terms.ScalesFile
 )
 
 // NOAA's limits (D-39): asked at most every ten minutes, the interval GloTEC
