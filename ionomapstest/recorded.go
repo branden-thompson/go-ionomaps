@@ -4,6 +4,11 @@
 // daily solar file, answered at a clock as the services would have answered
 // then, nothing dated after it.
 //
+// dry_fetch.py keeps no D-RAP table and no scales file, so the replay
+// answers them as missing: the library names them in Inputs.Unread and says
+// each snapshot Partial, as it would of a NOAA that did not serve them
+// (watchpost D-239).
+//
 // It is for a host's own tests and for the instruments that grade the
 // library on recorded days (G10.4's tools/gm3; watchpost's tools/reachscore,
 // W10.3). The recorded files stay outside any repository: GIRO's replies

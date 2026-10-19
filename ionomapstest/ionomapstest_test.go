@@ -179,8 +179,9 @@ func TestTheRecordedFilesAreRead(t *testing.T) {
 // replay's clock, updates from the recorded days - GloTEC's grid as its
 // background, the solar file's mean, the four stations assimilated, nothing
 // asked that the replay does not hold - and without GloTEC, the
-// climatology. (Without GloTEC the library asks no station today: a
-// finding put to the HUM LEAD in REVIEW, not pinned here.)
+// climatology, the stations still asked, GloTEC named unread. D-RAP and the
+// scales are never recorded, so they are named unread too and every replayed
+// snapshot is Partial (watchpost D-239).
 func TestALibraryRunsOnRecordedDays(t *testing.T) {
 	rec := recorded(t)
 	for _, without := range []bool{false, true} {
@@ -197,12 +198,12 @@ func TestALibraryRunsOnRecordedDays(t *testing.T) {
 		if err != nil {
 			t.Fatalf("without GloTEC %v: %v", without, err)
 		}
-		wantBG, wantStations := ionomaps.GloTEC, 4
+		wantBG, wantUnread := ionomaps.GloTEC, []string{"D-RAP", "scales"}
 		if without {
-			wantBG, wantStations = ionomaps.Climatology, s.Inputs.Stations
+			wantBG, wantUnread = ionomaps.Climatology, []string{"GloTEC", "D-RAP", "scales"}
 		}
-		if s.Background.FoF2 != wantBG || s.Inputs.Stations != wantStations || s.Inputs.F107Mean != 100 || len(r.Unknown()) != 0 {
-			t.Errorf("without GloTEC %v: background %v, stations %d, F10.7 %v, unknown %v", without, s.Background.FoF2, s.Inputs.Stations, s.Inputs.F107Mean, r.Unknown())
+		if s.Background.FoF2 != wantBG || s.Reason != ionomaps.Partial || !slices.Equal(s.Inputs.Unread, wantUnread) || s.Inputs.Stations != 4 || s.Inputs.F107Mean != 100 || len(r.Unknown()) != 0 {
+			t.Errorf("without GloTEC %v: background %v, said %v, unread %v, stations %d, F10.7 %v, unknown %v", without, s.Background.FoF2, s.Reason, s.Inputs.Unread, s.Inputs.Stations, s.Inputs.F107Mean, r.Unknown())
 		}
 	}
 }

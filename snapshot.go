@@ -129,7 +129,7 @@ type Inputs struct {
 	CoordsExtrapolated bool          // past IGRF-14's last year
 	NoStations         bool          // the host asked for no stations (UpdateOptions.NoStations): GIRO not asked, no reading on the field
 	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
-	Unread             []string      // NOAA's files this update fetched and could not read - "GloTEC", "solar", "D-RAP", "scales" - each the one held used instead, its age saying so
+	Unread             []string      // NOAA's files this update asked for and did not read - unanswered, refused or unreadable: "GloTEC", "solar", "D-RAP", "scales" - each the one held used instead where one is, its age saying so; Background says what foF2 was drawn from
 }
 
 // Reason is why a snapshot is not from new data (R-5.4).
@@ -139,10 +139,11 @@ type Reason uint8
 const (
 	Fresh        Reason = iota // from new data
 	TooSoon                    // the hour's budget is spent
-	GIROPaused                 // GIRO is backing off after a refusal
-	Offline                    // nothing could be fetched
+	GIROPaused                 // GIRO is backing off after a refusal or no answer
+	Offline                    // no NOAA file came back and GIRO was not due: built from what is held; with ErrNoField, there is nothing yet to build from
 	StationsNext               // NOAA's fields, GIRO due: update again at once for the stations (D-63)
 	Unfinished                 // the update stopped before every file arrived - its deadline passed, or the host cancelled it - so it is built from what is held; NOAA may be asked again at once (L-F4)
+	Partial                    // some of NOAA's files did not come back - Inputs.Unread names each - and what is held, or the climatology, stands in for them; the rest is new (watchpost D-239)
 )
 
 // TypicalError is the hours ahead's error by distance to the nearest

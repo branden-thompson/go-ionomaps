@@ -62,6 +62,7 @@ func TestTheScalesAreCarriedInTheSnapshot(t *testing.T) {
 // while the others are read - never level 0.
 func TestMissingScalesAreUnsetNotZero(t *testing.T) {
 	l, n, c := library(t)
+	n.scales = nil // no scales file served
 	n.list(t, start.Add(-30*time.Minute), 7)
 	s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	unset := func(sc ionomaps.Scales) bool {

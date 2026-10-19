@@ -54,17 +54,22 @@ type noaa struct {
 	down      map[string]bool
 	giro      giroSide
 
-	drap           []byte // D-RAP's table; none served when nil
+	drap           []byte // D-RAP's table; none served when nil, as a test of its absence sets it
 	drapAsks       []string
 	drapValidators []ionomaps.Validators
 
-	scales           []byte // NOAA's scales file; none served when nil
+	scales           []byte // NOAA's scales file; none served when nil, as a test of its absence sets it
 	scalesAsks       int
 	scalesValidators []ionomaps.Validators
 }
 
+// newNOAA serves what NOAA serves: the solar file, D-RAP's table and the
+// scales, valid shortly before start; the grids each test lists. A test of
+// a file's absence sets it to nil (watchpost D-239: an absent file is named
+// unread, the snapshot Partial).
 func newNOAA(c *clock) *noaa {
-	return &noaa{clock: c, grids: map[string][]byte{}, status: map[string]int{}, down: map[string]bool{}, solar: solarFile(start, 30, 140)}
+	return &noaa{clock: c, grids: map[string][]byte{}, status: map[string]int{}, down: map[string]bool{}, solar: solarFile(start, 30, 140),
+		drap: drapTable(start.Add(-3*time.Minute), 3), scales: scalesFile(start.Add(-2*time.Minute), `"0"`, `"0"`, `"0"`)}
 }
 
 func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (ionomaps.Response, error) {

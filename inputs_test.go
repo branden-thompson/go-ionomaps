@@ -22,23 +22,23 @@ func TestAFileThatCannotBeReadIsNamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(s.Inputs.Unread, "D-RAP") || !slices.Contains(s.Inputs.Unread, "scales") || slices.Contains(s.Inputs.Unread, "GloTEC") {
-		t.Errorf("refused %v; want D-RAP and the scales named, GloTEC not", s.Inputs.Unread)
+	if !slices.Contains(s.Inputs.Unread, "D-RAP") || !slices.Contains(s.Inputs.Unread, "scales") || slices.Contains(s.Inputs.Unread, "GloTEC") || s.Reason != ionomaps.Partial {
+		t.Errorf("refused %v, said %v; want D-RAP and the scales named, GloTEC not, the snapshot Partial", s.Inputs.Unread, s.Reason)
 	}
-	n.drap, n.scales = nil, nil
+	n.drap, n.scales = drapTable(c.Now(), 3), scalesFile(c.Now(), `"0"`, `"0"`, `"0"`)
 	n.mu.Lock()
 	name := "glotec_icao_" + c.Now().Add(-15*time.Minute).UTC().Format("20060102T150405Z") + ".geojson"
 	n.names, n.grids[name] = append(n.names, name), []byte("{not a grid")
 	n.mu.Unlock()
 	c.Add(10 * time.Minute)
 	s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{})
-	if !slices.Equal(s.Inputs.Unread, []string{"GloTEC"}) || s.Background.FoF2 != ionomaps.GloTEC {
-		t.Errorf("refused %v, background %v; want GloTEC named and the grid held used", s.Inputs.Unread, s.Background.FoF2)
+	if !slices.Equal(s.Inputs.Unread, []string{"GloTEC"}) || s.Background.FoF2 != ionomaps.GloTEC || s.Reason != ionomaps.Partial {
+		t.Errorf("refused %v, background %v, said %v; want GloTEC named, the grid held used, the snapshot Partial", s.Inputs.Unread, s.Background.FoF2, s.Reason)
 	}
 	n.list(t, c.Now().Add(-5*time.Minute), 7)
 	c.Add(10 * time.Minute)
-	if s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); len(s.Inputs.Unread) != 0 {
-		t.Errorf("after a readable grid, refused %v", s.Inputs.Unread)
+	if s, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); len(s.Inputs.Unread) != 0 || s.Reason == ionomaps.Partial {
+		t.Errorf("after a readable grid, refused %v, said %v", s.Inputs.Unread, s.Reason)
 	}
 }
 

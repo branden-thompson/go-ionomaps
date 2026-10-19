@@ -104,11 +104,14 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 		l.giro.Burst(ctx, now, l.giroFetch())
 		l.giro.LetGo(now)
 		s := l.build(now, o) // NOAA's fields held, the stations' readings now on them
-		if ctx.Err() != nil {
+		switch {
+		case ctx.Err() != nil:
 			s.Reason = Unfinished                 // stopped mid-burst: the readings that came are on the field
 			l.stationsNext = l.giro.BurstDue(now) // stopped before its first ask: the burst is still to make
-		} else if l.giro.Paused(now) {
-			s.Reason = GIROPaused // GIRO refused the burst: the readings that came are on the field
+		case l.giro.Paused(now):
+			s.Reason = GIROPaused // GIRO refused or did not answer the burst: the readings that came are on the field
+		case len(l.unread) > 0:
+			s.Reason = Partial // NOAA's round left files unread: Unread names them (watchpost D-239)
 		}
 		l.last, l.opts = s, o
 		return s.clone(), nil
@@ -117,11 +120,10 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	if early {
 		return l.early(now, o)
 	}
-	l.unread = l.unread[:0]
+	l.unread, l.heard = l.unread[:0], false
 	refused := l.refreshSolar(ctx, now) // first: with no F10.7 mean there is no field at all (L-F4)
-	answered := false
-	if !refused { // a refusal stops the update (D-39)
-		answered, refused = l.refreshGrid(ctx, now)
+	if !refused {                       // a refusal stops the update (D-39)
+		refused = l.refreshGrid(ctx, now)
 	}
 	if !refused {
 		refused = l.refreshDRAP(ctx, now)
@@ -139,13 +141,15 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	}
 	s := l.build(now, o)
 	l.giro.LetGo(now)
-	switch {
-	case !answered:
-		s.Reason = Offline
+	switch { // GIRO is asked whatever NOAA answered: they are separate services (watchpost D-239)
 	case !o.NoStations && l.giro.BurstDue(now):
 		s.Reason, l.stationsNext = StationsNext, true // shown at once; the host updates again for the stations (D-63)
+	case !l.heard:
+		s.Reason = Offline // no NOAA file came back, and GIRO is not due: what is held, Unread naming each file
 	case !o.NoStations && l.giro.Paused(now):
 		s.Reason = GIROPaused // the stations' readings are the last held until the pause ends
+	case len(l.unread) > 0:
+		s.Reason = Partial // some of NOAA's files did not come back or could not be read: Unread names them
 	}
 	l.last, l.made, l.opts = s, true, o
 	return s.clone(), nil
@@ -212,39 +216,50 @@ func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response
 	if r.Status == statusRefused {
 		return r, false, true
 	}
-	return r, r.Status == statusOK || r.Status == statusNotModified && v != (Validators{}), false
+	ok = r.Status == statusOK || r.Status == statusNotModified && v != (Validators{})
+	l.heard = l.heard || ok
+	return r, ok, false
 }
 
 // refreshGrid asks the index and, when it names a grid not held, that grid,
-// within six grid asks an hour. answered is whether the index came back;
-// refused whether either ask was refused or unanswered.
-func (l *Library) refreshGrid(ctx context.Context, now time.Time) (answered, refused bool) {
+// within six grid asks an hour; GloTEC is named unread when either does not
+// come back or the grid cannot be read. refused is whether either ask was
+// refused or unanswered.
+func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool) {
 	idx, ok, refused := l.ask(ctx, glotecIndex, Validators{})
 	if !ok {
-		return false, refused
+		return l.missed("GloTEC", refused) // the grid held stays, and its age says so; else the climatology, as Background says
 	}
 	name, _, listed := glotec.Newest(idx.Body, now)
 	if !listed {
-		return true, false
+		return false
 	}
 	if name == l.gridName {
-		return true, false // held already: a new grid is never a 304 (D-111)
+		return false // held already: a new grid is never a 304 (D-111)
 	}
 	may := l.mayAskGrid(now)
 	if !may {
-		return true, false
+		return false
 	}
 	r, ok, refused := l.ask(ctx, glotecIndex+name, Validators{})
 	if !ok {
-		return true, refused
+		return l.missed("GloTEC", refused)
 	}
 	g, err := glotec.Read(r.Body, now)
 	if err != nil {
 		l.unread = append(l.unread, "GloTEC")
-		return true, false // a changed format: the grid held stays, and its age says so
+		return false // a changed format: the grid held stays, and its age says so
 	}
 	l.grid, l.gridName = &g, name
-	return true, false
+	return false
+}
+
+// missed names a NOAA file the update asked for and did not read -
+// unanswered, refused, or not a 200 or a 304 - and passes on whether the ask
+// was refused or unanswered (watchpost D-239).
+func (l *Library) missed(file string, refused bool) bool {
+	l.unread = append(l.unread, file)
+	return refused
 }
 
 // mayAskGrid is whether a grid may be asked now, at most six in any hour
@@ -269,7 +284,7 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 	}
 	r, ok, refused := l.ask(ctx, solarFile, l.solarVal)
 	if !ok {
-		return refused
+		return l.missed("solar", refused) // the mean held stands, if one is
 	}
 	l.solarDay = today
 	if r.Status != statusOK {
@@ -289,8 +304,11 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 // held, its age saying so. refused is whether it was refused or unanswered.
 func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool) {
 	r, ok, refused := l.ask(ctx, drapTable, l.drapVal)
-	if !ok || r.Status != statusOK {
-		return refused
+	if !ok {
+		return l.missed("D-RAP", refused)
+	}
+	if r.Status != statusOK {
+		return false // unchanged since it was read: the table held stands
 	}
 	g, err := drap.ParseTable(r.Body, now)
 	if err != nil {
@@ -307,8 +325,11 @@ func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool)
 // unanswered.
 func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused bool) {
 	r, ok, refused := l.ask(ctx, scalesFile, l.scalesVal)
-	if !ok || r.Status != statusOK {
-		return refused
+	if !ok {
+		return l.missed("scales", refused)
+	}
+	if r.Status != statusOK {
+		return false // unchanged since it was read: the levels held stand
 	}
 	s, err := scales.Read(r.Body, now)
 	if err != nil {
