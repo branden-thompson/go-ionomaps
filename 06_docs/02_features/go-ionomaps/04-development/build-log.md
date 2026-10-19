@@ -189,3 +189,8 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **D-75's floor (1) holds:** the hybrid beats the climatology in the US on both. go-ionomaps ships GIRO's stations.
 - **The Pacific is worse than the climatology, and by more than on PLAN's week:** foF2 1.47 against 1.22 MHz, MUF(3000) 5.43 against 4.92; on PLAN's test days it was 1.37 against 1.38 and 5.19 against 5.10. D-116 reports it and does not gate it, and D-129's words say an answer there is "about as good as typical here, or worse". It goes to the HUM LEAD at VALIDATE with the rest.
 - **The pairing's effect:** with week.py's pairing, the US is 0.45 | 1.79 against 0.46 | 1.90 as shipped. The shipped figure is the one judged.
+
+## The GloTEC fuzz target's own count (after v0.1.0-rc.4)
+
+- **The hosted full gate on `84b9a84` failed** on the arm64 runner alone, and only on `FuzzGloTECDecode`, whose default 200,000 runs took 605 s against the leg's 600 s limit: no crash, the clock. On the hosted runners it had taken 380 to 509 s before, always near the limit, because each run decodes a whole 72 by 72 grid. Locally the same count takes 29 to 62 s.
+- **The target gets its own count**, as the restore target did: 100,000 runs, 14 s on the reference machine, about half the hosted time.
