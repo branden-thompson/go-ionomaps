@@ -173,3 +173,19 @@ Hand mutants: fourteen, eleven killed at once; the three survivors (the one-hop 
   - in `ionomapstest`: a row after the clock served, the requester's line kept, a row of another shape taken, the clock's own day in the solar file, a grid after the clock served or indexed, an unknown address answered as missing, GloTEC served when withheld.
   - Two first survived as equivalent: gm3's own floor of three duplicated the assimilation's, and its MUF check implied its M(3000)F2 check. Each was removed, gm3 relying on the library's rule, and the test of a sounding with no M(3000)F2, lost in the rewrite, was restored.
 - **P10:** P10-05 read the tool's density at 1.28 across 18 changed functions. Under watchpost D-215 the shortfall went to the HUM LEAD rather than being raised with guards. The HUM LEAD ruled to restructure first (D-78), then approved D-79's structure. With the seams in, P10-05 read `tools/gm3` at 0.83, `ionomapstest` at 0.68 and `internal/hybrid` at 0.50. Under D-80's standing rule (watchpost D-238), code never linked into a product build gets its row as an A-row: gm3's and `ionomapstest`'s are A-26. `internal/hybrid`'s, as library code, was asked singly and ratified (D-81).
+
+## G-M3's verdict, on the fresh days (watchpost D-132, D-208)
+
+Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree, the others' readings taken as shipped. The days are 2026-10-12 to 10-17, fetched under D-39: 48 GloTEC grids and 37 stations held out, 1,490 pairs. F10.7's 30-day mean was 105 to 109, and no day reached Kp 5. The reports are kept with the evidence outside the tree (`gm3/`).
+
+| Group | Pairs | Hybrid foF2 \| MUF(3000), RMS MHz | Climatology |
+|---|---|---|---|
+| all | 1490 | 0.84 \| 3.03 | 1.07 \| 3.75 |
+| mainland US | 148 | 0.46 \| 1.90 | 0.71 \| 3.03 |
+| Pacific | 136 | 1.47 \| 5.43 | 1.22 \| 4.92 |
+| within 500 km of a station assimilated | 366 | 0.33 \| 1.27 | 0.73 \| 2.61 |
+
+- **G-M3 (watchpost D-108) is met:** in the mainland US the hybrid is 35 % below the climatology on foF2 and 37 % on MUF(3000) (target 15 %); over all stations, 21 % and 19 % (target 10 %); within 500 km, 0.33 and 1.27 MHz (targets 0.5 and 1.6).
+- **D-75's floor (1) holds:** the hybrid beats the climatology in the US on both. go-ionomaps ships GIRO's stations.
+- **The Pacific is worse than the climatology, and by more than on PLAN's week:** foF2 1.47 against 1.22 MHz, MUF(3000) 5.43 against 4.92; on PLAN's test days it was 1.37 against 1.38 and 5.19 against 5.10. D-116 reports it and does not gate it, and D-129's words say an answer there is "about as good as typical here, or worse". It goes to the HUM LEAD at VALIDATE with the rest.
+- **The pairing's effect:** with week.py's pairing, the US is 0.45 | 1.79 against 0.46 | 1.90 as shipped. The shipped figure is the one judged.
