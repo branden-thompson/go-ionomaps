@@ -13,7 +13,7 @@ status: "APPROVED at the PLAN gate (watchpost D-139). No code: signatures, shape
 a release candidate in its BUILD and ship on v0.1.0 (watchpost D-3).
 
 **Tech stack.**
-- Go 1.26.9 (watchpost D-152; 1.25.13 until GO-2026-6617), no cgo, the standard library only, unless a dependency is ruled.
+- Go 1.26.10 (watchpost D-244, after GO-2026-6809; 1.26.9 under D-152, 1.25.13 before GO-2026-6617), no cgo, the standard library only, unless a dependency is ruled.
 - PyIRI (MIT) is ported, not imported.
 - A pinned `govulncheck` from the first commit (NFR-1).
 

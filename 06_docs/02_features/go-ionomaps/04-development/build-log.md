@@ -206,3 +206,4 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 ## Go 1.27.3 (watchpost A-82; A-28)
 
 - **A new standard-library advisory, GO-2026-6809** (compromised intermediate certificates distrusted in `crypto/x509`, fixed in go1.27.3), fails every gate's vulnerability scan. The hosted gate moves to go1.27.3, as watchpost's CI does under its D-152; `go.mod`'s floor is unchanged.
+- **The module floor moves to go 1.26.10 (watchpost D-244, D-84):** GO-2026-6809 is fixed there too, and go-tuiMaps' gate scans at the floor. `go.mod` and `tools/tables/go.mod` carry it, and the brief and plan say it.
