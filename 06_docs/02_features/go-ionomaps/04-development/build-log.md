@@ -202,3 +202,7 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **What else it showed:** the tests' NOAA served no D-RAP and no scales by default, so under the honest contract every test update was `Partial`. It now serves both, as NOAA does, and the tests of their absence set it. Replayed days hold neither, so `ionomapstest` says its snapshots are `Partial`.
 - **Tests:** `TestAGloTECOutageIsSaidAndTheStationsStillAsked` (no answer and a 503), `TestOfflineIsSaidOnlyWhenNothingCameBack`; `TestAFileThatCannotBeReadIsNamed` now says `Partial`, and `TestEveryFaultIsReported`'s "GloTEC stopped: never said fresh" now holds by `Partial`. **Hand mutants, 10, each killed:** Offline decided before GIRO, each of the five files left unnamed when unanswered, `Partial` never said in either round, nothing heard counted as heard, a 304 not counted as heard.
 - **P10:** the root package's density holds its ratified 0.69. A guard with a two-statement body is not counted, so the five "name it, return" bodies are one helper, `missed`, which each guard returns through.
+
+## Go 1.27.3 (watchpost A-82; A-28)
+
+- **A new standard-library advisory, GO-2026-6809** (compromised intermediate certificates distrusted in `crypto/x509`, fixed in go1.27.3), fails every gate's vulnerability scan. The hosted gate moves to go1.27.3, as watchpost's CI does under its D-152; `go.mod`'s floor is unchanged.
