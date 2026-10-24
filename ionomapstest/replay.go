@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -37,14 +38,31 @@ type Options struct {
 	// WithoutGloTEC withholds GloTEC's index and grids, so the library's
 	// background is the climatology alone.
 	WithoutGloTEC bool
+
+	// Answers answer the inputs they name in place of what is recorded, so
+	// a host can drive the library into each state it must say (RL-12):
+	// "GloTEC" (its index and grids), "solar", "D-RAP" or "scales" - the
+	// names Inputs.Unread uses - or a station's code. A 200 with a body
+	// serves D-RAP or the scales, which dry_fetch.py does not keep, so a
+	// replay can be Fresh.
+	Answers map[string]Answer
+}
+
+// Answer is a reply given in place of the recorded one: an error for no
+// answer, else the status and body.
+type Answer struct {
+	Status int
+	Body   []byte
+	Err    error
 }
 
 // Replay is the library's Fetcher answering from recorded days at its
 // clock, which the caller sets; its Now is the library's Clock. Safe for
 // the library's goroutines.
 type Replay struct {
-	in    *Recorded
-	grids bool
+	in      *Recorded
+	grids   bool
+	answers map[string]Answer
 
 	mu      sync.Mutex
 	now     time.Time
@@ -58,7 +76,7 @@ var _ ionomaps.Fetcher = (*Replay)(nil)
 //
 // Source: this library.
 func (r *Recorded) Replay(o Options) *Replay {
-	return &Replay{in: r, grids: !o.WithoutGloTEC}
+	return &Replay{in: r, grids: !o.WithoutGloTEC, answers: maps.Clone(o.Answers)}
 }
 
 // SetNow moves the replay's clock.
@@ -91,11 +109,17 @@ func (p *Replay) Unknown() []string {
 // Fetch answers an ask as the service would have at the clock: GloTEC's
 // index and its grids valid by then; the solar file's rows before the
 // clock's day; a station's readings in the window asked and not after the
-// clock; D-RAP and the scales, none of which dry_fetch.py keeps, missing.
+// clock, and a station not recorded answered as GIRO answers one with no
+// data - a 200 with no location line and no row, never a 404 (every ask of
+// the fetched weeks came back 200); D-RAP and the scales, none of which
+// dry_fetch.py keeps, missing.
 //
 // Source: this library; the addresses in internal/terms.
 func (p *Replay) Fetch(_ context.Context, u string, _ ionomaps.Validators) (ionomaps.Response, error) {
 	now := p.Now()
+	if a, given := p.answers[inputOf(u)]; given {
+		return ionomaps.Response{Status: a.Status, Body: a.Body}, a.Err
+	}
 	switch {
 	case u == terms.GloTECIndex:
 		return p.index(now), nil
@@ -112,6 +136,29 @@ func (p *Replay) Fetch(_ context.Context, u string, _ ionomaps.Validators) (iono
 	p.unknown = append(p.unknown, u)
 	p.mu.Unlock()
 	return ionomaps.Response{}, ErrUnknownAsk
+}
+
+// inputOf names the input an address asks for, as Inputs.Unread names
+// NOAA's and GIRO's stations by their codes; "" for an address the library
+// does not ask.
+func inputOf(u string) string {
+	switch {
+	case strings.HasPrefix(u, terms.GloTECIndex):
+		return "GloTEC"
+	case u == terms.SolarFile:
+		return "solar"
+	case u == terms.DRAPTable:
+		return "D-RAP"
+	case u == terms.ScalesFile:
+		return "scales"
+	case strings.HasPrefix(u, terms.FastChar+"?"):
+		q, err := url.Parse(u)
+		if err != nil {
+			return ""
+		}
+		return q.Query().Get("ursiCode")
+	}
+	return ""
 }
 
 // answer is a 200 with a body.
@@ -153,8 +200,12 @@ func (p *Replay) grid(name string, now time.Time) (ionomaps.Response, error) {
 	return answer(body), nil
 }
 
-// station is a station's reply to the library's ask; missing for a
-// station not recorded.
+// noData is GIRO's answer for a station with nothing to give: no location
+// line and no row, which the library reads as no reading.
+var noData = []byte("# Global Ionospheric Radio Observatory\n")
+
+// station is a station's reply to the library's ask; GIRO's no-data answer
+// for a station not recorded.
 func (p *Replay) station(u string, now time.Time) (ionomaps.Response, error) {
 	q, err := url.Parse(u)
 	if err != nil {
@@ -168,7 +219,7 @@ func (p *Replay) station(u string, now time.Time) (ionomaps.Response, error) {
 	}
 	body, err := p.in.Reply(v.Get("ursiCode"), from, to, now)
 	if errors.Is(err, ErrNoStation) {
-		return ionomaps.Response{Status: statusMissing}, nil
+		return answer(noData), nil
 	}
 	if err != nil {
 		return ionomaps.Response{}, err

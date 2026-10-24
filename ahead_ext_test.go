@@ -3,6 +3,7 @@ package ionomaps_test
 import (
 	"context"
 	"math"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -67,4 +68,45 @@ func TestTheTypicalErrorCarriesItsBasis(t *testing.T) {
 // ruling, file or setting a developer cites.
 func listenable(words string) bool {
 	return words != "" && !strings.ContainsAny(words, "()_=") && !strings.Contains(words, "D-") && !strings.Contains(words, ".py") && !strings.Contains(words, "watchpost")
+}
+
+// TestTwentyFourHoursAheadFitTheHeap is watchpost D-251 under D-112: a host
+// holding every hour ahead a snapshot gives - 24, each answered at a place,
+// as watchpost's hour steps keep them - adds under 15 MB of live heap, each
+// hour its own tables (P-6), the climatology's cells shared inside the
+// library and made only for the hours read.
+func TestTwentyFourHoursAheadFitTheHeap(t *testing.T) {
+	l, _, _ := giroLibrary(t)
+	update(t, l)
+	s := update(t, l)
+	if len(s.NearestKm) == 0 {
+		t.Fatal("the snapshot assimilated no station: no table to own")
+	}
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	held := make([]ionomaps.Snapshot, 0, 24)
+	for k := 1; k <= 24; k++ {
+		a, err := s.Ahead(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.Bands([]ionomaps.LatLon{{Lat: 42.4, Lon: -71.1}}, 300); err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, a)
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	added := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+	t.Logf("24 hours ahead, each answered: %.1f MB of live heap", float64(added)/(1<<20))
+	if added > 15<<20 {
+		t.Errorf("24 hours ahead, each answered, hold %.1f MB of live heap; D-112's proxy is 15", float64(added)/(1<<20))
+	}
+	for i := range held {
+		if &held[i].NearestKm[0] == &s.NearestKm[0] {
+			t.Fatalf("hour %d ahead shares its nearest-station table with the snapshot: each owns its own (P-6)", i+1)
+		}
+	}
+	runtime.KeepAlive(held)
 }

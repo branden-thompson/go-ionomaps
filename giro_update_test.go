@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ionomaps "github.com/branden-thompson/go-ionomaps"
+	"github.com/branden-thompson/go-ionomaps/internal/stations"
 )
 
 // giroSide is GIRO's answers, built here (R-4.3): every station answers
@@ -27,6 +28,8 @@ type giroSide struct {
 	at       time.Time              // when set, every station's one reading is at this time
 	truncate bool                   // every reply cut off partway through its last reading
 	reformat bool                   // every reply a page that is no reply
+	status   map[string]int         // a station's status in place of its reply, when set
+	all      int                    // every station's status in place of its reply, when set
 }
 
 // giroAnswer answers one GIRO ask: the station's reply in FastChar's
@@ -46,6 +49,12 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 	}
 	u, _ := url.Parse(raw)
 	code := u.Query().Get("ursiCode")
+	if s, ok := g.status[code]; ok {
+		return ionomaps.Response{Status: s}, nil
+	}
+	if g.all != 0 {
+		return ionomaps.Response{Status: g.all}, nil
+	}
 	body := "# Location: " + "GEO" + " ( " + placeOf(code) + " ), URSI-Code " + code + ", A STATION\n" +
 		"# Time                    " + "CS" + "   foF2 " + "QD M(D) QD\n"
 	times := []time.Time{n.clock.Now().Add(-5 * time.Minute)}
@@ -73,14 +82,24 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 	return ionomaps.Response{Status: 200, Body: []byte(body)}, nil
 }
 
-// placeOf is where the fake says a station is, in FastChar's form: Alpena
-// and Dourbes where they are, every other station spread by its code.
+// placeOf is where the fake says a station is, in FastChar's form: where
+// the seed places it, as GIRO's own location line does (a reply putting a
+// placed station elsewhere is refused, watchpost D-248); a station the seed
+// does not place spread by its code.
 func placeOf(code string) string {
-	switch code {
-	case "AL945":
-		return "45.1 N   276.4 E"
-	case "DB049":
-		return "50.1 N     4.6 E"
+	list, err := stations.Seed(start)
+	if err != nil {
+		panic(err) // the shipped seed is broken: its own test fails first
+	}
+	if at, placed := list.At(code); placed {
+		ns, lat, lon := "N", at.Lat, at.Lon
+		if lat < 0 {
+			ns, lat = "S", -lat
+		}
+		if lon < 0 {
+			lon += 360 // GIRO writes longitudes east, 0 to 360
+		}
+		return fmt.Sprintf("%.1f %s   %.1f E", lat, ns, lon)
 	}
 	h := 0
 	for _, r := range code {
@@ -399,5 +418,37 @@ func TestAnUnscoredStationIsSaid(t *testing.T) {
 	r, err := s.Readings([]ionomaps.LatLon{seededAt, {Lat: 50.1, Lon: 4.6}})
 	if err != nil || !r[0].Nearest.Unscored || r[1].Nearest.Unscored || !r[0].Nearest.Known || r[0].Nearest.Km > 200 {
 		t.Errorf("the answers at Alpena and Dourbes: %+v, %+v (%v); want Alpena's unscored and near, Dourbes' scored", r[0].Nearest, r[1].Nearest, err)
+	}
+}
+
+// TestGIROsOutcomeIsSaidAllHour is watchpost D-247: a station that fails is
+// counted and the others assimilated; three failing in a row are GIRO
+// unavailable, and a 403 GIRO's denial - each carried in every snapshot of
+// the hour that follows, the denial said GIRO paused for a day, never a
+// quiet hour said as no readings.
+func TestGIROsOutcomeIsSaidAllHour(t *testing.T) {
+	l, n, _ := giroLibrary(t)
+	n.giro.status = map[string]int{"AL945": 503}
+	update(t, l)
+	s := update(t, l)
+	if s.Inputs.StationsFailed != 1 || s.Inputs.GIRO != ionomaps.GIROAnswered || s.Inputs.Stations == 0 {
+		t.Errorf("one station failing: %d failed, %v, %d assimilated; want 1, answered, the rest assimilated", s.Inputs.StationsFailed, s.Inputs.GIRO, s.Inputs.Stations)
+	}
+	for _, c := range []struct {
+		status int
+		want   ionomaps.GIROOutcome
+	}{{503, ionomaps.GIROUnavailable}, {403, ionomaps.GIRODenied}} {
+		l, n, clk := giroLibrary(t)
+		n.giro.all = c.status
+		update(t, l)
+		s := update(t, l)
+		clk.Add(40 * time.Minute)
+		later := update(t, l)
+		if s.Inputs.GIRO != c.want || later.Inputs.GIRO != c.want || s.Inputs.Stations != 0 {
+			t.Errorf("every station %d: %v, 40 minutes on %v, %d stations; want %v all hour", c.status, s.Inputs.GIRO, later.Inputs.GIRO, s.Inputs.Stations, c.want)
+		}
+		if c.status == 403 && later.Reason != ionomaps.GIROPaused {
+			t.Errorf("a denial, 40 minutes on: %v; want GIRO paused", later.Reason)
+		}
 	}
 }

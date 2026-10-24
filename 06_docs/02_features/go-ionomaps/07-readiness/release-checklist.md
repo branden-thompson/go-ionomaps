@@ -6,7 +6,7 @@ Up: [plan](../04-development/implementation-plan.md) · [API review](../03-archi
 |---|---|
 | Status | **Open.** v0.1.0 is paired with watchpost 0.19.0 and go-tuiMaps v0.3.0 (watchpost D-1, D-3); it ships when watchpost 0.19.0 does. `v0.1.0-rc.1` was tagged at BUILD's exit for watchpost to pin and gate on (watchpost D-206), `v0.1.0-rc.2` for the day's climatology hours (watchpost D-222), `v0.1.0-rc.3` for the BUILD red team's second round (watchpost D-225 to D-229), `v0.1.0-rc.4` for the instruments' seams, `internal/hybrid` and `ionomapstest` (watchpost D-237), and `v0.1.0-rc.5` for an outage said truly (watchpost D-239) |
 | Who runs it | The coordinator prepares each row and shows its evidence; the HUM LEAD approves the tag |
-| The machine check | None in v0.1.0's gate: each row is ticked by hand with its evidence. A release candidate, `v0.1.0-rc.N`, is not held to the rows |
+| The machine check | `scripts/gate --release`: the full gate and the release steps (row 0.5). The other rows are ticked by hand with their evidence. A release candidate, `v0.1.0-rc.N`, is not held to the rows |
 | How a row is ticked | Its last cell becomes `[x]`, in the commit that holds its evidence, with the evidence named in the row |
 
 ## 0 · BUILD close-out
@@ -14,15 +14,16 @@ Up: [plan](../04-development/implementation-plan.md) · [API review](../03-archi
 | # | Check | Evidence | Done |
 |---|---|---|---|
 | 0.1 | P10 clean: `a2dh validate` 100 %, every ledger row ratified by the HUM LEAD (watchpost D-215) | | [ ] |
-| 0.2 | Every plan task built or ruled out: G0 to G9 (G10, the instruments, by watchpost D-208) | | [ ] |
+| 0.2 | Every plan task built or ruled out: G0 to G10 (G10, the instruments, by watchpost D-208; G10.5 built in REVIEW, watchpost RD-3) | | [ ] |
 | 0.3 | Every A-row put for veto has been read by the HUM LEAD | | [ ] |
 | 0.4 | Hosted CI green on the release commit, both architectures, the **full** gate dispatched as well as the quick (watchpost H-10) | | [ ] |
+| 0.5 | `scripts/gate --release` green on the release commit: no measured constant's data over a year old (R-9.8) | | [ ] |
 
 ## 1 · The phases
 
 | # | Check | Evidence | Done |
 |---|---|---|---|
-| 1.1 | BUILD exit: the blind red team, its findings remediated, the report approved (watchpost D-203) | | [ ] |
+| 1.1 | BUILD exit: the blind red team, its findings remediated, the report approved (watchpost D-203) | watchpost D-233: BUILD exited on `e889e72a`, the report approved (`08-reports/build-report.md`) | [x] |
 | 1.2 | REVIEW: the release reviewed whole, the report approved | | [ ] |
 | 1.3 | VALIDATE: every tier run, no skip path; the full suite with coverage | | [ ] |
 | 1.4 | The README read for content, against the code as it is | | [ ] |

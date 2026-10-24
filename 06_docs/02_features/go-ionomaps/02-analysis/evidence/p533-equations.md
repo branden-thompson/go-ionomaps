@@ -46,6 +46,6 @@ standing for λ geographic latitude, δ solar declination, χ solar zenith angle
 | (18) | foE⁴ minimum = 0.004 (1 + 0.021 Φ)² | taken at night where (12) to (17e) give less |
 
 P.1239 reports the method's median r.m.s. deviation as 0.11 MHz over 80 000 hourly comparisons at 55 stations.
-**Still to settle for G6:** the gyrofrequency fH at 300 km, which needs the field's strength there - IGRF-14 is
-evaluated at build time only (`tools/tables`), so a table of fH by cell and year, as the coordinates have, is
-the likely shape.
+**G6's gyrofrequency** at 300 km, which needs the field's strength there: IGRF-14 is evaluated at build time
+only (`tools/tables`), so fH is a table by cell and year, as the coordinates are - `internal/magcoords`'
+`gyro.bin`, read by `magcoords.Gyro`.

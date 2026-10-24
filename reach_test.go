@@ -173,17 +173,17 @@ func TestTheReachSaysWhichLimitStopsIt(t *testing.T) {
 // whichever closed the more, a tie to absorption.
 func TestTheBoundIsTheLimitThatClosesTheMore(t *testing.T) {
 	for _, c := range []struct {
-		closed map[Status]int
-		want   Limit
+		absorbed, weak int
+		want           Limit
 	}{
-		{map[Status]int{}, LimitMUF},
-		{map[Status]int{Absorbed: 3, Weak: 1}, LimitAbsorption},
-		{map[Status]int{Absorbed: 1, Weak: 3}, LimitCircuit},
-		{map[Status]int{Absorbed: 2, Weak: 2}, LimitAbsorption},
-		{map[Status]int{Weak: 1}, LimitCircuit},
+		{0, 0, LimitMUF},
+		{3, 1, LimitAbsorption},
+		{1, 3, LimitCircuit},
+		{2, 2, LimitAbsorption},
+		{0, 1, LimitCircuit},
 	} {
-		if got := reachBound(c.closed); got != c.want {
-			t.Errorf("%v closed: bounded by %v; want %v", c.closed, got, c.want)
+		if got := reachBound(c.absorbed, c.weak); got != c.want {
+			t.Errorf("%d absorbed, %d weak: bounded by %v; want %v", c.absorbed, c.weak, got, c.want)
 		}
 	}
 }

@@ -378,9 +378,6 @@ func (c circuit) lowerAt(f float64) Status {
 	return Weak
 }
 
-// closedBelow is whether the lower limit closes a band (R-2.4, D-70).
-func (c circuit) closedBelow(b Band, upper float64) bool { return c.lowerStatus(b, upper) != Open }
-
 // absorb marks each band open under its upper limit that the circuit cannot
 // carry, Absorbed or Weak (D-70), at the LUF: where the S/N reaches +13 dB,
 // between the highest such band's top and the next open band's top, or the
@@ -447,9 +444,4 @@ func destination(p LatLon, bearing, km float64) LatLon {
 	lat2 := math.Asin(math.Sin(lat1)*math.Cos(d) + math.Cos(lat1)*math.Sin(d)*math.Cos(b))
 	lon2 := lon1 + math.Atan2(math.Sin(b)*math.Sin(d)*math.Cos(lat1), math.Cos(d)-math.Sin(lat1)*math.Sin(lat2))
 	return LatLon{Lat: lat2 / r, Lon: math.Mod(lon2/r+540, 360) - 180}
-}
-
-// circuitAt is the circuit in a typical hour of a typical day.
-func (s Snapshot) circuitAt(t *typicalHour, day *[24]typicalHour, from, to LatLon) (circuit, bool) {
-	return s.newCircuit(t.read, from, to, t.sun, day)
 }

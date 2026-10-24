@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/throttle"
 )
 
 var t0 = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
@@ -209,9 +211,10 @@ func TestAListStateIsCheckedOnApply(t *testing.T) {
 	}
 	for name, s := range map[string]State{
 		"no seed time":                {Heard: map[string]time.Time{}},
-		"seeded in the future":        {Seeded: now.Add(time.Second)},
+		"seeded past the skew":        {Seeded: now.Add(throttle.ClockSkew + time.Second)},
 		"a station never seeded":      {Seeded: t0, Heard: map[string]time.Time{"ZZ999": t0}},
-		"heard in the future":         {Seeded: t0, Heard: map[string]time.Time{live[0]: now.Add(time.Second)}},
+		"heard past the skew":         {Seeded: t0, Heard: map[string]time.Time{live[0]: now.Add(throttle.ClockSkew + time.Second)}},
+		"left out twice":              {Seeded: t0, LeftOut: []string{live[0], live[0]}},
 		"a poll place below zero":     {Seeded: t0, PollAt: -1},
 		"a probe place below zero":    {Seeded: t0, ProbeAt: -1},
 		"left out, never seeded":      {Seeded: t0, LeftOut: []string{"ZZ999"}},
@@ -225,5 +228,9 @@ func TestAListStateIsCheckedOnApply(t *testing.T) {
 		if !fresh.seeded.Equal(now) || len(fresh.heard) != 0 {
 			t.Errorf("%s: a refused state changed the list", name)
 		}
+	}
+	ahead, _ := Seed(now)
+	if err := ahead.Apply(State{Seeded: now.Add(time.Minute), Heard: map[string]time.Time{live[0]: now.Add(time.Minute)}}, now); err != nil || !ahead.seeded.Equal(now) || !ahead.heard[live[0]].Equal(now) {
+		t.Errorf("times a minute ahead, a clock stepped back: %v, seeded %v, heard %v; want taken as now", err, ahead.seeded, ahead.heard[live[0]])
 	}
 }

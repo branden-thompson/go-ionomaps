@@ -1,10 +1,10 @@
-# BUILD log — go-ionomaps v0.1.0
+# Build log — go-ionomaps v0.1.0
 
 Up: [implementation plan](implementation-plan.md)
 
 | Field | Value |
 |---|---|
-| Phase | BUILD, opened 2026-10-07 at the PLAN gate (watchpost D-139; D-48) |
+| Phase | REVIEW, with watchpost 0.19.0 (BUILD opened 2026-10-07 at the PLAN gate, watchpost D-139, D-48; exited 2026-10-18, watchpost D-233) |
 | What this is | One row for each plan task as it is finished: the commit, the test first, and anything learned that the plan did not say |
 | Order | G0 to G4 first, for watchpost's UAT-1 (watchpost D-151; D-49) |
 | Gate for every row | `scripts/gate`, full, on go1.27.2; the module's floor is go 1.26.9 (watchpost D-152; D-50) |
@@ -207,3 +207,17 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 
 - **A new standard-library advisory, GO-2026-6809** (compromised intermediate certificates distrusted in `crypto/x509`, fixed in go1.27.3), fails every gate's vulnerability scan. The hosted gate moves to go1.27.3, as watchpost's CI does under its D-152; `go.mod`'s floor is unchanged.
 - **The module floor moves to go 1.26.10 (watchpost D-244, D-84):** GO-2026-6809 is fixed there too, and go-tuiMaps' gate scans at the floor. `go.mod` and `tools/tables/go.mod` carry it, and the brief and plan say it.
+
+## REVIEW's red team, round 1: the library's remediation (watchpost D-245 to D-262; D-85 to D-90, A-29)
+
+- **Nothing short is said Fresh, by one rule** (RB-2, RI-6, RL-6, RC-11: four reviewers): after NOAA's round, `short` names every input the snapshot lacks - an index that names no grid young enough, a grid held past its hour, a file refused or unreadable. The fault table now holds every case to "named, never Fresh", not to its background alone, which is how the stale-index case had passed; `TestAGridHeldPastItsAgeIsNamed` holds the held-then-aged grid the table did not reach.
+- **No mean, no grid** (RL-2, D-87): with no F10.7 mean usable no grid is fetched to be thrown away; the snapshot with no field names what it lacks, Partial when NOAA answered, Offline when nothing came back. The mean is kept in the saved state and used, its age said, for up to 7 days.
+- **GIRO's failures** (RL-1, D-85): a station's own failure is its own; three in a row, or a 429, stop the burst; a 401, 403 or 410 pauses GIRO for a day; `Inputs.GIRO` and `Inputs.StationsFailed` carry the outcome until the next burst; a stopped burst's unreached stations go first next time. `ionomapstest` answered stations it had not recorded with a 404, which under D-85 stopped every replayed burst; GIRO answers them with a 200 and no row, so the replay now does.
+- **GIRO's plausibility** (RI-1, D-86): a seeded station keeps its place; the residual bounds, foF2 8 MHz and M(3000)F2 2.0, sit above every reading of both recorded weeks (`gm3 -residuals`: largest 7.19 MHz and 1.48). The tests' fake GIRO placed stations by a hash of their code, so it now places them where the seed does.
+- **NOAA's back-off** (RL-7, D-89): ten minutes, then 15, and a server error is a refusal. The six-grids-an-hour test could no longer reach its limit through refusals; it now drives it through cancelled updates, which back off not at all.
+- **The hours ahead** (RP-1, D-88): built without copying what they replace; each typical hour made at its first read; 24 held, each answered, hold 11.9 MB, under 15.
+- **Smaller:** a clock stepped back (RL-11), the solar file whole (RI-3), a state's duplicates (RI-5), the typical days' eviction (RP-2), the held readings in order and `Path`'s limit (RC-13), the deletions and comments (RC-7, RC-8), the aliases' fields documented (RD-6), `ionomapstest`'s answers and the two NOAA files it builds (RL-12).
+- **The record's tools:** the mutant harness, 26 mutants, all killed, a full-lane leg (RL-5); G10.5's constants and `scripts/gate --release` (RD-3); every leg on the floor toolchain, which the hosted gate had not been (RC-12); a nightly full gate (D-90).
+- **RH-13, noted:** `8f6c085` changed the gate with no gate run on its tree; every tip since is gated.
+- **P10:** the root package's density holds its ratified 0.69 with two precondition checks the new code needs (an hour outside its day). The package rows whose function count grew go to the HUM LEAD in one list (watchpost D-252); `tools/tables` and the evidence's two nested modules, which P10 skips, are named there for `.a2dh.yml`.
+

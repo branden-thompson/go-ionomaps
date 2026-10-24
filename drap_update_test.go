@@ -88,7 +88,8 @@ func TestAnUnreadableDRAPIsNoRefusal(t *testing.T) {
 }
 
 // TestARefusedDRAPBacksOff is D-39 for D-RAP: a 429 stops the update and
-// starts NOAA's back-off, as the grid's does.
+// starts NOAA's back-off, as the grid's does, never sooner than NOAA's ten
+// minutes (watchpost D-260).
 func TestARefusedDRAPBacksOff(t *testing.T) {
 	l, n, c := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
@@ -99,9 +100,9 @@ func TestARefusedDRAPBacksOff(t *testing.T) {
 	c.Add(30 * time.Second)
 	settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if a := n.take(); len(a) != 0 || len(n.drapAsks) != 0 {
-		t.Errorf("30 s after D-RAP's refusal NOAA was asked %v and D-RAP %d times; the back-off is 60 s", a, len(n.drapAsks))
+		t.Errorf("30 s after D-RAP's refusal NOAA was asked %v and D-RAP %d times; the back-off is ten minutes", a, len(n.drapAsks))
 	}
-	c.Add(time.Minute)
+	c.Add(10 * time.Minute)
 	settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if len(n.drapAsks) != 1 {
 		t.Errorf("after the back-off D-RAP was asked %d times; want once", len(n.drapAsks))

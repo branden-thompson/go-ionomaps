@@ -27,17 +27,22 @@ const (
 )
 
 // NOAA's limits (D-39): asked at most every ten minutes, the interval GloTEC
-// publishes at; grids at most six an hour; after a refusal or no answer, 60 s
-// doubling to 15 minutes.
+// publishes at; grids at most six an hour; after a refusal, a server error
+// or no answer, never sooner than the ten minutes, then 15 (watchpost D-260).
 const (
 	noaaEvery         = 10 * time.Minute
 	gridsAnHour       = 6
-	firstBackOff      = time.Minute
 	longestPause      = 15 * time.Minute
 	statusOK          = 200
 	statusNotModified = 304
 	statusRefused     = 429
+	statusServerError = 500
 )
+
+// solarMaxAge is how old the F10.7 mean held may be and still build a
+// field, its age said: the 30-day mean moves a few solar flux units a day
+// (watchpost D-249).
+const solarMaxAge = 7 * 24 * time.Hour
 
 // gridMaxAge is how old a grid may be and still be the background: GloTEC
 // publishes every ten minutes about half an hour behind, so a grid over an
@@ -122,13 +127,14 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	}
 	l.unread, l.heard = l.unread[:0], false
 	refused := l.refreshSolar(ctx, now) // first: with no F10.7 mean there is no field at all (L-F4)
-	if !refused {                       // a refusal stops the update (D-39)
+	fieldable := l.solarUsable(now)     // without one, no grid is fetched to be thrown away (RL-2)
+	if !refused && fieldable {          // a refusal stops the update (D-39)
 		refused = l.refreshGrid(ctx, now)
 	}
-	if !refused {
+	if !refused && fieldable {
 		refused = l.refreshDRAP(ctx, now)
 	}
-	if !refused {
+	if !refused && fieldable {
 		refused = l.refreshScales(ctx, now)
 	}
 	stopped := ctx.Err() != nil
@@ -136,8 +142,13 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 		return l.unfinished(ctx, now, o) // the host's, not NOAA's: no back-off, no ten minutes spent
 	}
 	l.notBefore, l.backOff = nextAsk(now, l.backOff, refused)
-	if !l.solar.OK {
-		return Snapshot{Computed: now, Reason: Offline}, l.notYet()
+	l.short(now)
+	if !fieldable {
+		reason := Partial // NOAA answered, and the solar file did not read: Unread names it (watchpost D-239)
+		if !l.heard {
+			reason = Offline
+		}
+		return Snapshot{Computed: now, Reason: reason, Inputs: Inputs{Unread: slices.Clone(l.unread)}}, l.notYet()
 	}
 	s := l.build(now, o)
 	l.giro.LetGo(now)
@@ -175,7 +186,7 @@ func (l *Library) early(now time.Time, o UpdateOptions) (Snapshot, error) {
 // built now from what is held, said Unfinished; with no F10.7 mean held,
 // no field, and an error that wraps the context's own and says which.
 func (l *Library) unfinished(ctx context.Context, now time.Time, o UpdateOptions) (Snapshot, error) {
-	if !l.solar.OK {
+	if !l.solarUsable(now) {
 		why := "the host cancelled it"
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			why = "its deadline passed"
@@ -191,29 +202,60 @@ func (l *Library) unfinished(ctx context.Context, now time.Time, o UpdateOptions
 // notYet is the error for an update with no field to give, once NOAA's
 // next ask is set: a stopped update gives its own (unfinished).
 func (l *Library) notYet() error {
-	return fmt.Errorf("%w yet: NOAA's solar data could not be read; it is asked again at the first update after %s", ErrNoField, l.notBefore.Format("15:04:05 UTC"))
+	return fmt.Errorf("%w yet: NOAA's solar data could not be read, and no F10.7 mean under %d days old is held; it is asked again at the first update after %s", ErrNoField, int(solarMaxAge/(24*time.Hour)), l.notBefore.Format("15:04:05 UTC"))
+}
+
+// solarUsable is whether an F10.7 mean is held that a field may be built
+// from: one taken up to solarMaxAge ago, its age said (watchpost D-249).
+func (l *Library) solarUsable(now time.Time) bool {
+	if !l.solar.OK {
+		return false // no mean held: nothing to build from
+	}
+	return l.solar.Age(now) <= solarMaxAge
+}
+
+// short names each of NOAA's inputs the snapshot will lack - none held, or
+// the one held past its age - that the update has not named already, so a
+// snapshot short of any is never said Fresh (watchpost D-239): whatever left
+// it short, an index naming no usable grid as much as a file refused.
+func (l *Library) short(now time.Time) {
+	lacking := []struct {
+		name  string
+		lacks bool
+	}{
+		{"solar", !l.solarUsable(now)},
+		{"GloTEC", l.grid == nil || now.Sub(l.grid.Valid) > gridMaxAge},
+		{"D-RAP", l.drap == nil || now.Sub(l.drap.Valid) > drapMaxAge},
+		{"scales", l.scales == nil || now.Sub(l.scales.Valid) > scalesMaxAge},
+	}
+	for _, in := range lacking {
+		if in.lacks && !slices.Contains(l.unread, in.name) {
+			l.unread = append(l.unread, in.name)
+		}
+	}
 }
 
 // nextAsk is when NOAA may next be asked, and the back-off then: ten
 // minutes on after an update without a refusal, which ends the back-off;
-// after one, 60 s doubling to 15 minutes (D-39).
+// after one, ten minutes, then 15 - never sooner than a healthy NOAA is
+// asked (watchpost D-260, under D-39's cap).
 func nextAsk(now time.Time, backOff time.Duration, refused bool) (time.Time, time.Duration) {
 	if !refused {
 		return now.Add(noaaEvery), 0
 	}
-	backOff = min(max(2*backOff, firstBackOff), longestPause)
+	backOff = min(max(2*backOff, noaaEvery), longestPause)
 	return now.Add(backOff), backOff
 }
 
 // ask is one request: the answer, whether it is one to use (200, or 304
-// when validators were sent), and whether it was refused or not answered,
-// which backs off (D-39).
+// when validators were sent), and whether it was refused, failed on NOAA's
+// side or not answered, which backs off (D-39, watchpost D-260).
 func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response, ok, refused bool) {
 	r, err := l.fetch.Fetch(ctx, url, v)
 	if err != nil {
 		return Response{}, false, true
 	}
-	if r.Status == statusRefused {
+	if r.Status == statusRefused || r.Status >= statusServerError {
 		return r, false, true
 	}
 	ok = r.Status == statusOK || r.Status == statusNotModified && v != (Validators{})
@@ -221,18 +263,19 @@ func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response
 	return r, ok, false
 }
 
-// refreshGrid asks the index and, when it names a grid not held, that grid,
-// within six grid asks an hour; GloTEC is named unread when either does not
-// come back or the grid cannot be read. refused is whether either ask was
-// refused or unanswered.
+// refreshGrid asks the index and, when it names a grid not held and young
+// enough to use, that grid, within six grid asks an hour; GloTEC is named
+// unread when either does not come back or the grid cannot be read, and by
+// short when the index names none young enough. refused is whether either
+// ask was refused or unanswered.
 func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool) {
 	idx, ok, refused := l.ask(ctx, glotecIndex, Validators{})
 	if !ok {
 		return l.missed("GloTEC", refused) // the grid held stays, and its age says so; else the climatology, as Background says
 	}
-	name, _, listed := glotec.Newest(idx.Body, now)
-	if !listed {
-		return false
+	name, valid, listed := glotec.Newest(idx.Body, now)
+	if !listed || now.Sub(valid) > gridMaxAge {
+		return false // no grid to use: short names GloTEC unread, and none is fetched to be thrown away
 	}
 	if name == l.gridName {
 		return false // held already: a new grid is never a 304 (D-111)
@@ -391,8 +434,8 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		Now:        Hour{At: now, FoF2: fo, MUF3000: muf},
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
-			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected, NoStations: o.NoStations,
-			Unread: slices.Clone(l.unread)},
+			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected + res.Implausible, NoStations: o.NoStations,
+			GIRO: GIROOutcome(l.giro.Outcome), StationsFailed: l.giro.Failed, Unread: slices.Clone(l.unread)},
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),
@@ -444,9 +487,17 @@ func (f Field) put(i int, v float32) {
 
 // clone is a snapshot in slices of its own (P-6).
 func (s Snapshot) clone() Snapshot {
-	c := s
+	c := s.withTables()
 	c.Now = Hour{At: s.Now.At, MUF3000: s.Now.MUF3000.owned(), FoF2: s.Now.FoF2.owned(), Typical: s.Now.Typical}
 	c.Disturbance = s.Disturbance.owned()
+	return c
+}
+
+// withTables is the snapshot with its tables in slices of its own and its
+// fields still the original's: what an hour ahead starts from, replacing
+// the fields, so nothing is copied to be thrown away (watchpost D-251).
+func (s Snapshot) withTables() Snapshot {
+	c := s
 	c.NearestKm = slices.Clone(s.NearestKm)
 	c.NearestUnscored = Bitset{bits: slices.Clone(s.NearestUnscored.bits), n: s.NearestUnscored.n}
 	c.Scales.Outlook = slices.Clone(s.Scales.Outlook)

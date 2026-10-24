@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/branden-thompson/go-ionomaps/internal/giro"
+	"github.com/branden-thompson/go-ionomaps/internal/solar"
 	"github.com/branden-thompson/go-ionomaps/internal/stations"
 	"github.com/branden-thompson/go-ionomaps/internal/throttle"
 )
 
 // ErrBadState is the error, wrapped, for a state Restore will not take: not
 // one this library wrote, or one that would hold GIRO back longer than any
-// refusal does, or ask it from the future. The library is left as new.
+// refusal does, or ask it from the future. The library is left as it was.
 var ErrBadState = errors.New("ionomaps: the state given is not one this library keeps")
 
 // stateVersion is the state's layout; another is refused.
@@ -35,21 +36,29 @@ type keptState struct {
 	Poll    int              `json:"poll"`
 	Probe   int              `json:"probe"`
 	Out     []string         `json:"out"`
+	F107    float64          `json:"f107,omitempty"`     // the F10.7 mean held (watchpost D-249)
+	F107Day int              `json:"f107days,omitempty"` // the days behind it
+	F107At  int64            `json:"f107at,omitempty"`   // when it was taken
 }
 
-// State is GIRO's throttle state, for the host to keep across restarts
-// (watchpost D-213): when the last burst began, when a pause ends, the
-// back-off, and when each station last gave data, with the rotation's
-// places - never a reading, which GIRO's terms keep from being stored.
-// The bytes are the library's own; a host stores them as they are and hands
-// them to Restore.
+// State is what the library keeps across restarts, for the host to store
+// (watchpost D-213, D-249): GIRO's throttle - when the last burst began,
+// when a pause ends, the back-off, and when each station last gave data,
+// with the rotation's places, never a reading, which GIRO's terms keep from
+// being stored - and NOAA's F10.7 mean held, public domain, with its days
+// and when it was taken, so a restart while the solar file cannot be read
+// still builds a field for up to 7 days. The bytes are the library's own; a
+// host stores them as they are and hands them to Restore.
 //
-// Source: watchpost D-213.
+// Source: watchpost D-213, D-249.
 func (l *Library) State() []byte {
 	l.mu.Lock()
-	g := l.giro.Export()
+	g, f := l.giro.Export(), l.solar
 	l.mu.Unlock()
 	k := keptState{V: stateVersion, Burst: unix(g.Throttle.BurstAt), Pause: unix(g.Throttle.PauseTo), BackOff: int64(g.Throttle.BackOff / time.Second)}
+	if f.OK {
+		k.F107, k.F107Day, k.F107At = f.Mean, f.Days, unix(f.Taken)
+	}
 	if st := g.Stations; st != nil {
 		k.Seeded, k.Poll, k.Probe, k.Out, k.Heard = unix(st.Seeded), st.PollAt, st.ProbeAt, st.LeftOut, map[string]int64{}
 		for code, at := range st.Heard {
@@ -61,13 +70,14 @@ func (l *Library) State() []byte {
 }
 
 // Restore takes a state State wrote, so a restart within the hour of a
-// burst asks GIRO nothing new and a refusal's pause still holds (watchpost
-// D-213). An empty state, a first run's, restores nothing. A state that is
-// not this library's, or that fails its checks against the clock, is
-// refused with ErrBadState and the library is left as it was: the host
-// carries on without it.
+// burst asks GIRO nothing new, a refusal's pause still holds (watchpost
+// D-213), and the F10.7 mean held comes back with its age (D-249). An empty
+// state, a first run's, restores nothing. A state that is not this
+// library's, or that fails its checks against the clock or a flux's
+// bounds, is refused with ErrBadState and the library is left as it was:
+// the host carries on without it.
 //
-// Source: watchpost D-213; R-3.3.
+// Source: watchpost D-213, D-249; R-3.3.
 func (l *Library) Restore(state []byte) error {
 	if len(state) == 0 {
 		return nil
@@ -89,8 +99,16 @@ func (l *Library) Restore(state []byte) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if err := l.giro.Import(g, l.clock().UTC()); err != nil {
+	now := l.clock().UTC()
+	f, err := solar.Resume(k.F107, k.F107Day, fromUnix(k.F107At), now)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadState, err)
+	}
+	if err := l.giro.Import(g, now); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadState, err)
+	}
+	if f.OK {
+		l.solar = f
 	}
 	return nil
 }

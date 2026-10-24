@@ -12,6 +12,9 @@
 #                           is refused and sent to the full gate; with nothing
 #                           staged it fails
 #   scripts/gate --fuzz     the fuzz legs alone
+#   scripts/gate --release  every leg, then the release steps: no measured
+#                           constant over a year old (R-9.8), never run by
+#                           the everyday gate
 #
 # Settings, each written on the run's log line when given:
 #   GATE_FUZZ_EXECS=Nx      how many runs each fuzz target makes (FUZZ_EXECS
@@ -59,26 +62,31 @@ case "$FUZZ_LIMIT" in
   ''|*[!0-9]*|0) echo "gate: GATE_FUZZ_LIMIT must be a whole number of seconds above zero, not '$FUZZ_LIMIT'"; exit 2 ;;
 esac
 
-quick=0 docs=0 fuzzonly=0 modes=0
+quick=0 docs=0 fuzzonly=0 release=0 modes=0
 for arg in "$@"; do
   case "$arg" in
     --quick) quick=1; modes=$((modes + 1)) ;;
     --docs) docs=1; modes=$((modes + 1)) ;;
     --fuzz) fuzzonly=1; modes=$((modes + 1)) ;;
+    --release) release=1; modes=$((modes + 1)) ;;
     *) echo "gate: unknown argument $arg"; exit 2 ;;
   esac
 done
 if [ "$modes" -gt 1 ]; then
-  echo "gate: one mode at most a run (--quick, --docs or --fuzz)"
+  echo "gate: one mode at most a run (--quick, --docs, --fuzz or --release)"
   exit 2
 fi
 mode="full"
 [ "$quick" = 1 ] && mode="quick"
 [ "$docs" = 1 ] && mode="docs"
 [ "$fuzzonly" = 1 ] && mode="fuzz"
+[ "$release" = 1 ] && mode="release"
 
 FLOOR_TOOLCHAIN="go$(sed -n 's/^go \([0-9.]*\)$/\1/p' go.mod | head -1)"
-export GOTOOLCHAIN="${GOTOOLCHAIN:-$FLOOR_TOOLCHAIN}"
+# Every leg runs on the floor toolchain go.mod names, whatever the
+# environment sets: setup-go sets GOTOOLCHAIN=local, which ran the hosted
+# gate on its own Go, not the floor (watchpost RC-12, D-152).
+export GOTOOLCHAIN="$FLOOR_TOOLCHAIN"
 export GOFLAGS="${GOFLAGS:--mod=readonly}"
 
 failures=""
@@ -96,6 +104,32 @@ leg() {
     fail "$name [$((SECONDS - started))s]"
     printf '%s\n' "$out" | sed 's/^/          /'
   fi
+}
+
+# mutants_killed runs the mutants anyone can run again (watchpost RL-5):
+# every mutant in 06_docs/mutants/mutants.json, applied to a copy of the
+# tree, is caught by its test (mutants_kill_test.go). A run that selects no
+# test fails: a table nobody checked would pass as quietly as one that holds
+# (go-tuiMaps' leg, as it is there).
+mutants_killed() {
+  local out
+  if ! out="$(go test -tags mutants -run '^TestEveryMutantIsKilled$' -count=1 -v -timeout 30m . 2>&1)"; then
+    printf '%s\n' "$out" | grep -E 'SURVIVED|INVALID|FAIL|panic' | head -40
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestEveryMutantIsKilled ' || { echo "no mutant was run: TestEveryMutantIsKilled was not selected"; return 1; }
+}
+
+# constants_current is R-9.8's release step: no measured constant's data
+# over a year old (constants_test.go). A skip here is the step not run, so
+# it fails, as a run that selects no test does.
+constants_current() {
+  local out
+  if ! out="$(IONOMAPS_RELEASE=1 go test -run '^TestNoConstantIsOverAYearOld$' -count=1 -v . 2>&1)"; then
+    printf '%s\n' "$out" | grep -E 'measured on|FAIL' | head -20
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestNoConstantIsOverAYearOld ' || { echo "the release step did not run: TestNoConstantIsOverAYearOld was skipped or not selected"; return 1; }
 }
 
 # limited runs a command under a wall-clock limit in seconds, its process
@@ -239,7 +273,7 @@ if [ "$docs" = 0 ] && { [ "$quick" = 0 ] || [ "$fuzzonly" = 1 ]; }; then
 fi
 
 # --- the full lane's slow legs --------------------------------------------------
-if [ "$mode" = "full" ]; then
+if [ "$mode" = "full" ] || [ "$mode" = "release" ]; then
   if scanner_is_pinned; then
     leg "vulnerability scan, govulncheck $GOVULNCHECK_PIN, at the floor, $FLOOR_TOOLCHAIN" env GOTOOLCHAIN="$FLOOR_TOOLCHAIN" govulncheck ./...
   else
@@ -248,6 +282,12 @@ if [ "$mode" = "full" ]; then
   for target in $TARGETS; do
     leg "cross-compile $target, C toolchain off" env CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
   done
+  leg "every mutant killed by its test (watchpost RL-5)" mutants_killed
+fi
+
+# --- the release steps ------------------------------------------------------------
+if [ "$mode" = "release" ]; then
+  leg "R-9.8, no measured constant over a year old" constants_current
 fi
 
 # --- P10, where the harness is set up -------------------------------------------

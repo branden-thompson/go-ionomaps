@@ -9,6 +9,9 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
 )
 
+// hoursADay are a typical day's hours.
+const hoursADay = 24
+
 // typicalCells is one typical hour's climatology at each 2° cell, worked
 // out as it is first read: foF2 and M(3000)F2 as float32 bits in one word, 0
 // for a cell not yet worked out. Answers asked at once read and fill it
@@ -16,11 +19,28 @@ import (
 type typicalCells []atomic.Uint64
 
 // typicalDayCells are a UTC day's typical hours at an F10.7 mean: each
-// hour's cells and the sun's track to it.
+// hour's cells and the sun's track to it, made the first time the hour is
+// read (watchpost D-251), so an hour ahead holds its own hour, not the day's.
 type typicalDayCells struct {
-	hours  [24]typicalCells
-	suns   [24]*sunTrack
+	start  time.Time
+	made   [hoursADay]sync.Once
+	hours  [hoursADay]typicalCells
+	suns   [hoursADay]*sunTrack
 	filled atomic.Int64 // cells worked out, for the tests of what is kept
+}
+
+// hour is an hour's cells and the sun's track to it, made at its first
+// read; safe for the answers asked at once. An hour outside the day has
+// none, read as no data, never an index past the day's.
+func (d *typicalDayCells) hour(h int) (typicalCells, *sunTrack) {
+	if h < 0 || h >= hoursADay {
+		return nil, nil
+	}
+	d.made[h].Do(func() {
+		d.hours[h] = make(typicalCells, grid.Cells)
+		d.suns[h] = newSunTrack(d.start.Add(time.Duration(h) * time.Hour))
+	})
+	return d.hours[h], d.suns[h]
 }
 
 // typicalKey names a typical day: its UTC midnight and the F10.7 mean.
@@ -54,22 +74,33 @@ func (t *typicalDays) day(start time.Time, f107 float32) *typicalDayCells {
 	if d, ok := t.days[k]; ok {
 		return d
 	}
-	if t.days == nil || len(t.days) >= keptDays {
-		t.days = map[typicalKey]*typicalDayCells{} // a new day, or a new mean: the old ones are not asked again
+	if t.days == nil {
+		t.days = map[typicalKey]*typicalDayCells{}
+	}
+	if len(t.days) >= keptDays {
+		delete(t.days, t.oldest()) // the oldest day goes alone, so a snapshot still answered across midnight keeps its own (RP-2)
 	}
 	d := newTypicalDay(start)
 	t.days[k] = d
 	return d
 }
 
-// newTypicalDay is a typical day with no cell worked out yet.
-func newTypicalDay(start time.Time) *typicalDayCells {
-	d := &typicalDayCells{}
-	for h := range d.hours {
-		d.hours[h] = make(typicalCells, grid.Cells)
-		d.suns[h] = newSunTrack(start.Add(time.Duration(h) * time.Hour))
+// oldest is the key of the earliest day kept; with two of one day (a new
+// mean), the first found. Called with t.mu held.
+func (t *typicalDays) oldest() typicalKey {
+	var out typicalKey
+	first := true
+	for k := range t.days {
+		if first || k.day.Before(out.day) {
+			out, first = k, false
+		}
 	}
-	return d
+	return out
+}
+
+// newTypicalDay is a typical day with no hour made yet.
+func newTypicalDay(start time.Time) *typicalDayCells {
+	return &typicalDayCells{start: start}
 }
 
 // packCell is a cell's foF2 and M(3000)F2 in one word.

@@ -5,9 +5,13 @@
 // then, nothing dated after it.
 //
 // dry_fetch.py keeps no D-RAP table and no scales file, so the replay
-// answers them as missing: the library names them in Inputs.Unread and says
-// each snapshot Partial, as it would of a NOAA that did not serve them
-// (watchpost D-239).
+// answers them as missing unless Options.Answers serves them: the library
+// names them in Inputs.Unread and says each snapshot Partial, as it would
+// of a NOAA that did not serve them (watchpost D-239). DRAPTable and
+// ScalesFile build them, so a replay can be Fresh; Answers also gives any
+// input a status, a body or an error, so a host's tests reach every state
+// the library says (RL-12). A station not recorded answers as GIRO answers
+// one with no data.
 //
 // It is for a host's own tests and for the instruments that grade the
 // library on recorded days (G10.4's tools/gm3; watchpost's tools/reachscore,

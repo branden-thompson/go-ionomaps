@@ -165,7 +165,8 @@ func TestEveryP10MirrorRowNamesCodeThatExists(t *testing.T) {
 		if _, after, ok := strings.Cut(symbol, "."); ok {
 			name = after
 		}
-		if !regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).Match(body) {
+		declared := `(?m)^(func (\([^)]*\) )?|type |var |const |\t)` + regexp.QuoteMeta(name) + `\b`
+		if !regexp.MustCompile(declared).Match(body) { // declared there, not merely named in a comment (RC-13)
 			t.Errorf("a ratified row names `%s` · `%s`, and the file no longer holds it", file, symbol)
 		}
 	}

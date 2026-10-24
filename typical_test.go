@@ -7,7 +7,7 @@ import (
 
 // TestTheTypicalDayIsKept is P-4: a library keeps a typical day once made -
 // the same day at the same F10.7 mean is the same cells, so each is worked
-// out once - and keeps no more than two days or one mean; a snapshot made by
+// out once - and keeps no more than two, the oldest alone going for a new one; a snapshot made by
 // hand gets a day of its own each time.
 func TestTheTypicalDayIsKept(t *testing.T) {
 	var kept typicalDays
@@ -19,8 +19,15 @@ func TestTheTypicalDayIsKept(t *testing.T) {
 	if b := kept.day(day.Add(24*time.Hour), 150); b == a || len(kept.days) != 2 {
 		t.Errorf("the next day: the same %v, %d kept", b == a, len(kept.days))
 	}
-	if kept.day(day, 160); len(kept.days) != 1 {
-		t.Errorf("a new mean: %d days kept; the old ones are not asked again", len(kept.days))
+	next := kept.day(day.Add(24*time.Hour), 150)
+	if kept.day(day, 160); len(kept.days) != 2 || kept.day(day.Add(24*time.Hour), 150) != next {
+		t.Errorf("a new mean: %d days kept, the next day kept %v; want the oldest alone gone", len(kept.days), kept.day(day.Add(24*time.Hour), 150) == next)
+	}
+	// RP-2: past midnight, the day after next asked, the next day stays, so
+	// a snapshot still answered for it is not made anew each time.
+	kept.day(day.Add(48*time.Hour), 160)
+	if kept.day(day.Add(24*time.Hour), 150) != next || len(kept.days) != 2 {
+		t.Errorf("a third day emptied the cache: the next day kept %v, %d kept", kept.day(day.Add(24*time.Hour), 150) == next, len(kept.days))
 	}
 	var none *typicalDays
 	if none.day(day, 150) == none.day(day, 150) {

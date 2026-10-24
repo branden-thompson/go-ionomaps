@@ -74,9 +74,12 @@ func TestAFieldIsReproducedFromItsInputs(t *testing.T) {
 		if len(fields) != 3 || strings.HasPrefix(fields[0], "#") {
 			continue
 		}
-		i, _ := strconv.Atoi(fields[0])
-		fo, _ := strconv.ParseFloat(fields[1], 64)
-		muf, _ := strconv.ParseFloat(fields[2], 64)
+		i, errI := strconv.Atoi(fields[0])
+		fo, errF := strconv.ParseFloat(fields[1], 64)
+		muf, errM := strconv.ParseFloat(fields[2], 64)
+		if errI != nil || errF != nil || errM != nil || i < 0 || i >= len(a.Now.FoF2.Values) {
+			t.Fatalf("the golden's line %q does not read as a cell and two figures", sc.Text())
+		}
 		read++
 		if d := math.Max(math.Abs(float64(a.Now.FoF2.Values[i])-fo), math.Abs(float64(a.Now.MUF3000.Values[i])-muf)); d > 0.001 {
 			t.Errorf("cell %d: foF2 %.6f, MUF %.6f; the golden %.6f, %.6f (%.4f MHz apart, past 0.001)", i, a.Now.FoF2.Values[i], a.Now.MUF3000.Values[i], fo, muf, d)

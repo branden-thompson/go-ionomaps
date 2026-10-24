@@ -45,9 +45,11 @@ type Options struct {
 	Clock func() time.Time // the time now; time.Now when nil
 }
 
-// Source is one source the library reads or is built from: its name, the
-// hosts it is asked on at run time (none for one used only at build time),
-// its terms and the citation it asks for (R-4.1).
+// Source is one source the library reads or is built from (R-4.1). Its
+// fields, which go doc does not show through the alias: Name; Hosts, the
+// hosts it is asked on at run time (none for one used only at build time);
+// Terms; Cite, the citation it asks for; and MaxBytes, the largest reply
+// from it a host's fetcher should read (0 for none asked at run time).
 type Source = terms.Source
 
 // Library makes snapshots through the host's fetcher. It is safe for

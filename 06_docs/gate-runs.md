@@ -54,3 +54,4 @@ Every run of `scripts/gate` adds a row: when, HEAD, the git tree that was tested
 | 2026-10-21T14:58:58Z | c84a933 | 3beb356185aa | docs | green | 58 | - |
 | 2026-10-22T18:23:22Z | ed5d6bd | 7146e6f7ea96 | full | green | 524 | - |
 | 2026-10-22T20:57:43Z | 3be1667 | f416bf00e4ed | full | green | 527 | - |
+| 2026-10-24T17:29:16Z | d80d8db | 61773488bb5c | full | green | 490 | - |

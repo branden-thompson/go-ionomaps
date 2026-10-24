@@ -61,6 +61,8 @@ type noaa struct {
 	scales           []byte // NOAA's scales file; none served when nil, as a test of its absence sets it
 	scalesAsks       int
 	scalesValidators []ionomaps.Validators
+
+	onGrid func() // called as a grid is asked, when set: a host cancelling mid-update
 }
 
 // newNOAA serves what NOAA serves: the solar file, D-RAP's table and the
@@ -92,6 +94,10 @@ func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (io
 	key := url
 	if strings.HasPrefix(url, indexURL) && url != indexURL {
 		key = "grid"
+	}
+	if key == "grid" && n.onGrid != nil {
+		n.onGrid()
+		return ionomaps.Response{}, context.Canceled
 	}
 	if n.down[key] {
 		return ionomaps.Response{}, errors.New("no route")
@@ -366,9 +372,10 @@ func TestWithoutGloTECTheClimatologyIsNamed(t *testing.T) {
 	}
 }
 
-// TestARefusalBacksOff is D-39: a 429 stops the update, and it or no answer
-// stops the asking for 60 s,
-// doubling to 15 minutes; an answer ends the back-off.
+// TestARefusalBacksOff is D-39 and watchpost D-260: a 429 stops the update,
+// and it, a server error or no answer stops the asking for ten minutes,
+// then 15 - never sooner than a healthy NOAA is asked; an answer ends the
+// back-off.
 func TestARefusalBacksOff(t *testing.T) {
 	l, n, c := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
@@ -379,7 +386,11 @@ func TestARefusalBacksOff(t *testing.T) {
 	if a := n.take(); len(a) != 1 {
 		t.Errorf("after a refusal the update asked on: %v", a)
 	}
-	for i, wait := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 15 * time.Minute, 15 * time.Minute} {
+	n.status[solarURL] = 503 // a server error backs off as a refusal does (watchpost D-260)
+	for i, wait := range []time.Duration{10 * time.Minute, 15 * time.Minute, 15 * time.Minute, 15 * time.Minute} {
+		if i == 2 {
+			n.status[solarURL] = 429
+		}
 		c.Add(wait - time.Second)
 		if _, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err == nil || len(n.take()) != 0 {
 			t.Fatalf("refusal %d: asked again before %v", i+1, wait)
@@ -392,6 +403,11 @@ func TestARefusalBacksOff(t *testing.T) {
 	}
 	delete(n.status, solarURL)
 	c.Add(15 * time.Minute)
+	// An hour and more of refusals left every file held past its age: NOAA's
+	// newest now, the snapshot is Fresh; with the old ones, it would be
+	// Partial (watchpost D-239).
+	n.list(t, c.Now().Add(-20*time.Minute), 7)
+	n.drap, n.scales = drapTable(c.Now().Add(-3*time.Minute), 3), scalesFile(c.Now().Add(-2*time.Minute), `"1"`, `"0"`, `"3"`)
 	if s, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err != nil || s.Reason != ionomaps.Fresh {
 		t.Fatalf("after the refusals ended: %v, %v", s.Reason, err)
 	}
@@ -399,9 +415,13 @@ func TestARefusalBacksOff(t *testing.T) {
 	c.Add(10 * time.Minute)
 	settled(l, context.Background(), ionomaps.UpdateOptions{})
 	n.take()
-	c.Add(time.Minute)
+	c.Add(10*time.Minute - time.Second)
+	if _, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 0 {
+		t.Error("after an answer, a refusal's first back-off is ten minutes again: asked sooner")
+	}
+	c.Add(time.Second)
 	if s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 1 || s.Reason != ionomaps.Offline {
-		t.Errorf("after an answer, the first back-off is 60 s again, and an update without NOAA is offline: %v", s.Reason)
+		t.Errorf("after an answer, the first back-off is ten minutes again, and an update without NOAA is offline: %v", s.Reason)
 	}
 }
 
@@ -422,15 +442,18 @@ func TestACancelledUpdateIsNoRefusal(t *testing.T) {
 	}
 }
 
-// TestGridsAreAskedAtMostSixAnHour is D-39: however the asks fail and back
-// off, no hour holds more than six asks for a grid.
+// TestGridsAreAskedAtMostSixAnHour is D-39: however the asks fail, no hour
+// holds more than six asks for a grid - even updates the host cancels, which
+// start no back-off and may be asked again at once (L-F4).
 func TestGridsAreAskedAtMostSixAnHour(t *testing.T) {
 	l, n, c := library(t)
-	n.down["grid"] = true
 	var asks []time.Time
-	for range 360 { // three hours, every 30 s, a new grid listed each time
+	for range 360 { // three hours, every 30 s, a new grid listed each time, each update cancelled as its grid is asked: no back-off to hold the asks apart
+		ctx, cancel := context.WithCancel(context.Background())
+		n.onGrid = cancel
 		n.list(t, c.Now().Add(-25*time.Minute), 7)
-		settled(l, context.Background(), ionomaps.UpdateOptions{})
+		_, _ = l.Update(ctx, ionomaps.UpdateOptions{})
+		cancel()
 		for _, a := range n.take() {
 			if strings.HasSuffix(a, ".geojson") {
 				asks = append(asks, c.Now())

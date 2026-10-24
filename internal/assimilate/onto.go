@@ -24,10 +24,21 @@ type Reading struct {
 type Result struct {
 	FoF2, M3000     []float32
 	Used, UsedM     int
+	Implausible     int // readings, or their M(3000)F2, refused as past a residual's bound (watchpost D-248)
 	MeanResidual    float64
 	NearestKm       []float32
 	NearestUnscored []bool
 }
+
+// The plausibility bounds (watchpost D-248): a reading whose residual
+// against its background is larger is refused, not assimilated. Each sits
+// above the largest residual of every reading on PLAN's week and the fresh
+// days - foF2 7.19 MHz, M(3000)F2 1.48 - so none of those is refused, and
+// a station claiming foF2 20 MHz over a 7 MHz grid is (gm3 -residuals).
+const (
+	FoF2Bound  = 8.0 // MHz
+	M3000Bound = 2.0
+)
 
 var (
 	errBackground = errors.New("assimilate: a background is not on the library's grid")
@@ -60,9 +71,17 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 		if !ok || !(x.FoF2 > 0) {
 			continue
 		}
+		if math.Abs(x.FoF2-b) > FoF2Bound {
+			r.Implausible++
+			continue
+		}
 		foObs, used = append(foObs, Obs{Lat: x.Lat, Lon: x.Lon, Residual: x.FoF2 - b}), append(used, x)
 		bm, okM := grid.Sample(mBack, x.Lat, x.Lon)
-		if x.HasM && okM && x.M3000 > 0 {
+		plausibleM := math.Abs(x.M3000-bm) <= M3000Bound
+		if x.HasM && okM && x.M3000 > 0 && !plausibleM {
+			r.Implausible++
+		}
+		if x.HasM && okM && x.M3000 > 0 && plausibleM {
 			mObs = append(mObs, Obs{Lat: x.Lat, Lon: x.Lon, Residual: x.M3000 - bm})
 		}
 	}

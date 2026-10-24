@@ -44,7 +44,7 @@ func (s Snapshot) Ahead(k int) (Snapshot, error) {
 		fo.put(i, float32(f))
 		muf.put(i, float32(f*m3))
 	}
-	a := s.clone()
+	a := s.withTables() // its own fields below; the tables its own as well (P-6, watchpost D-251)
 	a.Now = Hour{At: at, FoF2: fo, MUF3000: muf, Typical: true}
 	a.Background = Backgrounds{FoF2: Climatology, M3000: Climatology}
 	a.Disturbance, a.Inputs.DRAPValid = Field{}, time.Time{}

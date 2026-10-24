@@ -53,9 +53,6 @@ type lowerGrid struct {
 
 // newLowerGrid is a reach's polar grid, no node yet worked out.
 func (s Snapshot) newLowerGrid(read reader, origin LatLon, sun *sunTrack, day *[24]typicalHour, mhz float64) *lowerGrid {
-	if !(mhz > 0) {
-		return nil // no frequency: every cell takes its own circuit
-	}
 	return &lowerGrid{s: s, read: read, sun: sun, day: day, origin: origin, mhz: mhz}
 }
 

@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/throttle"
 )
 
 //go:embed seed.txt
@@ -168,6 +170,24 @@ func (l *List) Plan(now time.Time, budget int) (poll []string, probe string) {
 	return poll, l.nextProbe(now)
 }
 
+// Unasked puts the stations a stopped burst did not reach first for the
+// next, ahead of those left out by the budget, so a burst that stops at the
+// same station each hour still moves on (watchpost D-247); a code the list
+// does not poll now (the probe) is passed over.
+//
+// Source: watchpost D-247.
+func (l *List) Unasked(codes []string, now time.Time) {
+	live := l.Live(now)
+	var first []string
+	for _, c := range codes {
+		if slices.Contains(live, c) && !slices.Contains(first, c) {
+			first = append(first, c)
+		}
+	}
+	rest := slices.DeleteFunc(slices.Clone(l.leftOut), func(c string) bool { return slices.Contains(first, c) })
+	l.leftOut = append(first, rest...)
+}
+
 // rotation is the live stations in the order they are polled: those left
 // out last time first, then the rest from where the rotation stands.
 func (l *List) rotation(live []string) []string {
@@ -214,9 +234,23 @@ func (l *List) nextProbe(now time.Time) string {
 	return ""
 }
 
+// At is where the list places a station - its seed's position, or the
+// first its replies gave - and whether it is placed (watchpost D-248).
+//
+// Source: watchpost D-248.
+func (l *List) At(code string) (Place, bool) {
+	i, known := l.index[code]
+	if !known || !l.known[i].Placed {
+		return Place{}, false
+	}
+	return Place{Lat: l.known[i].Lat, Lon: l.known[i].Lon, Known: true}, true
+}
+
 // Heard records that a station gave data at a time, with the position its
 // reply gave: the station is live, and asked from then next time. A reading
-// with no time is no sign of life; a position off the globe is not kept.
+// with no time is no sign of life; a position off the globe is not kept,
+// nor one for a station already placed, which keeps its place (watchpost
+// D-248).
 //
 // Source: watchpost D-51; the station's reply.
 func (l *List) Heard(code string, at time.Time, p Place) {
@@ -231,7 +265,7 @@ func (l *List) Heard(code string, at time.Time, p Place) {
 		l.heard[code] = at
 	}
 	onGlobe := p.Lat >= -90 && p.Lat <= 90 && p.Lon >= -180 && p.Lon <= 180
-	if !p.Known || !onGlobe {
+	if !p.Known || !onGlobe || l.known[i].Placed {
 		return
 	}
 	l.known[i].Lat, l.known[i].Lon, l.known[i].Placed = p.Lat, p.Lon, true
@@ -269,6 +303,15 @@ type State struct {
 // reached, and adding to it could overflow.
 const pollAtMost = 40 * 24 * 366 * 100
 
+// notAfter is t, or now when t lies after it: a time kept within the clock's
+// skew is taken as now.
+func notAfter(t, now time.Time) time.Time {
+	if t.After(now) {
+		return now
+	}
+	return t
+}
+
 // errBadState is a state this list could not have reached by now.
 var errBadState = errors.New("stations: the state is not one the list reaches")
 
@@ -281,13 +324,15 @@ func (l *List) Record() State {
 }
 
 // Apply puts a state kept onto a seeded list, checked against now: every
-// station one the seed names, no time after now, no rotation place below
-// zero or past what a century of bursts reaches; a state that fails leaves
-// the list as it was.
+// station one the seed names, none left out twice, no time more than
+// throttle.ClockSkew after now (a time within it is taken as now, a clock
+// stepped back), no rotation place below zero or past what a century of
+// bursts reaches; a state that fails leaves the list as it was.
 //
 // Source: watchpost D-213; R-3.3.
 func (l *List) Apply(s State, now time.Time) error {
-	if s.Seeded.IsZero() || s.Seeded.After(now) || s.PollAt < 0 || s.ProbeAt < 0 || s.ProbeAt >= len(l.known) {
+	latest := now.Add(throttle.ClockSkew)
+	if s.Seeded.IsZero() || s.Seeded.After(latest) || s.PollAt < 0 || s.ProbeAt < 0 || s.ProbeAt >= len(l.known) {
 		return errBadState
 	}
 	if s.PollAt > pollAtMost {
@@ -296,22 +341,23 @@ func (l *List) Apply(s State, now time.Time) error {
 	if len(s.Heard) > len(l.known) || len(s.LeftOut) > len(l.known) {
 		return errBadState // more stations than the seed names
 	}
+	heard := make(map[string]time.Time, len(s.Heard))
 	for code, at := range s.Heard {
 		_, known := l.index[code]
-		if !known || at.After(now) {
+		if !known || at.After(latest) {
 			return errBadState
 		}
+		heard[code] = notAfter(at, now)
 	}
+	out := make(map[string]bool, len(s.LeftOut))
 	for _, code := range s.LeftOut {
 		_, known := l.index[code]
-		if !known {
-			return errBadState
+		if !known || out[code] {
+			return errBadState // a station left out twice would be asked twice in one burst (RI-5)
 		}
+		out[code] = true
 	}
-	l.seeded, l.heard, l.pollAt, l.probeAt, l.leftOut = s.Seeded, maps.Clone(s.Heard), s.PollAt, s.ProbeAt, slices.Clone(s.LeftOut)
-	if l.heard == nil {
-		l.heard = map[string]time.Time{}
-	}
+	l.seeded, l.heard, l.pollAt, l.probeAt, l.leftOut = notAfter(s.Seeded, now), heard, s.PollAt, s.ProbeAt, slices.Clone(s.LeftOut)
 	return nil
 }
 

@@ -18,6 +18,13 @@ const (
 	Every        = time.Hour
 	firstBackOff = time.Minute
 	MaxPause     = 15 * time.Minute
+	// DeniedFor is how long GIRO is left alone after it refuses this host
+	// access - a 401, 403 or 410 - rather than a request (watchpost D-247).
+	DeniedFor = 24 * time.Hour
+	// ClockSkew is how far after now a kept time may lie and be taken as
+	// now: a clock stepped back a little leaves a state that is still true
+	// (RL-11).
+	ClockSkew = 5 * time.Minute
 )
 
 // httpDate is the date form a Retry-After may take (RFC 9110).
@@ -80,6 +87,25 @@ func (g *GIRO) Refused(now time.Time, retryAfter string) {
 	g.pauseTo = now.Add(pause)
 }
 
+// Deny pauses GIRO for DeniedFor after it refused this host access, the
+// back-off left as it was (watchpost D-247).
+//
+// Source: watchpost D-247.
+func (g *GIRO) Deny(now time.Time) {
+	if now.IsZero() {
+		return // a pause cannot be timed without the time
+	}
+	g.pauseTo = now.Add(DeniedFor)
+}
+
+// Denied reports whether the pause holding now is one Deny set: it ends
+// past any refusal's MaxPause.
+//
+// Source: watchpost D-247.
+func (g *GIRO) Denied(now time.Time) bool {
+	return g.Holding(now) && g.pauseTo.After(now.Add(MaxPause))
+}
+
 // Holding reports whether a refusal's pause holds now.
 //
 // Source: watchpost D-39.
@@ -112,17 +138,22 @@ var errBadState = errors.New("throttle: the state is not one a throttle reaches"
 func (g GIRO) Kept() State { return State{BurstAt: g.burstAt, PauseTo: g.pauseTo, BackOff: g.backOff} }
 
 // Resume is the throttle a state kept describes, checked against now: a
-// burst begun after now, a pause ending more than MaxPause from now, or a
-// back-off outside 0 to MaxPause would hold GIRO back longer than any
-// refusal does, so it is refused.
+// burst begun more than ClockSkew after now, a pause ending more than
+// DeniedFor from now, or a back-off outside 0 to MaxPause would hold GIRO
+// back longer than any refusal or denial does, so it is refused; a burst begun up to
+// ClockSkew after now, a clock stepped back, is taken as begun now, so the
+// hour is kept rather than the state dropped and GIRO asked at once (RL-11).
 //
 // Source: watchpost D-213; D-39's limits.
 func Resume(s State, now time.Time) (GIRO, error) {
 	if now.IsZero() {
 		return GIRO{}, errBadState // nothing is checked against no time
 	}
-	if s.BurstAt.After(now) || s.PauseTo.After(now.Add(MaxPause)) {
+	if s.BurstAt.After(now.Add(ClockSkew)) || s.PauseTo.After(now.Add(DeniedFor)) {
 		return GIRO{}, errBadState
+	}
+	if s.BurstAt.After(now) {
+		s.BurstAt = now
 	}
 	if s.BackOff < 0 || s.BackOff > MaxPause {
 		return GIRO{}, errBadState

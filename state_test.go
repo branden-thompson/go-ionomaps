@@ -67,7 +67,8 @@ func TestTheThrottleOutlivesARestart(t *testing.T) {
 
 // TestTheStateHoldsNoReading is watchpost D-213 and brief GC-2: the state
 // is times, a back-off and the rotation's places - never a reading, which
-// GIRO's terms keep from being stored.
+// GIRO's terms keep from being stored - and NOAA's F10.7 mean, public
+// domain (D-249).
 func TestTheStateHoldsNoReading(t *testing.T) {
 	l, _, _ := giroLibrary(t)
 	update(t, l)
@@ -82,7 +83,7 @@ func TestTheStateHoldsNoReading(t *testing.T) {
 	}
 	for k := range keys {
 		switch k {
-		case "v", "burst", "pause", "backoff", "seeded", "heard", "poll", "probe", "out":
+		case "v", "burst", "pause", "backoff", "seeded", "heard", "poll", "probe", "out", "f107", "f107days", "f107at":
 		default:
 			t.Errorf("the state carries %q", k)
 		}
@@ -113,11 +114,13 @@ func TestABadStateIsRefused(t *testing.T) {
 		"another version":                  edit("v", 2),
 		"too big":                          append(edit("out", []string{}), bytes.Repeat([]byte(" "), 70_000)...),
 		"a burst in the future":            edit("burst", now+3600),
-		"a pause past fifteen minutes":     edit("pause", now+3600),
+		"a pause past a day":               edit("pause", now+25*3600),
 		"a back-off past fifteen":          edit("backoff", 3600),
 		"a station code not GIRO's":        edit("heard", map[string]int64{"al945": now - 60}),
 		"a station never seeded":           edit("heard", map[string]int64{"ZZ999": now - 60}),
-		"a reading time in the future":     edit("heard", map[string]int64{"AL945": now + 60}),
+		"a reading time past the skew":     edit("heard", map[string]int64{"AL945": now + 3600}),
+		"a mean past a flux's bounds":      edit("f107", 900),
+		"a mean taken past the skew":       edit("f107at", now+3600),
 		"a rotation place below zero":      edit("poll", -1),
 		"a rotation place no list reaches": edit("poll", int64(9223372036854775807)),
 		"a left-out station not GIRO's":    edit("out", []string{"../x"}),

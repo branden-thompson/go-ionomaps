@@ -122,7 +122,8 @@ func FuzzRateHeaders(f *testing.F) {
 // TestAThrottleStateIsCheckedOnResume is watchpost D-213: a state kept
 // comes back as it was - the burst's hour and a pause still holding - and
 // one that would hold GIRO back longer than any refusal, or that began a
-// burst in the future, is refused.
+// burst past the clock's skew, is refused; a burst a moment ahead, a clock
+// stepped back, is taken as begun now, its hour kept (RL-11).
 func TestAThrottleStateIsCheckedOnResume(t *testing.T) {
 	var g GIRO
 	g.Start(t0, 40)
@@ -136,8 +137,8 @@ func TestAThrottleStateIsCheckedOnResume(t *testing.T) {
 		t.Error("the restored throttle forgot the burst's hour")
 	}
 	for name, s := range map[string]State{
-		"a burst in the future":    {BurstAt: now.Add(time.Second)},
-		"a pause past MaxPause":    {PauseTo: now.Add(MaxPause + time.Second)},
+		"a burst past the skew":    {BurstAt: now.Add(ClockSkew + time.Second)},
+		"a pause past DeniedFor":   {PauseTo: now.Add(DeniedFor + time.Second)},
 		"a back-off past MaxPause": {BackOff: MaxPause + time.Second},
 		"a back-off below zero":    {BackOff: -time.Second},
 	} {
@@ -147,6 +148,10 @@ func TestAThrottleStateIsCheckedOnResume(t *testing.T) {
 	}
 	if _, err := Resume(g.Kept(), time.Time{}); err == nil {
 		t.Error("a state restored against no time")
+	}
+	ahead, err := Resume(State{BurstAt: now.Add(time.Minute)}, now)
+	if err != nil || !ahead.Kept().BurstAt.Equal(now) || ahead.Due(now.Add(59*time.Minute)) {
+		t.Errorf("a burst a minute ahead: %v, kept %v; want begun now, the hour held", err, ahead.Kept().BurstAt)
 	}
 	var none GIRO
 	if none.Refused(time.Time{}, "60"); none.Holding(t0) || none.Holding(time.Time{}) || none.backOff != 0 {

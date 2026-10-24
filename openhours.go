@@ -26,6 +26,13 @@ type typicalHour struct {
 	filled *atomic.Int64 // the cells of the typical day worked out, for the tests of what is kept
 }
 
+// openHour is the typical hour h of a kept day, made as it is opened.
+func openHour(kept *typicalDayCells, h int, at time.Time, f107 float32, long longMemo) typicalHour {
+	cells, sun := kept.hour(h)
+	return typicalHour{at: at, hour: climatology.NewHour(climatology.Refits(), at, float64(f107)), subQD: magcoords.SubsolarQD(at), sun: sun, long: long,
+		cells: cells, filled: &kept.filled}
+}
+
 // typicalDay is the climatology for each hour of the UTC day holding a
 // moment (watchpost D-135).
 func (s Snapshot) typicalDay(at time.Time) [24]typicalHour {
@@ -34,9 +41,7 @@ func (s Snapshot) typicalDay(at time.Time) [24]typicalHour {
 	kept := s.typical.day(start, s.Inputs.F107Mean)
 	memo := longMemo{}
 	for h := range day {
-		t := start.Add(time.Duration(h) * time.Hour)
-		day[h] = typicalHour{at: t, hour: climatology.NewHour(climatology.Refits(), t, float64(s.Inputs.F107Mean)), subQD: magcoords.SubsolarQD(t), sun: kept.suns[h], long: memo,
-			cells: kept.hours[h], filled: &kept.filled}
+		day[h] = openHour(kept, h, start.Add(time.Duration(h)*time.Hour), s.Inputs.F107Mean, memo)
 	}
 	return day
 }
@@ -47,9 +52,7 @@ func (s Snapshot) typicalDay(at time.Time) [24]typicalHour {
 func (s Snapshot) typicalHourAt(at time.Time) typicalHour {
 	start := at.UTC().Truncate(24 * time.Hour)
 	kept := s.typical.day(start, s.Inputs.F107Mean)
-	h := int(at.Sub(start) / time.Hour)
-	return typicalHour{at: at, hour: climatology.NewHour(climatology.Refits(), at, float64(s.Inputs.F107Mean)), subQD: magcoords.SubsolarQD(at),
-		sun: kept.suns[h], cells: kept.hours[h], filled: &kept.filled}
+	return openHour(kept, int(at.Sub(start)/time.Hour), at, s.Inputs.F107Mean, nil)
 }
 
 // reader is foF2 and M(3000)F2 at a place in one hour; false where there is
@@ -76,6 +79,9 @@ func (t *typicalHour) read(p LatLon) (float64, float64, bool) {
 	i, ok := grid.CellOf(p.Lat, p.Lon)
 	if !ok {
 		return 0, 0, false
+	}
+	if t.cells == nil {
+		return 0, 0, false // an hour outside its day: no climatology
 	}
 	w := t.cells[i].Load()
 	if w == 0 {
@@ -164,11 +170,11 @@ func (s Snapshot) areaLimit(p LatLon, radiusKm float64) func(*typicalHour, *[24]
 // absorbedAt is whether a band is absorbed on a path in a typical hour;
 // nothing is where no circuit is made.
 func (s Snapshot) absorbedAt(t *typicalHour, day *[24]typicalHour, from, to LatLon, upper float64) func(Band) bool {
-	c, ok := s.circuitAt(t, day, from, to)
+	c, ok := s.newCircuit(t.read, from, to, t.sun, day)
 	if !ok {
 		return notAbsorbed
 	}
-	return func(b Band) bool { return c.closedBelow(b, upper) }
+	return func(b Band) bool { return c.lowerStatus(b, upper) != Open } // the lower limit closes the band (R-2.4, D-70)
 }
 
 // pointAt is a control point's limits.Point from what a reader gives there.

@@ -16,7 +16,9 @@ import (
 // quiet sun sits near 65, and the largest observed fluxes near 450.
 const (
 	minFlux, maxFlux = 50.0, 500.0
-	maxLines         = 1000 // far past the file's 30 days
+	maxLines         = 1000    // far past the file's 30 days
+	maxBytes         = 1 << 18 // about eighty times the file's few kilobytes, as GloTEC, D-RAP and the scales bound theirs
+	clockSkew        = 5 * time.Minute
 	// The years a day may lie in: F10.7's record begins in 1947.
 	firstYear, lastYear = 1947, 2200
 	window              = 30 // days
@@ -28,24 +30,39 @@ type Daily struct {
 	F107 float64
 }
 
-var errNoDays = errors.New("solar: the file holds no day with a flux: not NOAA's daily solar data")
+var (
+	errNoDays   = errors.New("solar: the file holds no day with a flux: not NOAA's daily solar data")
+	errTooLarge = errors.New("solar: the file is larger than NOAA's daily solar data is")
+	errLine     = errors.New("solar: a line could not be read: not NOAA's daily solar data")
+	errKept     = errors.New("solar: the mean kept is outside a flux's bounds, its days, or after now")
+)
 
 // Parse reads the file's dated lines: year, month, day, then the flux. A day
-// whose flux is missing (-999) or past its bounds is skipped; a file with
-// no day at all is an error. No error quotes the input.
+// whose flux is missing (-999) or past its bounds is skipped, and a day
+// named twice keeps its first flux, so no day counts twice in a mean; a
+// file over maxBytes, a line the scanner cannot take, or a file with no day
+// at all is an error. No error quotes the input.
 //
 // Source: NOAA SWPC, text/daily-solar-indices.txt, as served.
 func Parse(data []byte) ([]Daily, error) {
 	if len(data) == 0 {
 		return nil, errNoDays
 	}
+	if len(data) > maxBytes {
+		return nil, errTooLarge
+	}
 	var out []Daily
+	seen := map[time.Time]bool{}
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	for n := 0; sc.Scan() && n < maxLines; n++ {
 		d, ok := parseLine(sc.Text())
-		if ok {
+		if ok && !seen[d.Date] {
+			seen[d.Date] = true
 			out = append(out, d)
 		}
+	}
+	if sc.Err() != nil {
+		return nil, errLine // a line past the scanner's buffer: the days after it would be lost unsaid
 	}
 	if len(out) == 0 {
 		return nil, errNoDays
@@ -119,6 +136,25 @@ func (h Held) Age(now time.Time) time.Duration {
 		return 0
 	}
 	return now.Sub(h.Taken)
+}
+
+// Resume is a mean kept across a restart, checked: a flux within its
+// bounds, 1 to 30 days behind it, taken up to clockSkew after now (a clock
+// stepped back a little); nothing kept is no mean, and no error.
+//
+// Source: watchpost D-249; R-3.3.
+func Resume(mean float64, days int, taken, now time.Time) (Held, error) {
+	if taken.IsZero() {
+		return Held{}, nil
+	}
+	inBounds := mean >= minFlux && mean <= maxFlux && days >= 1 && days <= window
+	if !inBounds || taken.After(now.Add(clockSkew)) {
+		return Held{}, errKept
+	}
+	if taken.After(now) {
+		taken = now // a clock stepped back: the mean is as new as can be, never from the future
+	}
+	return Held{Mean: mean, Days: days, Taken: taken, OK: true}, nil
 }
 
 // Hold is the mean to use at now: the file's, when it reads and holds days

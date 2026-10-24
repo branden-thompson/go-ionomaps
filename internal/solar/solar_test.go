@@ -94,3 +94,61 @@ func FuzzSolarIndicesParser(f *testing.F) {
 		}
 	})
 }
+
+// TestAFileIsReadWhole is RI-3: a day named twice counts once in the mean;
+// a line the scanner cannot take, or a file larger than NOAA's is, makes
+// the file unreadable rather than a mean of the days before it.
+func TestAFileIsReadWhole(t *testing.T) {
+	day := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	var b strings.Builder
+	for i := 30; i >= 1; i-- {
+		fmt.Fprintf(&b, "%s  70  0\n", day.AddDate(0, 0, -i).Format("2006 01 02"))
+	}
+	for range 900 {
+		fmt.Fprintf(&b, "%s 500  0\n", day.AddDate(0, 0, -1).Format("2006 01 02"))
+	}
+	days, err := Parse([]byte(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mean, n, _ := Mean(days, day); n != 30 || mean != 70 {
+		t.Errorf("a day named 900 times: mean %v over %d days; want 70 over 30", mean, n)
+	}
+	long := day.AddDate(0, 0, -1).Format("2006 01 02") + " 450 0\n" + strings.Repeat("x", 70_000) + "\n"
+	if _, err := Parse([]byte(long)); err == nil {
+		t.Error("a 70 KB line was read past")
+	}
+	if _, err := Parse(make([]byte, maxBytes+1)); err == nil {
+		t.Error("a file larger than NOAA's was read")
+	}
+}
+
+// TestAMeanKeptIsChecked is watchpost D-249 and R-3.3: a mean kept across a
+// restart comes back within a flux's bounds, its days and the clock's skew,
+// a moment ahead taken as now; anything else is refused.
+func TestAMeanKeptIsChecked(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	if h, err := Resume(140, 30, now.Add(-time.Hour), now); err != nil || !h.OK || h.Mean != 140 || h.Age(now) != time.Hour {
+		t.Errorf("a good mean: %+v, %v", h, err)
+	}
+	if h, err := Resume(140, 30, now.Add(time.Minute), now); err != nil || !h.Taken.Equal(now) {
+		t.Errorf("a mean a minute ahead: %+v, %v; want taken as now", h, err)
+	}
+	if h, err := Resume(0, 0, time.Time{}, now); err != nil || h.OK {
+		t.Errorf("nothing kept: %+v, %v; want no mean and no error", h, err)
+	}
+	for name, c := range map[string]struct {
+		mean  float64
+		days  int
+		taken time.Time
+	}{
+		"past a flux's bounds": {900, 30, now},
+		"no days":              {140, 0, now},
+		"past 30 days":         {140, 31, now},
+		"taken past the skew":  {140, 30, now.Add(time.Hour)},
+	} {
+		if _, err := Resume(c.mean, c.days, c.taken, now); err == nil {
+			t.Errorf("%s: kept", name)
+		}
+	}
+}

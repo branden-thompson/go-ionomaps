@@ -1,0 +1,262 @@
+[
+  {
+    "id": "m001",
+    "row": "R-5.4",
+    "what": "a snapshot short of a GloTEC grid past its age is said Fresh",
+    "file": "update.go",
+    "old": "{\"GloTEC\", l.grid == nil || now.Sub(l.grid.Valid) > gridMaxAge},",
+    "new": "{\"GloTEC\", l.grid == nil},",
+    "package": ".",
+    "test": "TestAGridHeldPastItsAgeIsNamed"
+  },
+  {
+    "id": "m002",
+    "row": "R-5.4",
+    "what": "the inputs a snapshot lacks are never named",
+    "file": "update.go",
+    "old": "\tl.short(now)\n",
+    "new": "",
+    "package": ".",
+    "test": "TestEveryFaultIsReported"
+  },
+  {
+    "id": "m003",
+    "row": "R-5.4",
+    "what": "a grid is fetched with no F10.7 mean to build a field on",
+    "file": "update.go",
+    "old": "\tif !refused && fieldable {          // a refusal stops the update (D-39)",
+    "new": "\tif !refused {          // a refusal stops the update (D-39)",
+    "package": ".",
+    "test": "TestNoMeanAsksNoGrid"
+  },
+  {
+    "id": "m004",
+    "row": "R-5.4",
+    "what": "NOAA answering and the solar file unreadable is said Offline",
+    "file": "update.go",
+    "old": "\t\treason := Partial",
+    "new": "\t\treason := Offline",
+    "package": ".",
+    "test": "TestNoMeanAsksNoGrid"
+  },
+  {
+    "id": "m005",
+    "row": "R-9.5",
+    "what": "an F10.7 mean of any age builds a field",
+    "file": "update.go",
+    "old": "\treturn l.solar.Age(now) <= solarMaxAge",
+    "new": "\treturn true",
+    "package": ".",
+    "test": "TestTheMeanIsKeptAcrossARestart"
+  },
+  {
+    "id": "m006",
+    "row": "R-5.8",
+    "what": "the F10.7 mean is not kept across a restart",
+    "file": "state.go",
+    "old": "\tif f.OK {\n\t\tk.F107",
+    "new": "\tif false {\n\t\tk.F107",
+    "package": ".",
+    "test": "TestTheMeanIsKeptAcrossARestart"
+  },
+  {
+    "id": "m007",
+    "row": "R-5.3",
+    "what": "a refused NOAA is asked again after 60 s, sooner than a healthy one",
+    "file": "update.go",
+    "old": "\tbackOff = min(max(2*backOff, noaaEvery), longestPause)",
+    "new": "\tbackOff = min(max(2*backOff, time.Minute), longestPause)",
+    "package": ".",
+    "test": "TestARefusalBacksOff"
+  },
+  {
+    "id": "m008",
+    "row": "R-5.3",
+    "what": "a NOAA server error is no refusal",
+    "file": "update.go",
+    "old": "\tif r.Status == statusRefused || r.Status >= statusServerError {",
+    "new": "\tif r.Status == statusRefused {",
+    "package": ".",
+    "test": "TestARefusalBacksOff"
+  },
+  {
+    "id": "m009",
+    "row": "R-5.3",
+    "what": "NOAA's back-off is not counted at all",
+    "file": "update.go",
+    "old": "\tif len(l.gridAsks) >= gridsAnHour {",
+    "new": "\tif false {",
+    "package": ".",
+    "test": "TestGridsAreAskedAtMostSixAnHour"
+  },
+  {
+    "id": "m010",
+    "row": "R-5.4",
+    "what": "Offline is said when NOAA's files came back",
+    "file": "update.go",
+    "old": "\tcase !l.heard:\n",
+    "new": "\tcase false:\n",
+    "package": ".",
+    "test": "TestOfflineIsSaidOnlyWhenNothingCameBack"
+  },
+  {
+    "id": "m011",
+    "row": "R-5.8",
+    "what": "a burst kept a moment ahead of the clock is refused",
+    "file": "internal/throttle/throttle.go",
+    "old": "\tif s.BurstAt.After(now) {\n\t\ts.BurstAt = now\n\t}\n",
+    "new": "",
+    "package": "./internal/throttle",
+    "test": "TestAThrottleStateIsCheckedOnResume"
+  },
+  {
+    "id": "m012",
+    "row": "R-5.8",
+    "what": "a state leaving a station out twice is taken",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tif !known || out[code] {",
+    "new": "\t\tif !known {",
+    "package": "./internal/stations",
+    "test": "TestAListStateIsCheckedOnApply"
+  },
+  {
+    "id": "m013",
+    "row": "R-8.1",
+    "what": "a third typical day empties the cache",
+    "file": "typical.go",
+    "old": "\t\tdelete(t.days, t.oldest())",
+    "new": "\t\tclear(t.days)",
+    "package": ".",
+    "test": "TestTheTypicalDayIsKept"
+  },
+  {
+    "id": "m014",
+    "row": "R-9.5",
+    "what": "a day named twice counts twice in the mean",
+    "file": "internal/solar/solar.go",
+    "old": "\t\tif ok && !seen[d.Date] {",
+    "new": "\t\tif ok {",
+    "package": "./internal/solar",
+    "test": "TestAFileIsReadWhole"
+  },
+  {
+    "id": "m015",
+    "row": "R-9.5",
+    "what": "a line the scanner cannot take ends the file unsaid",
+    "file": "internal/solar/solar.go",
+    "old": "\tif sc.Err() != nil {\n\t\treturn nil, errLine",
+    "new": "\tif false {\n\t\treturn nil, errLine",
+    "package": "./internal/solar",
+    "test": "TestAFileIsReadWhole"
+  },
+  {
+    "id": "m016",
+    "row": "R-5.3",
+    "what": "one station's server error stops the burst as GIRO's refusal",
+    "file": "internal/giro/asker.go",
+    "old": "\tcase err != nil || status >= statusFailed || status == statusNotFound:\n\t\treturn failed, true",
+    "new": "\tcase err != nil || status >= statusFailed || status == statusNotFound:\n\t\treturn refused, true",
+    "package": "./internal/giro",
+    "test": "TestAStationsFailureIsItsOwn"
+  },
+  {
+    "id": "m017",
+    "row": "R-5.3",
+    "what": "stations failing in a row never stop the burst",
+    "file": "internal/giro/asker.go",
+    "old": "\tcase res == refused || inARow >= failuresInARow:",
+    "new": "\tcase res == refused:",
+    "package": "./internal/giro",
+    "test": "TestFailuresInARowStopTheBurst"
+  },
+  {
+    "id": "m018",
+    "row": "R-5.3",
+    "what": "GIRO refusing this host pauses it as a 429 does",
+    "file": "internal/giro/asker.go",
+    "old": "\t\ta.thr.Deny(now)",
+    "new": "\t\ta.thr.Refused(now, retryAfter)",
+    "package": "./internal/giro",
+    "test": "TestADenialPausesForADay"
+  },
+  {
+    "id": "m019",
+    "row": "R-5.3",
+    "what": "a stopped burst begins at the same stations next hour",
+    "file": "internal/giro/asker.go",
+    "old": "\t\t\ta.list.Unasked(asks[i+1:granted], now)\n",
+    "new": "",
+    "package": "./internal/giro",
+    "test": "TestFailuresInARowStopTheBurst"
+  },
+  {
+    "id": "m020",
+    "row": "R-5.4",
+    "what": "GIRO's failure is said only on the burst's own update",
+    "file": "update.go",
+    "old": "GIRO: GIROOutcome(l.giro.Outcome),",
+    "new": "GIRO: GIROAnswered,",
+    "package": ".",
+    "test": "TestGIROsOutcomeIsSaidAllHour"
+  },
+  {
+    "id": "m021",
+    "row": "R-3.3",
+    "what": "a reply moving a placed station anywhere is read",
+    "file": "internal/giro/asker.go",
+    "old": "rep.Station.Lat, rep.Station.Lon) > movedKm {",
+    "new": "rep.Station.Lat, rep.Station.Lon) > 1e9 {",
+    "package": "./internal/giro",
+    "test": "TestAPlacedStationKeepsItsPlace"
+  },
+  {
+    "id": "m022",
+    "row": "R-3.3",
+    "what": "a reading 13 MHz over its background is assimilated",
+    "file": "internal/assimilate/onto.go",
+    "old": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound {",
+    "new": "\t\tif math.Abs(x.FoF2-b) > 1e9 {",
+    "package": "./internal/assimilate",
+    "test": "TestAnImplausibleReadingIsRefused"
+  },
+  {
+    "id": "m023",
+    "row": "R-1.3",
+    "what": "an hour ahead shares its nearest-station table with the snapshot",
+    "file": "ahead.go",
+    "old": "\ta := s.withTables()",
+    "new": "\ta := s",
+    "package": ".",
+    "test": "TestTwentyFourHoursAheadFitTheHeap"
+  },
+  {
+    "id": "m024",
+    "row": "R-5.7",
+    "what": "a reading over an hour old is assimilated",
+    "file": "internal/hybrid/hybrid.go",
+    "old": "\t\tfresh := age >= 0 && age <= For",
+    "new": "\t\tfresh := age >= 0",
+    "package": "./internal/hybrid",
+    "test": "TestOnlyFreshReadingsAreAssimilated"
+  },
+  {
+    "id": "m025",
+    "row": "watchpost D-237",
+    "what": "a station not recorded is answered 404, not as GIRO answers",
+    "file": "ionomapstest/replay.go",
+    "old": "\t\treturn answer(noData), nil",
+    "new": "\t\treturn ionomaps.Response{Status: statusMissing}, nil",
+    "package": "./ionomapstest",
+    "test": "TestTheReplayAnswersOnlyWhatItHolds"
+  },
+  {
+    "id": "m026",
+    "row": "watchpost D-237",
+    "what": "a host's answers are not given",
+    "file": "ionomapstest/replay.go",
+    "old": "\tif a, given := p.answers[inputOf(u)]; given {",
+    "new": "\tif a, given := p.answers[inputOf(u)]; given && false {",
+    "package": "./ionomapstest",
+    "test": "TestAHostDrivesEachState"
+  }
+]

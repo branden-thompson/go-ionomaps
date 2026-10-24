@@ -132,3 +132,33 @@ func gridJSON(valid time.Time, foF2 float64) ([]byte, error) {
 	}
 	return json.Marshal(doc)
 }
+
+// DRAPTable is a D-RAP table in NOAA's layout, valid at a time, its 1 dB
+// frequency mhz everywhere: to serve as Answers["D-RAP"], which dry_fetch.py
+// does not keep, so a replay can be Fresh (RL-12).
+//
+// Source: this library; NOAA SWPC's D-RAP global table layout.
+func DRAPTable(valid time.Time, mhz float64) []byte {
+	var b strings.Builder
+	b.WriteString("# Product Valid At : " + valid.UTC().Format("2006-01-02 15:04") + " UTC\n#\n    ")
+	for lon := -178; lon <= 178; lon += 4 {
+		fmt.Fprintf(&b, " %4d", lon)
+	}
+	b.WriteString("\n" + strings.Repeat("-", 456) + "\n")
+	for lat := 89; lat >= -89; lat -= 2 {
+		fmt.Fprintf(&b, "%3d |%s\n", lat, strings.Repeat(fmt.Sprintf(" %4.1f", mhz), 90))
+	}
+	return []byte(b.String())
+}
+
+// ScalesFile is NOAA's scales file issued at a time, every level 0 and its
+// outlook quiet: to serve as Answers["scales"] (RL-12).
+//
+// Source: this library; NOAA SWPC's noaa-scales.json layout.
+func ScalesFile(at time.Time) []byte {
+	day := func(n int, clock string) string {
+		return `{"DateStamp":"` + at.UTC().AddDate(0, 0, n).Format(time.DateOnly) + `","TimeStamp":"` + clock + `","R":{"Scale":"0","Text":null,"MinorProb":"5","MajorProb":"1"},"S":{"Scale":"0","Text":null,"Prob":"1"},"G":{"Scale":"0","Text":null}}`
+	}
+	clock := at.UTC().Format(time.TimeOnly)
+	return []byte(`{"0":` + day(0, clock) + `,"1":` + day(0, clock) + `,"2":` + day(1, "00:00:00") + `,"3":` + day(2, "00:00:00") + `}`)
+}

@@ -100,17 +100,21 @@ func TestTheReplayServesNothingAfterItsClock(t *testing.T) {
 }
 
 // TestTheReplayAnswersOnlyWhatItHolds is the replay's edges: without
-// GloTEC no grid is given; D-RAP, the scales and a station not recorded are
-// missing; any other address fails, and is kept for the run to report.
+// GloTEC no grid is given; D-RAP and the scales are missing; a station not
+// recorded is answered as GIRO answers one with no data, a 200 with no row;
+// any other address fails, and is kept for the run to report.
 func TestTheReplayAnswersOnlyWhatItHolds(t *testing.T) {
 	r := recorded(t).Replay(ionomapstest.Options{WithoutGloTEC: true})
 	r.SetNow(day.Add(4 * time.Hour))
 	ctx, none := context.Background(), ionomaps.Validators{}
-	for _, u := range []string{terms.GloTECIndex, terms.GloTECIndex + "glotec_icao_20260929T000500Z.geojson", terms.DRAPTable, terms.ScalesFile,
-		terms.FastChar + "?ursiCode=ZZ999&fromDate=2026%2F09%2F29+00%3A00%3A00&toDate=2026%2F09%2F29+01%3A00%3A00"} {
+	for _, u := range []string{terms.GloTECIndex, terms.GloTECIndex + "glotec_icao_20260929T000500Z.geojson", terms.DRAPTable, terms.ScalesFile} {
 		if got, err := r.Fetch(ctx, u, none); err != nil || got.Status != 404 {
 			t.Errorf("%s: %d, %v; want missing", u, got.Status, err)
 		}
+	}
+	u := terms.FastChar + "?ursiCode=ZZ999&fromDate=2026%2F09%2F29+00%3A00%3A00&toDate=2026%2F09%2F29+01%3A00%3A00"
+	if got, err := r.Fetch(ctx, u, none); err != nil || got.Status != 200 || strings.Contains(string(got.Body), "Location") || strings.Contains(string(got.Body), "2026-") {
+		t.Errorf("a station not recorded: %d, %v, %q; want GIRO's no-data answer", got.Status, err, got.Body)
 	}
 	if _, err := r.Fetch(ctx, "https://example.org/other", none); !errors.Is(err, ionomapstest.ErrUnknownAsk) || len(r.Unknown()) != 1 {
 		t.Errorf("an unknown address: %v, kept %v", err, r.Unknown())
@@ -205,5 +209,48 @@ func TestALibraryRunsOnRecordedDays(t *testing.T) {
 		if s.Background.FoF2 != wantBG || s.Reason != ionomaps.Partial || !slices.Equal(s.Inputs.Unread, wantUnread) || s.Inputs.Stations != 4 || s.Inputs.F107Mean != 100 || len(r.Unknown()) != 0 {
 			t.Errorf("without GloTEC %v: background %v, said %v, unread %v, stations %d, F10.7 %v, unknown %v", without, s.Background.FoF2, s.Reason, s.Inputs.Unread, s.Inputs.Stations, s.Inputs.F107Mean, r.Unknown())
 		}
+	}
+}
+
+// TestAHostDrivesEachState is RL-12: answers given in place of the recorded
+// ones drive the real library into the states a host must say - Fresh, with
+// D-RAP and the scales served; Partial, GloTEC refused; GIRO unavailable,
+// every station failing.
+func TestAHostDrivesEachState(t *testing.T) {
+	rec := recorded(t)
+	at := day.Add(35 * time.Minute)
+	run := func(answers map[string]ionomapstest.Answer) ionomaps.Snapshot {
+		r := rec.Replay(ionomapstest.Options{Answers: answers})
+		lib, err := ionomaps.New(r, ionomaps.Options{Clock: r.Now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.SetNow(at)
+		s, err := lib.Update(context.Background(), ionomaps.UpdateOptions{})
+		if err == nil && s.Reason == ionomaps.StationsNext {
+			s, err = lib.Update(context.Background(), ionomaps.UpdateOptions{})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	whole := map[string]ionomapstest.Answer{
+		"D-RAP":  {Status: 200, Body: ionomapstest.DRAPTable(at.Add(-3*time.Minute), 3)},
+		"scales": {Status: 200, Body: ionomapstest.ScalesFile(at.Add(-2 * time.Minute))},
+	}
+	if s := run(whole); s.Reason != ionomaps.Fresh || len(s.Inputs.Unread) != 0 {
+		t.Errorf("every file served: %v, unread %v; want Fresh", s.Reason, s.Inputs.Unread)
+	}
+	whole["GloTEC"] = ionomapstest.Answer{Status: 429}
+	if s := run(whole); s.Reason == ionomaps.Fresh || !slices.Contains(s.Inputs.Unread, "GloTEC") {
+		t.Errorf("GloTEC refused: %v, unread %v; want it named, not Fresh", s.Reason, s.Inputs.Unread)
+	}
+	failing := map[string]ionomapstest.Answer{}
+	for _, st := range stations {
+		failing[st.Code] = ionomapstest.Answer{Status: 503}
+	}
+	if s := run(failing); s.Inputs.StationsFailed != len(stations) || s.Inputs.Stations != 0 {
+		t.Errorf("every recorded station failing: %d failed, %d assimilated, %v", s.Inputs.StationsFailed, s.Inputs.Stations, s.Inputs.GIRO)
 	}
 }

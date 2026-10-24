@@ -2,10 +2,14 @@ package giro
 
 import (
 	"context"
+	"errors"
+	"net/url"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/branden-thompson/go-ionomaps/internal/stations"
+	"github.com/branden-thompson/go-ionomaps/internal/throttle"
 )
 
 // TestABurstNeedsTheClock is R-5.4: with no time there is no burst - the
@@ -47,7 +51,8 @@ func TestABurstStoppedBeforeItsFirstAskSpendsNoHour(t *testing.T) {
 func TestAReplyIsHeldOnlyForItsStation(t *testing.T) {
 	var a Asker
 	a.list, _ = stations.Seed(now)
-	rep := Reply{Station: Station{Code: "AS00Q"}, Readings: []Reading{{At: now.Add(-time.Hour), FoF2: 7}}}
+	at, _ := a.list.At("AS00Q")
+	rep := Reply{Station: Station{Code: "AS00Q", Lat: at.Lat, Lon: at.Lon}, Readings: []Reading{{At: now.Add(-time.Hour), FoF2: 7}}}
 	a.hold("AL945", rep)
 	if len(a.Readings()) != 0 {
 		t.Error("a reply for AS00Q was held under AL945")
@@ -64,7 +69,8 @@ func TestAReplyIsHeldOnlyForItsStation(t *testing.T) {
 func TestAReadingIsLetGoAfterThreeDays(t *testing.T) {
 	var a Asker
 	a.list, _ = stations.Seed(now)
-	a.hold("AS00Q", Reply{Station: Station{Code: "AS00Q"}, Readings: []Reading{{At: now, FoF2: 7}, {At: now.Add(-time.Hour), FoF2: 6}}})
+	at, _ := a.list.At("AS00Q")
+	a.hold("AS00Q", Reply{Station: Station{Code: "AS00Q", Lat: at.Lat, Lon: at.Lon}, Readings: []Reading{{At: now, FoF2: 7}, {At: now.Add(-time.Hour), FoF2: 6}}})
 	if r := a.Readings(); len(r) != 1 || !r[0].Reading.At.Equal(now) {
 		t.Fatalf("held %+v; want the latest reading alone", r)
 	}
@@ -79,17 +85,108 @@ func TestAReadingIsLetGoAfterThreeDays(t *testing.T) {
 	}
 }
 
-// TestAServerErrorPausesGIRO is D-39: GIRO's server failing an ask is no
-// answer - the burst stops and GIRO is paused, as for a refusal - never an
-// answer that lets the next station be asked at once.
-func TestAServerErrorPausesGIRO(t *testing.T) {
+// codeOf is the station an ask is for.
+func codeOf(t *testing.T, u string) string {
+	t.Helper()
+	q, err := url.Parse(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q.Query().Get("ursiCode")
+}
+
+// TestAStationsFailureIsItsOwn is watchpost D-247: one station's server
+// error, 404 or no answer is that station's - counted, and the burst goes
+// on to every other - never GIRO paused.
+func TestAStationsFailureIsItsOwn(t *testing.T) {
+	for name, fail := range map[string]func() (int, error){
+		"a server error": func() (int, error) { return 503, nil },
+		"a 404":          func() (int, error) { return 404, nil },
+		"no answer":      func() (int, error) { return 0, errors.New("no route") },
+	} {
+		var a Asker
+		var asked []string
+		a.Burst(context.Background(), now, func(_ context.Context, u string) (int, string, []byte, error) {
+			asked = append(asked, codeOf(t, u))
+			if len(asked) == 1 {
+				s, err := fail()
+				return s, "", nil, err
+			}
+			return 200, "", nil, nil
+		})
+		live, _ := stations.Seed(now)
+		if len(asked) != len(live.Live(now))+1 || a.Failed != 1 || a.Paused(now) || a.Outcome != Answered {
+			t.Errorf("%s: %d asked of %d, %d failed, paused %v, %v; want every station asked, one failed, no pause", name, len(asked), len(live.Live(now))+1, a.Failed, a.Paused(now), a.Outcome)
+		}
+	}
+}
+
+// TestFailuresInARowStopTheBurst is watchpost D-247: three stations failing
+// one after another is GIRO itself down - the burst stops and GIRO backs
+// off as D-39 rules for a 429; the stations not reached are asked first at
+// the next burst, so it moves past the ones that failed.
+func TestFailuresInARowStopTheBurst(t *testing.T) {
 	var a Asker
-	asked := 0
-	a.Burst(context.Background(), now, func(context.Context, string) (int, string, []byte, error) {
-		asked++
+	var asked []string
+	a.Burst(context.Background(), now, func(_ context.Context, u string) (int, string, []byte, error) {
+		asked = append(asked, codeOf(t, u))
 		return 503, "", nil, nil
 	})
-	if asked != 1 || !a.Paused(now) {
-		t.Errorf("after a 503: %d asks, GIRO paused %v; want one ask and a pause", asked, a.Paused(now))
+	if len(asked) != failuresInARow || !a.Paused(now) || a.Outcome != Unavailable {
+		t.Fatalf("all failing: %d asked, paused %v, %v; want %d and a pause", len(asked), a.Paused(now), a.Outcome, failuresInARow)
+	}
+	first := asked
+	asked = nil
+	later := now.Add(throttle.Every)
+	a.Burst(context.Background(), later, func(_ context.Context, u string) (int, string, []byte, error) {
+		asked = append(asked, codeOf(t, u))
+		return 200, "", nil, nil
+	})
+	if len(asked) == 0 || slices.Contains(first, asked[0]) {
+		t.Errorf("the next burst began at %v, one of the stations that failed %v; want one not reached", asked[:min(1, len(asked))], first)
+	}
+}
+
+// TestADenialPausesForADay is watchpost D-247: a 401, 403 or 410 is GIRO
+// refusing this host - the burst stops and GIRO is left alone for a day,
+// said as Denied, across a restart too - never an answer that resets the
+// back-off.
+func TestADenialPausesForADay(t *testing.T) {
+	for _, status := range []int{401, 403, 410} {
+		var a Asker
+		asked := 0
+		a.Burst(context.Background(), now, func(context.Context, string) (int, string, []byte, error) {
+			asked++
+			return status, "", nil, nil
+		})
+		if asked != 1 || a.Outcome != Denied || !a.Paused(now.Add(23*time.Hour)) || a.Paused(now.Add(throttle.DeniedFor+time.Second)) {
+			t.Errorf("a %d: %d asked, %v, paused at 23 h %v; want one ask and a day's pause", status, asked, a.Outcome, a.Paused(now.Add(23*time.Hour)))
+		}
+		var back Asker
+		if err := back.Import(a.Export(), now.Add(time.Hour)); err != nil || back.Outcome != Denied || !back.Paused(now.Add(time.Hour)) {
+			t.Errorf("a %d across a restart: %v, %v, paused %v", status, err, back.Outcome, back.Paused(now.Add(time.Hour)))
+		}
+	}
+}
+
+// TestAPlacedStationKeepsItsPlace is watchpost D-248: a reply putting a
+// station placed by the seed more than 50 km from its place is refused and
+// counted, never held; one within reads at the seed's place.
+func TestAPlacedStationKeepsItsPlace(t *testing.T) {
+	var a Asker
+	a.list, _ = stations.Seed(now)
+	at, placed := a.list.At("AL945")
+	if !placed {
+		t.Fatal("AL945 is not placed by the seed")
+	}
+	away := Reply{Station: Station{Code: "AL945", Lat: 51.5, Lon: -0.1}, Readings: []Reading{{At: now, FoF2: 7}}}
+	a.hold("AL945", away)
+	if len(a.Readings()) != 0 || a.Rejected != 1 {
+		t.Errorf("AL945 placed in London: %d held, %d rejected; want refused", len(a.Readings()), a.Rejected)
+	}
+	near := Reply{Station: Station{Code: "AL945", Lat: at.Lat + 0.1, Lon: at.Lon}, Readings: []Reading{{At: now, FoF2: 7}}}
+	a.hold("AL945", near)
+	if r := a.Readings(); len(r) != 1 || r[0].Station.Lat != at.Lat || r[0].Station.Lon != at.Lon {
+		t.Errorf("AL945 11 km from its place: held %+v; want at the seed's place %+v", r, at)
 	}
 }

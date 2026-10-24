@@ -244,7 +244,10 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64) ([]Answer, error) {
 // Source: ITU-R P.533-14 §3.5 (02-analysis/evidence/p533-equations.md);
 // foE from P.1239-4 §4; the gyrofrequency from IGRF-14; watchpost D-135, D-185.
 func (s Snapshot) Path(from LatLon, to []LatLon) ([]Answer, error) {
-	h, err := s.hourFor(append([]LatLon{from}, to...))
+	h, err := s.hourFor(to) // up to 64 destinations, the origin besides (RC-13)
+	if err == nil {
+		_, err = s.hourFor([]LatLon{from})
+	}
 	if err != nil {
 		return nil, err
 	}

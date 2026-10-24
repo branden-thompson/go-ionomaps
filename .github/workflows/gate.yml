@@ -1,14 +1,22 @@
 # The gate, hosted (NFR-1, plan task G0.1), modelled on go-tuiMaps'.
 #
 # Every push and pull request: the quick gate on linux/amd64 and linux/arm64.
-# On dispatch, the full gate - fuzzing, the pinned vulnerability scan and the
-# cross-compiles - on both. P10 runs where the harness is set up and is named
-# NOT RUN here, on the hosted runners.
+# On dispatch, and nightly, the full gate - fuzzing, the pinned vulnerability
+# scan, the cross-compiles and the mutants - on both, so a new advisory is
+# seen the next morning, not at the next push (watchpost D-262). P10 runs
+# where the harness is set up and is named NOT RUN here, on the hosted
+# runners.
+#
+# The nightly schedule fires only from the repository's default branch: while
+# this workflow lives on another branch alone, it never runs on a schedule,
+# and the full gate is run by dispatch.
 name: gate
 on:
   push:
     branches: ["**"]
   pull_request:
+  schedule:
+    - cron: "0 10 * * *"
   workflow_dispatch:
 permissions:
   contents: read
@@ -27,7 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, built for Node.js 24 (watchpost F-216)
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0, built for Node.js 24
         with:
-          go-version: "1.27.3" # the gate runs every leg on the floor toolchain it reads from go.mod (watchpost D-152)
+          go-version: "1.27.3" # installs Go; the gate then runs every leg on the floor toolchain it reads from go.mod (watchpost D-152, RC-12)
       - name: the pinned vulnerability scanner, on PATH for the steps that follow
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
@@ -36,7 +44,7 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: scripts/gate --quick
       - name: full gate
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: scripts/gate
 
   both-architectures:

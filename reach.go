@@ -53,7 +53,7 @@ func (s Snapshot) reach(origin LatLon, mhz float64, polar bool) (ReachField, err
 	out := ReachField{Field: newField(), MHz: float32(mhz)}
 	read, sun, day := hourReader(h), newSunTrack(h.At), s.typicalDay(h.At)
 	skip := math.Inf(1)
-	closed := map[Status]int{}
+	var absorbed, weak int // the cells under the MUF the lower limit closed, by why
 	var lower *lowerGrid
 	if polar {
 		lower = s.newLowerGrid(read, origin, sun, &day, mhz)
@@ -73,8 +73,13 @@ func (s Snapshot) reach(origin LatLon, mhz float64, polar bool) (ReachField, err
 		if !gridded {
 			st = s.reachLower(read, origin, cell, sun, &day, mhz)
 		}
+		if st == Absorbed {
+			absorbed++
+		}
+		if st == Weak {
+			weak++
+		}
 		if st != Open {
-			closed[st]++
 			continue
 		}
 		out.Field.Values[i] = 1
@@ -83,7 +88,7 @@ func (s Snapshot) reach(origin LatLon, mhz float64, polar bool) (ReachField, err
 	if out.Reaches = skip < math.Inf(1); out.Reaches {
 		out.SkipKm = float32(skip)
 	}
-	out.Limit = reachBound(closed)
+	out.Limit = reachBound(absorbed, weak)
 	if v, ok := s.reachLimit(read, origin, origin, sun); ok && mhz < v && s.reachLower(read, origin, origin, sun, &day, mhz) == Open {
 		out.SkipKm, out.Reaches = 0, true // the origin's own area is reached: no skip zone
 	}
@@ -93,11 +98,11 @@ func (s Snapshot) reach(origin LatLon, mhz float64, polar bool) (ReachField, err
 // reachBound is the limit that bounds a reach, by the cells under the MUF
 // the lower limit closed: the MUF where it closed none, else the lower
 // limit that closed the more.
-func reachBound(closed map[Status]int) Limit {
+func reachBound(absorbed, weak int) Limit {
 	switch {
-	case closed[Absorbed] == 0 && closed[Weak] == 0:
+	case absorbed == 0 && weak == 0:
 		return LimitMUF
-	case closed[Absorbed] >= closed[Weak]:
+	case absorbed >= weak:
 		return LimitAbsorption
 	}
 	return LimitCircuit

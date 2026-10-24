@@ -294,3 +294,19 @@ func TestAnswersCarryTheNearestStationDistance(t *testing.T) {
 		t.Errorf("no station assimilated, and one is known: %+v, %+v, %+v", a[0].Nearest, b[0].Nearest, p[0].Nearest)
 	}
 }
+
+// TestAPathTakesSixtyFourDestinations is R-3.5 and RC-13: Path answers up to
+// 64 destinations, its origin besides, as its error says; a 65th is refused.
+func TestAPathTakesSixtyFourDestinations(t *testing.T) {
+	s := flatSnapshot(noonUTC, 7, 21)
+	to := make([]LatLon, maxPlaces+1)
+	for i := range to {
+		to[i] = LatLon{Lat: float64(i%60) - 30, Lon: float64(i)}
+	}
+	if _, err := s.Path(LatLon{Lat: 42, Lon: -71}, to[:maxPlaces]); err != nil {
+		t.Errorf("64 destinations: %v", err)
+	}
+	if _, err := s.Path(LatLon{Lat: 42, Lon: -71}, to); err != errTooManyPlaces {
+		t.Errorf("65 destinations: %v; want refused", err)
+	}
+}

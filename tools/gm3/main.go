@@ -7,6 +7,7 @@
 // (NRL's CCIR refit, the 30-day F10.7).
 //
 //	gm3 -inputs DIR -solar FILE [-from YYYY-MM-DD] [-pairing shipped|week]
+//	gm3 -inputs DIR -solar FILE -residuals
 //
 // DIR holds dry_fetch.py's output, read through ionomapstest; FILE is
 // NOAA's daily-solar-indices.txt covering the 30 days before each day. The
@@ -59,6 +60,7 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 	solarFile := fs.String("solar", "", "the days' daily-solar-indices.txt")
 	from := fs.String("from", "", "score only the grids from this UTC day on, YYYY-MM-DD")
 	pairWord := fs.String("pairing", "shipped", "the other stations' readings: shipped (as the library takes them) or week (week.py's)")
+	resid := fs.Bool("residuals", false, "report each reading's residual against its backgrounds instead, which the plausibility bound is set from (watchpost D-248)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -66,6 +68,18 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 	if *inputs == "" || *solarFile == "" || !known {
 		_, _ = fmt.Fprintln(errOut, "gm3: -inputs and -solar are required, and -pairing is shipped or week")
 		return 2
+	}
+	if *resid {
+		report, err := residuals(*inputs, *solarFile, now)
+		if err != nil {
+			_, _ = fmt.Fprintln(errOut, "gm3:", err)
+			return 2
+		}
+		_, err = fmt.Fprint(out, report)
+		if err != nil {
+			return 2
+		}
+		return 0
 	}
 	var since time.Time
 	if *from != "" {

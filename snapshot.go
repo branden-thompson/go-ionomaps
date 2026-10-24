@@ -119,7 +119,7 @@ type Backgrounds struct{ FoF2, M3000 Background }
 
 // Inputs are what fed a snapshot, and when (R-3.3, R-9.5, R-9.7).
 type Inputs struct {
-	Stations, Rejected int           // readings used, and the last burst's rows refused by range checks
+	Stations, Rejected int           // readings used, and those refused: the last burst's rows past range checks or from a station placed over 50 km from where it is, and readings past a residual's bound (watchpost D-248)
 	GloTECValid        time.Time     // the grid's own valid time; zero when GloTEC was missing
 	OldestReading      time.Time     // the oldest GIRO reading assimilated
 	DRAPValid          time.Time     // zero when D-RAP was missing: no "disturbed" state
@@ -129,7 +129,33 @@ type Inputs struct {
 	CoordsExtrapolated bool          // past IGRF-14's last year
 	NoStations         bool          // the host asked for no stations (UpdateOptions.NoStations): GIRO not asked, no reading on the field
 	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
+	GIRO               GIROOutcome   // how the last burst ended, carried until the next (watchpost D-247)
+	StationsFailed     int           // stations whose own ask failed in the last burst - a server error, a 404, no answer - the burst going on
 	Unread             []string      // NOAA's files this update asked for and did not read - unanswered, refused or unreadable: "GloTEC", "solar", "D-RAP", "scales" - each the one held used instead where one is, its age saying so; Background says what foF2 was drawn from
+}
+
+// GIROOutcome is how GIRO's last burst ended (watchpost D-247), carried in
+// every snapshot until the next burst, so the hour between says it too.
+type GIROOutcome uint8
+
+// The outcomes.
+const (
+	GIROAnswered    GIROOutcome = iota // the burst ran, or none has been made; Inputs.StationsFailed counts stations that failed one by one
+	GIROUnavailable                    // GIRO refused (a 429), or three stations failed in a row: GIRO is backing off (watchpost D-39)
+	GIRODenied                         // GIRO refused this host - a 401, 403 or 410 - and is left alone for a day
+)
+
+// String names an outcome.
+//
+// Source: watchpost D-247.
+func (g GIROOutcome) String() string {
+	switch g {
+	case GIROUnavailable:
+		return "unavailable"
+	case GIRODenied:
+		return "denied"
+	}
+	return "answered"
 }
 
 // Reason is why a snapshot is not from new data (R-5.4).
@@ -138,8 +164,8 @@ type Reason uint8
 // The reasons.
 const (
 	Fresh        Reason = iota // from new data
-	TooSoon                    // the hour's budget is spent
-	GIROPaused                 // GIRO is backing off after a refusal or no answer
+	TooSoon                    // asked within ten minutes of NOAA's last ask, or while it backs off: the last snapshot, nothing asked
+	GIROPaused                 // GIRO is backing off, or left alone after a denial: Inputs.GIRO says which
 	Offline                    // no NOAA file came back and GIRO was not due: built from what is held; with ErrNoField, there is nothing yet to build from
 	StationsNext               // NOAA's fields, GIRO due: update again at once for the stations (D-63)
 	Unfinished                 // the update stopped before every file arrived - its deadline passed, or the host cancelled it - so it is built from what is held; NOAA may be asked again at once (L-F4)
@@ -172,7 +198,8 @@ type Scales struct {
 	Valid   time.Time
 }
 
-// ScaleUnset is a level or probability NOAA's file gives none for.
+// ScaleUnset is a level or probability NOAA's file gives none for: -1,
+// never read as level 0 (watchpost D-88).
 const ScaleUnset = scales.None
 
 // DayScale is one day of NOAA's outlook: R's minor and major probabilities

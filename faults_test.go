@@ -13,7 +13,9 @@ import (
 // solar file, D-RAP's table, NOAA's scales, GIRO's readings - stopped,
 // stale, truncated and reformatted, one at a time, the others as served;
 // every case is said in the snapshot or the error - never a field that
-// looks fresh and whole.
+// looks fresh and whole: each of NOAA's is named in Unread and the snapshot
+// is never Fresh (watchpost D-239), whatever left it short, an index that
+// names no grid as much as a file refused.
 func TestEveryFaultIsReported(t *testing.T) {
 	half := func(b []byte) []byte { return b[:len(b)/2] }
 	refused := func(name string) func(ionomaps.Snapshot, error) bool {
@@ -36,6 +38,7 @@ func TestEveryFaultIsReported(t *testing.T) {
 	}{
 		{"GloTEC", "stopped", func(n *noaa, _ *clock) { n.down[indexURL] = true }, noGloTEC},
 		{"GloTEC", "stale", func(n *noaa, c *clock) { n.list(t, c.Now().Add(-2*time.Hour), 7) }, noGloTEC},
+		{"GloTEC", "an index naming no grid", func(n *noaa, _ *clock) { n.names = nil }, noGloTEC},
 		{"GloTEC", "truncated", func(n *noaa, c *clock) {
 			name := n.list(t, c.Now().Add(-30*time.Minute), 7)
 			n.grids[name] = half(n.grids[name])
@@ -63,11 +66,9 @@ func TestEveryFaultIsReported(t *testing.T) {
 		}
 		c.set(n, clk)
 		s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
-		if !c.said(s, err) {
-			t.Errorf("%s %s: not said - reason %v, refused %v, background %v, error %v", c.input, c.fault, s.Reason, s.Inputs.Unread, s.Background.FoF2, err)
-		}
-		if err == nil && s.Reason == ionomaps.Fresh && c.input == "GloTEC" && c.fault == "stopped" {
-			t.Errorf("GloTEC stopped: said fresh")
+		named := slices.Contains(s.Inputs.Unread, c.input) && s.Reason != ionomaps.Fresh
+		if !c.said(s, err) || !named {
+			t.Errorf("%s %s: not said - reason %v, unread %v, background %v, error %v", c.input, c.fault, s.Reason, s.Inputs.Unread, s.Background.FoF2, err)
 		}
 	}
 	for _, c := range []struct {
@@ -98,5 +99,23 @@ func TestEveryFaultIsReported(t *testing.T) {
 	update(t, l)
 	if s := update(t, l); s.Inputs.Stations != 0 || !s.Inputs.OldestReading.IsZero() {
 		t.Errorf("GIRO stale: %d stations assimilated, the oldest at %v; readings over an hour old are not (D-64)", s.Inputs.Stations, s.Inputs.OldestReading)
+	}
+}
+
+// TestAGridHeldPastItsAgeIsNamed is watchpost D-239: a grid read while fresh
+// and still the newest the index names an hour and more later is no
+// background - foF2 falls to the climatology - and GloTEC is named unread,
+// the snapshot never Fresh.
+func TestAGridHeldPastItsAgeIsNamed(t *testing.T) {
+	l, n, c := library(t)
+	n.list(t, start.Add(-20*time.Minute), 7)
+	if s, err := settled(l, context.Background(), ionomaps.UpdateOptions{}); err != nil || s.Background.FoF2 != ionomaps.GloTEC {
+		t.Fatalf("the grid fresh: %v, %v", s.Background.FoF2, err)
+	}
+	c.Add(50 * time.Minute)
+	n.drap, n.scales = drapTable(c.Now().Add(-3*time.Minute), 3), scalesFile(c.Now().Add(-2*time.Minute), `"1"`, `"0"`, `"3"`)
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
+	if err != nil || s.Background.FoF2 != ionomaps.Climatology || !slices.Equal(s.Inputs.Unread, []string{"GloTEC"}) || s.Reason != ionomaps.Partial {
+		t.Errorf("the grid held 70 minutes, the index naming no newer: background %v, unread %v, reason %v, error %v; want the climatology, GloTEC named, Partial", s.Background.FoF2, s.Inputs.Unread, s.Reason, err)
 	}
 }
