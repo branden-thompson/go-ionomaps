@@ -221,3 +221,8 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **RH-13, noted:** `8f6c085` changed the gate with no gate run on its tree; every tip since is gated.
 - **P10:** the root package's density holds its ratified 0.69 with two precondition checks the new code needs (an hour outside its day). The package rows whose function count grew go to the HUM LEAD in one list (watchpost D-252); `tools/tables` and the evidence's two nested modules, which P10 skips, are named there for `.a2dh.yml`.
 
+## The fuzz counts on the hosted amd64 runner (after the remediation)
+
+- **The hosted full gate on `00ac871` failed** on its amd64 runner alone, and only on `FuzzGloTECDecode`: 100,000 runs passed the leg's 600 s, where arm64 took 322 s. Every leg now runs on the floor toolchain (RC-12), and the amd64 runner runs the fuzz legs about half as fast as arm64. No crash: the clock.
+- **The counts:** `FuzzGloTECDecode` 40,000 runs; `FuzzAnswersNeverReturnNaN`, at 438 s on amd64, 25,000. A count, not a time (H-11): each measured on the hosted runners, with room under the limit.
+

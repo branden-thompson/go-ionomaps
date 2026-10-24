@@ -45,10 +45,10 @@ TARGETS="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
 fuzz_execs() {
   [ -n "${GATE_FUZZ_EXECS:-}" ] && { echo "$GATE_FUZZ_EXECS"; return; }
   case "$1" in
-    FuzzAnswersNeverReturnNaN) echo "40000x" ;; # about a minute (2026-10-17, Apple M5 Pro)
+    FuzzAnswersNeverReturnNaN) echo "25000x" ;; # about a minute at 40000x (2026-10-17, Apple M5 Pro); 40000x took 438 s on the hosted amd64 runner at the floor toolchain (2026-10-24), too near its 600 s
     FuzzAReachNeverReturnsNaN) echo "1500x" ;; # a reach is the whole globe's circuits; about a minute (2026-10-17, Apple M5 Pro)
     FuzzARestoredStateNeverPanics) echo "20000x" ;; # each run a library and two updates; 48 s (2026-10-18, Apple M5 Pro), 200000x ran past the hosted runners' 600 s
-    FuzzGloTECDecode) echo "100000x" ;; # each run a whole 72 x 72 grid; 14 s (2026-10-19, Apple M5 Pro); 200000x took 380 to 509 s on the hosted runners and 605 s once on arm64
+    FuzzGloTECDecode) echo "40000x" ;; # each run a whole 72 x 72 grid; 14 s at 100000x (2026-10-19, Apple M5 Pro); 100000x took 322 s on the hosted arm64 runner and passed 600 s on amd64 at the floor toolchain (2026-10-24), which runs about half as fast
     *)                         echo "$FUZZ_EXECS_DEFAULT" ;;
   esac
 }
