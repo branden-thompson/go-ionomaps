@@ -226,3 +226,9 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **The hosted full gate on `00ac871` failed** on its amd64 runner alone, and only on `FuzzGloTECDecode`: 100,000 runs passed the leg's 600 s, where arm64 took 322 s. Every leg now runs on the floor toolchain (RC-12), and the amd64 runner runs the fuzz legs about half as fast as arm64. No crash: the clock.
 - **The counts:** `FuzzGloTECDecode` 40,000 runs; `FuzzAnswersNeverReturnNaN`, at 438 s on amd64, 25,000. A count, not a time (H-11): each measured on the hosted runners, with room under the limit.
 
+## Every density row held to its floor (watchpost D-264; D-91)
+
+- **The floors:** each of the sixteen density rows states the figure measured on 2026-10-24, in the phrase the test reads, "measured x over n functions"; the root's renewed from D-74's 0.69 over 101 to 0.70 over 112. The library's own counter agrees with `a2dh p10 check` on every package, checked before it was trusted: `main` is the scaffold, so every function counts as changed.
+- **The test:** `TestTheRootDensityHoldsItsRatifiedFigure` became `TestEveryDensityRowHoldsItsFloor`, over every row in the mirror; the root row is still required, a row whose package has no function fails, and planted figures hold the comparison either side of a floor. It runs where a2dh does not, on the hosted gate too.
+- **Mutant:** m027, killed by the planted figures.
+

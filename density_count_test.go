@@ -10,11 +10,11 @@ import (
 	"testing"
 )
 
-// rootDensity counts the root package's checks and functions as P10-05
+// packageDensity counts a package directory's checks and functions as P10-05
 // counts them (densityOf), over every file outside tests.
-func rootDensity(t *testing.T) (checks, funcs int) {
+func packageDensity(t *testing.T, dir string) (checks, funcs int) {
 	t.Helper()
-	names, err := filepath.Glob("*.go")
+	names, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

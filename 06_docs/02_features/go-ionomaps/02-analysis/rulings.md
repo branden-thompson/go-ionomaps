@@ -109,6 +109,7 @@ restated here; this log holds go-giro-data's own.
 | D-88 | 2026-10-24 | Restates watchpost D-251: the hours ahead (RP-1) | see watchpost D-251 ("P-6 stands, own (Rec.)") | **Each snapshot owns its exported slices; the climatology's cells shared inside the library; a heap pin holds 24 hours ahead under 15 MB.** |
 | D-89 | 2026-10-24 | Restates watchpost D-260: NOAA's back-off (RL-7) | see watchpost D-260 ("Floor at 10 min (Rec.)") | **NOAA's back-off never shorter than its 10-minute cadence, then 15; a NOAA 5xx a refusal.** |
 | D-90 | 2026-10-24 | Restates watchpost D-262: a nightly scan (RH-7) | see watchpost D-262 ("v0.2.2 + nightly (Rec.)") | **The hosted full gate runs nightly as well as on dispatch.** |
+| D-91 | 2026-10-24 | Restates watchpost D-264: D-252's batch, the density rows whose function count grew | see watchpost D-264 ("Ratify all as floors (Rec.)") | **Every density row is re-ratified at the figure measured on 2026-10-24, its floor: the root 0.70 over 112, `internal/giro` 1.21 over 19, `internal/stations` 1.33 over 15, `internal/throttle` 0.60 over 10, `ionomapstest` 0.64 over 22, `tools/gm3` 0.95 over 20, and the rest at theirs; `TestEveryDensityRowHoldsItsFloor` fails a package under its row's floor.** |
 
 ## Agent decisions (A-n, watchpost D-13)
 

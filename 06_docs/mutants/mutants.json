@@ -258,5 +258,15 @@
     "new": "\tif a, given := p.answers[inputOf(u)]; given && false {",
     "package": "./ionomapstest",
     "test": "TestAHostDrivesEachState"
+  },
+  {
+    "id": "m027",
+    "row": "watchpost D-264",
+    "what": "a density under its floor passes",
+    "file": "exemption_test.go",
+    "old": "\treturn float64(checks)/float64(funcs) < floor-0.005\n",
+    "new": "\treturn float64(checks)/float64(funcs) < floor-1\n",
+    "package": ".",
+    "test": "TestEveryDensityRowHoldsItsFloor"
   }
 ]

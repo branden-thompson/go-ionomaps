@@ -58,3 +58,6 @@ Every run of `scripts/gate` adds a row: when, HEAD, the git tree that was tested
 | 2026-10-24T18:53:49Z | 00ac871 | 32d597db5a3f | full | green | 426 | - |
 | 2026-10-24T21:16:16Z | 749b17a | 32d597db5a3f | docs | FAILED: the docs lane: nothing is staged;  stage the Markdown change first | 0 | - |
 | 2026-10-24T21:16:21Z | 749b17a | 32d597db5a3f | docs | FAILED: the docs lane: nothing is staged;  stage the Markdown change first | 0 | - |
+| 2026-10-24T21:17:22Z | 749b17a | 485ae07e99c3 | docs | green | 48 | - |
+| 2026-10-24T21:20:51Z | 749b17a | 4e0694ac2bfb | docs | green | 40 | - |
+| 2026-10-24T23:44:22Z | 3a7f209 | 85433032333e | full | green | 447 | - |
