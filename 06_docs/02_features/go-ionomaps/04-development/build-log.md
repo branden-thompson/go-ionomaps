@@ -242,3 +242,14 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **The root:** the local `.a2dh.yml` declares `tools/tables` a Go root of its own, so golangci-lint, staticcheck and the control-flow and loop checks read it, not the density count alone (RC-12). The evidence's two modules stay skipped.
 - **Its two findings, fixed:** the IGRF table's and the export's reading loops were bounded only by their input (P10-02, `igrf.go`, `main.go`); each now stops at a line bound - 4,096 for an IGRF table (IAGA's runs to 199 lines), 65,536 for an export (268) - and refuses what runs past it. `TestAnInputPastItsBoundIsRefused` holds both, its export a shape the lines inside the bound fill exactly, so only the bound can refuse it; each bound's removal, applied by hand, fails it. P10: 0 live findings.
 
+## REVIEW's red team, round 2: the library's remediation, part 1 (watchpost D-270 to D-279; D-94 to D-97)
+
+- **NOAA's round** (D-94): a 429 alone stops it; a 5xx or no answer marks its file missed and the others are still asked, D-260's back-off kept for the next update. The fake NOAA now honours `down` for D-RAP and the scales, which the old stop hid. `TestTheMeanIsKeptAcrossARestart` asserts GloTEC drawn under a solar-file 500 and no answer.
+- **GIRO's failures** (D-95, D-96): three in a row call GIRO down only before any answer; an unnamed status and a 410 are the station's own; each ask has 15 s, so a hung GIRO is called down inside the update (`TestFailuresAfterAnAnswerAreTheStations`, `TestAHungGIROIsCalledDown`).
+- **The typical day** (R2P-1, R2P-2, RP-2): a typical hour makes a row of cells at its first read, so an answer at one place makes a path's rows, not the globe's; the 24-hour pin counts from before the first update, 10.1 MB for the library, its snapshot and 24 hours ahead each answered (was 10.8 MB for the hours alone); a day older than every kept one is made for its answer alone, never evicting today's.
+- **Inputs** (R2C-10, R2L-5, R2I-4): `Rejected` is the burst's own rows; `Implausible` and `ImplausibleM` count the plausibility refusals apart (`TestAnImplausibleReadingIsCounted`).
+- **Restore** (R2L-4): a station code the seed no longer names is dropped, never the state refused over it; the mean and GIRO's state are restored each on its own.
+- **The solar file** (R2I-1): past its line bound it is refused, never read short.
+- **gm3** (D-97): `-residuals` reports foF2's fold against each background; grid ages are said in words.
+- **Mutants:** m029 to m037; m003, m008, m012, m013, m016 and m017 re-pointed.
+

@@ -24,7 +24,8 @@ type Reading struct {
 type Result struct {
 	FoF2, M3000     []float32
 	Used, UsedM     int
-	Implausible     int // readings, or their M(3000)F2, refused as past a residual's bound (watchpost D-248)
+	Implausible     int // readings refused whole, their foF2 past its residual's bound (watchpost D-248)
+	ImplausibleM    int // readings whose M(3000)F2 alone was refused, past its bound, their foF2 used
 	MeanResidual    float64
 	NearestKm       []float32
 	NearestUnscored []bool
@@ -79,7 +80,7 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 		bm, okM := grid.Sample(mBack, x.Lat, x.Lon)
 		plausibleM := math.Abs(x.M3000-bm) <= M3000Bound
 		if x.HasM && okM && x.M3000 > 0 && !plausibleM {
-			r.Implausible++
+			r.ImplausibleM++
 		}
 		if x.HasM && okM && x.M3000 > 0 && plausibleM {
 			mObs = append(mObs, Obs{Lat: x.Lat, Lon: x.Lon, Residual: x.M3000 - bm})

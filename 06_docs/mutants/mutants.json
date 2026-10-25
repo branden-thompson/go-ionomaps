@@ -24,8 +24,8 @@
     "row": "R-5.4",
     "what": "a grid is fetched with no F10.7 mean to build a field on",
     "file": "update.go",
-    "old": "\tif !refused && fieldable {          // a refusal stops the update (D-39)",
-    "new": "\tif !refused {          // a refusal stops the update (D-39)",
+    "old": "\tif !refused && fieldable {          // a 429 stops the update (D-39); a failed or unanswered file does not (watchpost D-270)",
+    "new": "\tif !refused {          // a 429 stops the update (D-39); a failed or unanswered file does not (watchpost D-270)",
     "package": ".",
     "test": "TestNoMeanAsksNoGrid"
   },
@@ -72,10 +72,10 @@
   {
     "id": "m008",
     "row": "R-5.3",
-    "what": "a NOAA server error is no refusal",
+    "what": "a NOAA server error does not back the next update off",
     "file": "update.go",
-    "old": "\tif r.Status == statusRefused || r.Status >= statusServerError {",
-    "new": "\tif r.Status == statusRefused {",
+    "old": "l.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError",
+    "new": "l.trouble = l.trouble || err != nil || r.Status == statusRefused",
     "package": ".",
     "test": "TestARefusalBacksOff"
   },
@@ -114,8 +114,8 @@
     "row": "R-5.8",
     "what": "a state leaving a station out twice is taken",
     "file": "internal/stations/stations.go",
-    "old": "\t\tif !known || out[code] {",
-    "new": "\t\tif !known {",
+    "old": "\t\tif out[code] {\n\t\t\treturn errBadState // a station left out twice",
+    "new": "\t\tif false {\n\t\t\treturn errBadState // a station left out twice",
     "package": "./internal/stations",
     "test": "TestAListStateIsCheckedOnApply"
   },
@@ -124,7 +124,7 @@
     "row": "R-8.1",
     "what": "a third typical day empties the cache",
     "file": "typical.go",
-    "old": "\t\tdelete(t.days, t.oldest())",
+    "old": "\t\tdelete(t.days, old)",
     "new": "\t\tclear(t.days)",
     "package": ".",
     "test": "TestTheTypicalDayIsKept"
@@ -152,10 +152,10 @@
   {
     "id": "m016",
     "row": "R-5.3",
-    "what": "one station's server error stops the burst as GIRO's refusal",
+    "what": "a station's own failure - a status no rule names among them - stops the burst as GIRO's refusal",
     "file": "internal/giro/asker.go",
-    "old": "\tcase err != nil || status >= statusFailed || status == statusNotFound:\n\t\treturn failed, true",
-    "new": "\tcase err != nil || status >= statusFailed || status == statusNotFound:\n\t\treturn refused, true",
+    "old": "\tif status != statusOK {\n\t\treturn failed, true",
+    "new": "\tif status != statusOK {\n\t\treturn refused, true",
     "package": "./internal/giro",
     "test": "TestAStationsFailureIsItsOwn"
   },
@@ -164,7 +164,7 @@
     "row": "R-5.3",
     "what": "stations failing in a row never stop the burst",
     "file": "internal/giro/asker.go",
-    "old": "\tcase res == refused || inARow >= failuresInARow:",
+    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered):",
     "new": "\tcase res == refused:",
     "package": "./internal/giro",
     "test": "TestFailuresInARowStopTheBurst"
@@ -278,5 +278,95 @@
     "new": "\t\t\told := hybrid.Field(m.hybrid, rs)\n",
     "package": "./tools/gm3",
     "test": "TestAnOlderGridIsScoredBesideTheNewest"
+  },
+  {
+    "id": "m029",
+    "row": "watchpost D-270",
+    "what": "a NOAA server error stops the update's round, GloTEC left unasked",
+    "file": "update.go",
+    "old": "\tif r.Status >= statusServerError {\n\t\treturn r, false, false\n",
+    "new": "\tif r.Status >= statusServerError {\n\t\treturn r, false, true\n",
+    "package": ".",
+    "test": "TestTheMeanIsKeptAcrossARestart"
+  },
+  {
+    "id": "m030",
+    "row": "watchpost D-271",
+    "what": "failures in a row after a station has answered stop the burst as GIRO down",
+    "file": "internal/giro/asker.go",
+    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered):",
+    "new": "\tcase res == refused || inARow >= failuresInARow:",
+    "package": "./internal/giro",
+    "test": "TestFailuresAfterAnAnswerAreTheStations"
+  },
+  {
+    "id": "m031",
+    "row": "watchpost D-272",
+    "what": "a 410 for one station pauses all of GIRO as a denial",
+    "file": "internal/giro/asker.go",
+    "old": "\tif status == statusUnauthorized || status == statusForbidden {\n\t\treturn denied, true",
+    "new": "\tif status == statusUnauthorized || status == statusForbidden || status == 410 {\n\t\treturn denied, true",
+    "package": "./internal/giro",
+    "test": "TestAStationsFailureIsItsOwn"
+  },
+  {
+    "id": "m032",
+    "row": "watchpost D-275",
+    "what": "GIRO's asks take longer than three can in a host's update",
+    "file": "internal/giro/asker.go",
+    "old": "var askTimeout = 15 * time.Second",
+    "new": "var askTimeout = 30 * time.Second",
+    "package": "./internal/giro",
+    "test": "TestAHungGIROIsCalledDown"
+  },
+  {
+    "id": "m033",
+    "row": "watchpost R2P-1",
+    "what": "a typical hour makes every row at its first read",
+    "file": "typical.go",
+    "old": "\t\td.hours[h] = new(typicalCells)\n",
+    "new": "\t\td.hours[h] = new(typicalCells)\n\t\tfor r := range d.hours[h].rows {\n\t\t\td.hours[h].rows[r].Store(new(typicalRow))\n\t\t}\n",
+    "package": ".",
+    "test": "TestTheTypicalDayIsKept"
+  },
+  {
+    "id": "m034",
+    "row": "watchpost RP-2",
+    "what": "a day older than every kept one evicts today's",
+    "file": "typical.go",
+    "old": "\t\tif start.Before(old.day) {\n\t\t\treturn newTypicalDay(start)",
+    "new": "\t\tif false && start.Before(old.day) {\n\t\t\treturn newTypicalDay(start)",
+    "package": ".",
+    "test": "TestTheTypicalDayIsKept"
+  },
+  {
+    "id": "m035",
+    "row": "watchpost R2I-1",
+    "what": "a solar file past its line bound is read short, its newest days dropped",
+    "file": "internal/solar/solar.go",
+    "old": "\tif lines == maxLines && sc.Scan() {\n\t\treturn nil, errTooLong",
+    "new": "\tif false && lines == maxLines && sc.Scan() {\n\t\treturn nil, errTooLong",
+    "package": "./internal/solar",
+    "test": "TestAFileIsReadWhole"
+  },
+  {
+    "id": "m036",
+    "row": "watchpost D-248",
+    "what": "the readings refused as implausible are not counted in the snapshot",
+    "file": "update.go",
+    "old": "Implausible: res.Implausible, ImplausibleM: res.ImplausibleM,",
+    "new": "ImplausibleM: res.ImplausibleM,",
+    "package": ".",
+    "test": "TestAnImplausibleReadingIsCounted"
+  },
+  {
+    "id": "m037",
+    "row": "watchpost R2L-4",
+    "what": "a state whose GIRO part is refused throws the kept mean away too",
+    "file": "state.go",
+    "old": "\tif errF == nil && f.OK {\n\t\tl.solar = f\n\t}\n\terrG := l.giro.Import(g, now)\n",
+    "new": "\terrG := l.giro.Import(g, now)\n\tif errF == nil && errG == nil && f.OK {\n\t\tl.solar = f\n\t}\n",
+    "package": ".",
+    "test": "TestABadStateIsRefused"
   }
 ]

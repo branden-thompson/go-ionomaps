@@ -393,3 +393,23 @@ func TestAnOlderGridIsScoredBesideTheNewest(t *testing.T) {
 		t.Errorf("a negative age: exit %d; want 2", code)
 	}
 }
+
+// TestTheResidualsAreReported is watchpost D-248 and D-279: -residuals
+// reports each residual's spread and foF2's fold against each background,
+// what the plausibility bounds are set from; and a grid age is said in
+// words, "3 h" or "30 min".
+func TestTheResidualsAreReported(t *testing.T) {
+	dir, sol := synthetic(t, 10)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"-inputs", dir, "-solar", sol, "-residuals"}, &out, &errOut, now); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	for _, want := range []string{"| foF2 over GloTEC, MHz |", "| foF2's fold against GloTEC |", "| foF2's fold against the climatology |"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the residuals lack %q:\n%s", want, out.String())
+		}
+	}
+	if spanWords(3*time.Hour) != "3 h" || spanWords(30*time.Minute) != "30 min" {
+		t.Errorf("spans said %q and %q", spanWords(3*time.Hour), spanWords(30*time.Minute))
+	}
+}

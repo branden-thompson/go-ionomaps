@@ -30,6 +30,7 @@ type giroSide struct {
 	reformat bool                   // every reply a page that is no reply
 	status   map[string]int         // a station's status in place of its reply, when set
 	all      int                    // every station's status in place of its reply, when set
+	fo       map[string]string      // a station's foF2 reading, 7.500 when unset
 }
 
 // giroAnswer answers one GIRO ask: the station's reply in FastChar's
@@ -68,9 +69,13 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 	if v, ok := g.score[code]; ok {
 		score = v
 	}
+	fo := "7.500"
+	if v, ok := g.fo[code]; ok {
+		fo = v
+	}
 	if g.speak && !g.silent[code] && (g.speakers == 0 || len(g.asks) <= g.speakers) {
 		for _, at := range times {
-			body += at.UTC().Format("2006-01-02T15:04:05.000Z") + "  " + score + "  7.500 // 3.40 //\n"
+			body += at.UTC().Format("2006-01-02T15:04:05.000Z") + "  " + score + "  " + fo + " // 3.40 //\n"
 		}
 	}
 	switch {
@@ -450,5 +455,19 @@ func TestGIROsOutcomeIsSaidAllHour(t *testing.T) {
 		if c.status == 403 && later.Reason != ionomaps.GIROPaused {
 			t.Errorf("a denial, 40 minutes on: %v; want GIRO paused", later.Reason)
 		}
+	}
+}
+
+// TestAnImplausibleReadingIsCounted is watchpost D-248 at the library: a
+// placed station reading foF2 far past its residual's bound over the grid
+// is refused, counted in Inputs.Implausible apart from the burst's own
+// refused rows, and leaves the field where the other stations put it.
+func TestAnImplausibleReadingIsCounted(t *testing.T) {
+	l, n, _ := giroLibrary(t)
+	n.giro.fo = map[string]string{"AL945": "20.000"} // 13 MHz over GloTEC's 7
+	update(t, l)
+	s := update(t, l)
+	if s.Inputs.Implausible != 1 || s.Inputs.Rejected != 0 || s.Inputs.Stations != 39 {
+		t.Errorf("one station reading 20 MHz over a 7 MHz grid: %d implausible, %d rejected, %d stations; want 1, 0, 39", s.Inputs.Implausible, s.Inputs.Rejected, s.Inputs.Stations)
 	}
 }

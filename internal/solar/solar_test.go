@@ -121,6 +121,20 @@ func TestAFileIsReadWhole(t *testing.T) {
 	if _, err := Parse(make([]byte, maxBytes+1)); err == nil {
 		t.Error("a file larger than NOAA's was read")
 	}
+	// A file past maxLines, under maxBytes, is refused, never read short: its
+	// newest days come last, and the old cap dropped them unsaid (R2I-1).
+	var past strings.Builder
+	past.WriteString(strings.Repeat("#\n", maxLines-15))
+	for i := 30; i >= 1; i-- {
+		fmt.Fprintf(&past, "%s  70  0\n", day.AddDate(0, 0, -i).Format("2006 01 02"))
+	}
+	if _, err := Parse([]byte(past.String())); err == nil {
+		t.Error("a file past the line bound was read short, its newest days dropped")
+	}
+	exact := strings.Repeat("#\n", maxLines-1) + day.AddDate(0, 0, -1).Format("2006 01 02") + "  70  0\n"
+	if days, err := Parse([]byte(exact)); err != nil || len(days) != 1 {
+		t.Errorf("a file of exactly the line bound: %d days, %v; want its one day read", len(days), err)
+	}
 }
 
 // TestAMeanKeptIsChecked is watchpost D-249 and R-3.3: a mean kept across a

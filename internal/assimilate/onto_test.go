@@ -149,7 +149,7 @@ func TestAnImplausibleReadingIsRefused(t *testing.T) {
 		{Lat: 50.1, Lon: 4.6, FoF2: 8, M3000: 3.3, HasM: true},
 	}
 	r, err = Onto(flat(7), flat(3), edge)
-	if err != nil || r.Used != 3 || r.UsedM != 0 || r.Implausible != 1 {
-		t.Errorf("foF2 within its bound, one M(3000)F2 past it: %v, %d used, %d with M, %d refused; want 3, the M dropped alone (too few M left to fit), 1 refused", err, r.Used, r.UsedM, r.Implausible)
+	if err != nil || r.Used != 3 || r.UsedM != 0 || r.Implausible != 0 || r.ImplausibleM != 1 {
+		t.Errorf("foF2 within its bound, one M(3000)F2 past it: %v, %d used, %d with M, %d refused whole, %d M refused; want 3, the M dropped alone (too few M left to fit), counted apart", err, r.Used, r.UsedM, r.Implausible, r.ImplausibleM)
 	}
 }

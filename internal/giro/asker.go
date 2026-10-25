@@ -11,20 +11,25 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/throttle"
 )
 
-// The statuses a burst reads.
+// The statuses a burst reads; every other is its station's failure.
 const (
 	statusOK           = 200
 	statusUnauthorized = 401
 	statusForbidden    = 403
-	statusNotFound     = 404 // a station GIRO has no page for: that station's failure
-	statusGone         = 410
 	statusRefused      = 429
-	statusFailed       = 500 // and above: the station's ask failed on GIRO's side
 )
 
-// failuresInARow is how many stations failing one after another stop a
-// burst as GIRO itself down (watchpost D-247).
+// failuresInARow is how many stations failing one after another, before
+// any has answered, stop a burst as GIRO itself down (watchpost D-247,
+// D-271).
 const failuresInARow = 3
+
+// askTimeout is how long one station's ask may take: failuresInARow of them
+// fit inside a host's update (watchpost's 60 s), so a GIRO that does not
+// answer is called down and backed off, never left to run the update out
+// (watchpost D-275). A burst of 39 took about 36 s in PLAN, under a second
+// an ask.
+var askTimeout = 15 * time.Second
 
 // movedKm is how far from where the list places a station its reply may
 // put it and still be read (watchpost D-248).
@@ -37,7 +42,7 @@ type Outcome uint8
 const (
 	Answered    Outcome = iota // the burst ran, or none has been made; stations may have failed one by one
 	Unavailable                // a 429, or failuresInARow stations failing in a row: paused, D-39's back-off
-	Denied                     // a 401, 403 or 410: GIRO refused this host, paused throttle.DeniedFor
+	Denied                     // a 401 or 403: GIRO refused this host, paused throttle.DeniedFor
 )
 
 // result is how one station's ask ended.
@@ -48,7 +53,7 @@ const (
 	answered  result = iota // an answer, whatever it held
 	failed                  // the station's own: a server error, a 404, no answer
 	refused                 // GIRO's 429
-	denied                  // GIRO refused this host: a 401, 403 or 410
+	denied                  // GIRO refused this host: a 401 or 403
 	cancelled               // the host's cancel
 )
 
@@ -136,10 +141,11 @@ func (a *Asker) BurstDue(now time.Time) bool { return a.thr.Due(now) }
 
 // Burst is GIRO's burst: the live stations polled and one probed, at most
 // 40, each from its last reading held. A station whose own ask fails - a
-// server error, a 404, no answer - is counted and the burst goes on; a 429,
-// or failuresInARow failures in a row, stops it and pauses GIRO by D-39's
-// back-off; a 401, 403 or 410 stops it and pauses GIRO for a day (watchpost
-// D-247); a cancel stops it, the hour spent once anything was asked - a
+// server error, a 404, a 410, any status not named, no answer - is counted
+// and the burst goes on; a 429, or failuresInARow failures in a row before
+// any station has answered, stops it and pauses GIRO by D-39's back-off; a
+// 401 or 403 stops it and pauses GIRO for a day (watchpost D-247, D-271,
+// D-272); a cancel stops it, the hour spent once anything was asked - a
 // burst whose context ended before its first ask spends none. The stations
 // a stopped burst did not reach are asked first at the next. Each
 // station's latest reading is held.
@@ -169,7 +175,7 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 	if granted > 0 {
 		a.Rejected, a.Failed, a.Outcome = 0, 0, Answered // the counts are this burst's
 	}
-	inARow := 0
+	inARow, anyAnswered := 0, false
 	for i, code := range asks[:granted] {
 		stopped := ctx.Err() != nil
 		if stopped && i == 0 {
@@ -180,8 +186,8 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 			return
 		}
 		res, retryAfter := a.ask(ctx, code, now, fetch)
-		inARow = a.count(res, inARow)
-		if a.stops(res, retryAfter, inARow, now) {
+		inARow, anyAnswered = a.count(res, inARow), anyAnswered || res == answered
+		if a.stops(res, retryAfter, inARow, anyAnswered, now) {
 			a.list.Unasked(asks[i+1:granted], now)
 			return
 		}
@@ -199,8 +205,10 @@ func (a *Asker) count(res result, inARow int) int {
 }
 
 // stops is whether the burst ends after an ask, pausing GIRO as the ask's
-// end asks (watchpost D-39, D-247).
-func (a *Asker) stops(res result, retryAfter string, inARow int, now time.Time) bool {
+// end asks (watchpost D-39, D-247): failures in a row are GIRO itself down
+// only while nothing in the burst has answered - after an answer, each
+// failure is its station's own (watchpost D-271).
+func (a *Asker) stops(res result, retryAfter string, inARow int, anyAnswered bool, now time.Time) bool {
 	switch {
 	case res == cancelled:
 		return true // the host's cancel: no refusal of GIRO's
@@ -208,7 +216,7 @@ func (a *Asker) stops(res result, retryAfter string, inARow int, now time.Time) 
 		a.thr.Deny(now)
 		a.Outcome = Denied
 		return true
-	case res == refused || inARow >= failuresInARow:
+	case res == refused || (inARow >= failuresInARow && !anyAnswered):
 		a.thr.Refused(now, retryAfter)
 		a.Outcome = Unavailable
 		return true
@@ -223,7 +231,9 @@ func (a *Asker) ask(ctx context.Context, code string, now time.Time, fetch Fetch
 	if err != nil {
 		return answered, "" // unreachable: the code is the seed's, checked at Seed, and since is never after now
 	}
-	status, retryAfter, body, err := fetch(ctx, u)
+	askCtx, cancel := context.WithTimeout(ctx, askTimeout)
+	defer cancel()
+	status, retryAfter, body, err := fetch(askCtx, u)
 	if ctx.Err() != nil {
 		return cancelled, ""
 	}
@@ -231,9 +241,6 @@ func (a *Asker) ask(ctx context.Context, code string, now time.Time, fetch Fetch
 		return r, retryAfter
 	}
 	a.thr.Answered()
-	if status != statusOK {
-		return answered, ""
-	}
 	rep, err := ParseReply(body, code, since, now, now)
 	if err != nil {
 		a.Rejected++
@@ -244,16 +251,22 @@ func (a *Asker) ask(ctx context.Context, code string, now time.Time, fetch Fetch
 	return answered, ""
 }
 
-// ended is an ask that gave no answer to read, and how: the station's own
-// failure, GIRO's refusal of the request, or its refusal of this host.
+// ended is an ask that gave no answer to read, and how: GIRO's refusal of
+// the request (a 429), its refusal of this host (a 401 or 403), or else the
+// station's own failure - a server error, a 404, a 410 for a station gone,
+// any status not named, or no answer (watchpost D-247, D-272).
 func ended(status int, err error) (result, bool) {
-	switch {
-	case err != nil || status >= statusFailed || status == statusNotFound:
+	if err != nil {
 		return failed, true
-	case status == statusRefused:
+	}
+	if status == statusRefused {
 		return refused, true
-	case status == statusUnauthorized || status == statusForbidden || status == statusGone:
+	}
+	if status == statusUnauthorized || status == statusForbidden {
 		return denied, true
+	}
+	if status != statusOK {
+		return failed, true
 	}
 	return answered, false
 }

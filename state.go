@@ -100,15 +100,16 @@ func (l *Library) Restore(state []byte) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock().UTC()
-	f, err := solar.Resume(k.F107, k.F107Day, fromUnix(k.F107At), now)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrBadState, err)
-	}
-	if err := l.giro.Import(g, now); err != nil {
-		return fmt.Errorf("%w: %v", ErrBadState, err)
-	}
-	if f.OK {
+	// The mean and GIRO's state are restored each on its own, so a state
+	// whose GIRO part is refused still keeps the mean (R2L-4), and the
+	// reverse; what is refused is named.
+	f, errF := solar.Resume(k.F107, k.F107Day, fromUnix(k.F107At), now)
+	if errF == nil && f.OK {
 		l.solar = f
+	}
+	errG := l.giro.Import(g, now)
+	if errF != nil || errG != nil {
+		return fmt.Errorf("%w: %v", ErrBadState, errors.Join(errF, errG))
 	}
 	return nil
 }

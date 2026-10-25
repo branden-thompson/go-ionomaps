@@ -41,28 +41,38 @@ func TestNoMeanAsksNoGrid(t *testing.T) {
 	}
 }
 
-// TestTheMeanIsKeptAcrossARestart is watchpost D-249: the F10.7 mean held
-// goes into the state, and a library restored from it builds a field while
-// the solar file cannot be read, the mean's age said and the file named
-// unread, for up to 7 days; past them, no field.
+// TestTheMeanIsKeptAcrossARestart is watchpost D-249 and D-270: the F10.7
+// mean held goes into the state, and a library restored from it builds a
+// field while the solar file cannot be read - no answer, or a server error -
+// the mean's age said, the file named unread, and GloTEC's grid still asked
+// and drawn, for up to 7 days; past them, no field.
 func TestTheMeanIsKeptAcrossARestart(t *testing.T) {
-	l, n, c := library(t)
-	n.list(t, start.Add(-30*time.Minute), 7)
-	first, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := l.State()
-	n.down[solarURL] = true
-	c.Add(3 * 24 * time.Hour)
-	n.list(t, c.Now().Add(-20*time.Minute), 7)
-	again := restarted(t, n, c, state)
-	s, err := settled(again, context.Background(), ionomaps.UpdateOptions{})
-	if err != nil || s.Inputs.F107Mean != first.Inputs.F107Mean || s.Inputs.F107Age < 3*24*time.Hour || !slices.Contains(s.Inputs.Unread, "solar") || s.Reason == ionomaps.Fresh {
-		t.Fatalf("three days on, restored: mean %v (was %v), age %v, unread %v, reason %v, error %v", s.Inputs.F107Mean, first.Inputs.F107Mean, s.Inputs.F107Age, s.Inputs.Unread, s.Reason, err)
-	}
-	c.Add(4*24*time.Hour + time.Hour)
-	if _, err := settled(again, context.Background(), ionomaps.UpdateOptions{}); !errors.Is(err, ionomaps.ErrNoField) {
-		t.Errorf("a mean over 7 days old built a field: %v", err)
+	for _, failure := range []string{"no answer", "500"} {
+		l, n, c := library(t)
+		n.list(t, start.Add(-30*time.Minute), 7)
+		first, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := l.State()
+		if failure == "500" {
+			n.status[solarURL] = 500
+		} else {
+			n.down[solarURL] = true
+		}
+		c.Add(3 * 24 * time.Hour)
+		n.list(t, c.Now().Add(-20*time.Minute), 7)
+		again := restarted(t, n, c, state)
+		s, err := settled(again, context.Background(), ionomaps.UpdateOptions{})
+		if err != nil || s.Inputs.F107Mean != first.Inputs.F107Mean || s.Inputs.F107Age < 3*24*time.Hour || !slices.Contains(s.Inputs.Unread, "solar") || s.Reason == ionomaps.Fresh {
+			t.Fatalf("%s, three days on, restored: mean %v (was %v), age %v, unread %v, reason %v, error %v", failure, s.Inputs.F107Mean, first.Inputs.F107Mean, s.Inputs.F107Age, s.Inputs.Unread, s.Reason, err)
+		}
+		if s.Background.FoF2 != ionomaps.GloTEC || slices.Contains(s.Inputs.Unread, "GloTEC") {
+			t.Errorf("%s: the solar file unread left GloTEC unasked or undrawn: background %v, unread %v (watchpost D-270)", failure, s.Background.FoF2, s.Inputs.Unread)
+		}
+		c.Add(4*24*time.Hour + time.Hour)
+		if _, err := settled(again, context.Background(), ionomaps.UpdateOptions{}); !errors.Is(err, ionomaps.ErrNoField) {
+			t.Errorf("%s: a mean over 7 days old built a field: %v", failure, err)
+		}
 	}
 }

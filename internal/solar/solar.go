@@ -34,14 +34,16 @@ var (
 	errNoDays   = errors.New("solar: the file holds no day with a flux: not NOAA's daily solar data")
 	errTooLarge = errors.New("solar: the file is larger than NOAA's daily solar data is")
 	errLine     = errors.New("solar: a line could not be read: not NOAA's daily solar data")
+	errTooLong  = errors.New("solar: the file has more lines than NOAA's daily solar data has")
 	errKept     = errors.New("solar: the mean kept is outside a flux's bounds, its days, or after now")
 )
 
 // Parse reads the file's dated lines: year, month, day, then the flux. A day
 // whose flux is missing (-999) or past its bounds is skipped, and a day
 // named twice keeps its first flux, so no day counts twice in a mean; a
-// file over maxBytes, a line the scanner cannot take, or a file with no day
-// at all is an error. No error quotes the input.
+// file over maxBytes or maxLines, a line the scanner cannot take, or a file
+// with no day at all is an error - never the newest days dropped unsaid.
+// No error quotes the input.
 //
 // Source: NOAA SWPC, text/daily-solar-indices.txt, as served.
 func Parse(data []byte) ([]Daily, error) {
@@ -54,12 +56,16 @@ func Parse(data []byte) ([]Daily, error) {
 	var out []Daily
 	seen := map[time.Time]bool{}
 	sc := bufio.NewScanner(bytes.NewReader(data))
-	for n := 0; sc.Scan() && n < maxLines; n++ {
+	lines := 0
+	for ; lines < maxLines && sc.Scan(); lines++ {
 		d, ok := parseLine(sc.Text())
 		if ok && !seen[d.Date] {
 			seen[d.Date] = true
 			out = append(out, d)
 		}
+	}
+	if lines == maxLines && sc.Scan() {
+		return nil, errTooLong // the lines past the bound would be lost unsaid: the newest days, as the file runs oldest first
 	}
 	if sc.Err() != nil {
 		return nil, errLine // a line past the scanner's buffer: the days after it would be lost unsaid

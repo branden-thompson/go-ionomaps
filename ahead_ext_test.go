@@ -71,20 +71,22 @@ func listenable(words string) bool {
 }
 
 // TestTwentyFourHoursAheadFitTheHeap is watchpost D-251 under D-112: a host
-// holding every hour ahead a snapshot gives - 24, each answered at a place,
-// as watchpost's hour steps keep them - adds under 15 MB of live heap, each
-// hour its own tables (P-6), the climatology's cells shared inside the
-// library and made only for the hours read.
+// holding a snapshot and every hour ahead it gives - 24, each answered at a
+// place, as watchpost's hour steps keep them - holds under 15 MB of the
+// library's live heap, counted from before its first update (the test's
+// own fake service left out): each hour its own tables (P-6), the
+// climatology's cells shared inside the library and made only for the rows
+// read (R2P-1, R2P-2).
 func TestTwentyFourHoursAheadFitTheHeap(t *testing.T) {
 	l, _, _ := giroLibrary(t)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
 	update(t, l)
 	s := update(t, l)
 	if len(s.NearestKm) == 0 {
 		t.Fatal("the snapshot assimilated no station: no table to own")
 	}
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
 	held := make([]ionomaps.Snapshot, 0, 24)
 	for k := 1; k <= 24; k++ {
 		a, err := s.Ahead(k)
@@ -99,9 +101,9 @@ func TestTwentyFourHoursAheadFitTheHeap(t *testing.T) {
 	runtime.GC()
 	runtime.ReadMemStats(&after)
 	added := int64(after.HeapAlloc) - int64(before.HeapAlloc)
-	t.Logf("24 hours ahead, each answered: %.1f MB of live heap", float64(added)/(1<<20))
+	t.Logf("the library, its snapshot and 24 hours ahead, each answered: %.1f MB of live heap", float64(added)/(1<<20))
 	if added > 15<<20 {
-		t.Errorf("24 hours ahead, each answered, hold %.1f MB of live heap; D-112's proxy is 15", float64(added)/(1<<20))
+		t.Errorf("the library, its snapshot and 24 hours ahead, each answered, hold %.1f MB of live heap; D-112's proxy is 15", float64(added)/(1<<20))
 	}
 	for i := range held {
 		if &held[i].NearestKm[0] == &s.NearestKm[0] {
@@ -109,4 +111,5 @@ func TestTwentyFourHoursAheadFitTheHeap(t *testing.T) {
 		}
 	}
 	runtime.KeepAlive(held)
+	runtime.KeepAlive(s)
 }

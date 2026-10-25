@@ -125,10 +125,10 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	if early {
 		return l.early(now, o)
 	}
-	l.unread, l.heard = l.unread[:0], false
+	l.unread, l.heard, l.trouble = l.unread[:0], false, false
 	refused := l.refreshSolar(ctx, now) // first: with no F10.7 mean there is no field at all (L-F4)
 	fieldable := l.solarUsable(now)     // without one, no grid is fetched to be thrown away (RL-2)
-	if !refused && fieldable {          // a refusal stops the update (D-39)
+	if !refused && fieldable {          // a 429 stops the update (D-39); a failed or unanswered file does not (watchpost D-270)
 		refused = l.refreshGrid(ctx, now)
 	}
 	if !refused && fieldable {
@@ -141,7 +141,7 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	if stopped {
 		return l.unfinished(ctx, now, o) // the host's, not NOAA's: no back-off, no ten minutes spent
 	}
-	l.notBefore, l.backOff = nextAsk(now, l.backOff, refused)
+	l.notBefore, l.backOff = nextAsk(now, l.backOff, l.trouble)
 	l.short(now)
 	if !fieldable {
 		reason := Partial // NOAA answered, and the solar file did not read: Unread names it (watchpost D-239)
@@ -248,15 +248,22 @@ func nextAsk(now time.Time, backOff time.Duration, refused bool) (time.Time, tim
 }
 
 // ask is one request: the answer, whether it is one to use (200, or 304
-// when validators were sent), and whether it was refused, failed on NOAA's
-// side or not answered, which backs off (D-39, watchpost D-260).
+// when validators were sent), and whether NOAA refused it with a 429, which
+// stops the update's round (D-39, watchpost D-270). A refusal, a failure on
+// NOAA's side or no answer each backs the next update off (watchpost D-260);
+// a failure or no answer stops nothing, the file missed and the round going
+// on (watchpost D-270).
 func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response, ok, refused bool) {
 	r, err := l.fetch.Fetch(ctx, url, v)
+	l.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError
 	if err != nil {
-		return Response{}, false, true
+		return Response{}, false, false
 	}
-	if r.Status == statusRefused || r.Status >= statusServerError {
+	if r.Status == statusRefused {
 		return r, false, true
+	}
+	if r.Status >= statusServerError {
+		return r, false, false
 	}
 	ok = r.Status == statusOK || r.Status == statusNotModified && v != (Validators{})
 	l.heard = l.heard || ok
@@ -267,7 +274,7 @@ func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response
 // enough to use, that grid, within six grid asks an hour; GloTEC is named
 // unread when either does not come back or the grid cannot be read, and by
 // short when the index names none young enough. refused is whether either
-// ask was refused or unanswered.
+// ask was refused with a 429.
 func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool) {
 	idx, ok, refused := l.ask(ctx, glotecIndex, Validators{})
 	if !ok {
@@ -318,7 +325,7 @@ func (l *Library) mayAskGrid(now time.Time) bool {
 
 // refreshSolar reads the solar file once a UTC day, with the validators of
 // the file the held mean was taken from; a failed ask is tried at the next
-// update. refused is whether it was refused or unanswered.
+// update. refused is whether it was refused with a 429.
 func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool) {
 	today := now.Truncate(24 * time.Hour)
 	readToday := l.solar.OK && l.solarDay.Equal(today)
@@ -344,7 +351,7 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 
 // refreshDRAP asks for D-RAP's table at each update, with the validators of
 // the table held (R-2.5, R-5.7); a table that cannot be read leaves the one
-// held, its age saying so. refused is whether it was refused or unanswered.
+// held, its age saying so. refused is whether it was refused with a 429.
 func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool) {
 	r, ok, refused := l.ask(ctx, drapTable, l.drapVal)
 	if !ok {
@@ -364,8 +371,8 @@ func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool)
 
 // refreshScales asks for NOAA's scales at each update, with D-RAP and the
 // validators of the file held (R-2.10, watchpost D-88); a file that cannot
-// be read leaves the one held. refused is whether it was refused or
-// unanswered.
+// be read leaves the one held. refused is whether it was refused with a
+// 429.
 func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused bool) {
 	r, ok, refused := l.ask(ctx, scalesFile, l.scalesVal)
 	if !ok {
@@ -434,7 +441,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		Now:        Hour{At: now, FoF2: fo, MUF3000: muf},
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
-			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected + res.Implausible, NoStations: o.NoStations,
+			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected, Implausible: res.Implausible, ImplausibleM: res.ImplausibleM, NoStations: o.NoStations,
 			GIRO: GIROOutcome(l.giro.Outcome), StationsFailed: l.giro.Failed, Unread: slices.Clone(l.unread)},
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),

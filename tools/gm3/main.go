@@ -184,14 +184,14 @@ func score(dir, solarFile string, since time.Time, p pairing, age time.Duration,
 		fmt.Fprintf(&b, "Replies not read: %s.\n", strings.Join(unread, "; "))
 	}
 	if age > 0 {
-		fmt.Fprintf(&b, "Grid age: each moment also scored with the hybrid built from the grid %s older, at the moment's time (watchpost D-265); %d grids with none that much older were not scored.\n", age, noOlder)
+		fmt.Fprintf(&b, "Grid age: each moment also scored with the hybrid built from the grid %s older, at the moment's time (watchpost D-265); %d grids with none that much older were not scored.\n", spanWords(age), noOlder)
 	}
 	fmt.Fprintf(&b, "Method: each station with a sounding within 10 minutes of a grid, carrying M(3000)F2, its score as the library takes it (70 or more, manual or unknown, D-61), held out; predicted from %s, at least three, by internal/hybrid over background.Build with the grid; the climatology background.Build without one; both read at the station by grid.Sample. MUF(3000) is foF2 times M(3000)F2.\n", methods[p])
 	table(&b, "By region", pairs, regions)
 	table(&b, "By distance to the nearest station assimilated", pairs, bands)
 	if age > 0 {
-		agedTable(&b, fmt.Sprintf("The newest grid against one %s older, by region", age), pairs, regions, age)
-		agedTable(&b, fmt.Sprintf("The newest grid against one %s older, by distance to the nearest station assimilated", age), pairs, bands, age)
+		agedTable(&b, fmt.Sprintf("The newest grid against one %s older, by region", spanWords(age)), pairs, regions, age)
+		agedTable(&b, fmt.Sprintf("The newest grid against one %s older, by distance to the nearest station assimilated", spanWords(age)), pairs, bands, age)
 	}
 	missed := 0
 	b.WriteString("\n## G-M3 (D-108) and D-75's floor (1)\n\n| Measure | Hybrid against the climatology | Target | Verdict |\n|---|---|---|---|\n")
@@ -211,6 +211,14 @@ func momentAt(g *glotec.Grid, f107 float64) moment {
 	return moment{at: g.Valid, hybrid: background.Build(g.Valid, f107, g), clim: background.Build(g.Valid, f107, nil)}
 }
 
+// spanWords is a span as the report says it: "3 h", "30 min".
+func spanWords(d time.Duration) string {
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%d h", d/time.Hour)
+	}
+	return fmt.Sprintf("%d min", d/time.Minute)
+}
+
 // olderGrid is the grid valid exactly age before at, or nil: none that much
 // older, or no age asked.
 func olderGrid(grids []glotec.Grid, at time.Time, age time.Duration) *glotec.Grid {
@@ -228,7 +236,7 @@ func olderGrid(grids []glotec.Grid, at time.Time, age time.Duration) *glotec.Gri
 // agedTable writes the hybrid's errors from the newest grid beside those
 // from the older grid, for each group (watchpost D-265).
 func agedTable(b *strings.Builder, title string, ps []pair, groups []group, age time.Duration) {
-	fmt.Fprintf(b, "\n## %s\n\nRMS / bias, MHz.\n\n| Group | Pairs | foF2, newest | foF2, %s older | MUF(3000), newest | MUF(3000), %s older |\n|---|---|---|---|---|---|\n", title, age, age)
+	fmt.Fprintf(b, "\n## %s\n\nRMS / bias, MHz.\n\n| Group | Pairs | foF2, newest | foF2, %s older | MUF(3000), newest | MUF(3000), %s older |\n|---|---|---|---|---|---|\n", title, spanWords(age), spanWords(age))
 	for _, g := range groups {
 		in := selected(ps, g)
 		if len(in) == 0 {

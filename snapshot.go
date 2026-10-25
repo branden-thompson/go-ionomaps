@@ -119,7 +119,9 @@ type Backgrounds struct{ FoF2, M3000 Background }
 
 // Inputs are what fed a snapshot, and when (R-3.3, R-9.5, R-9.7).
 type Inputs struct {
-	Stations, Rejected int           // readings used, and those refused: the last burst's rows past range checks or from a station placed over 50 km from where it is, and readings past a residual's bound (watchpost D-248)
+	Stations, Rejected int           // readings used, and the last burst's rows refused: past range checks, or from a station placed over 50 km from where it is (watchpost D-248)
+	Implausible        int           // readings refused whole this build, their foF2 past its residual's bound against the background (watchpost D-248)
+	ImplausibleM       int           // readings whose M(3000)F2 alone was refused this build, past its bound; their foF2 was used
 	GloTECValid        time.Time     // the grid's own valid time; zero when GloTEC was missing
 	OldestReading      time.Time     // the oldest GIRO reading assimilated
 	DRAPValid          time.Time     // zero when D-RAP was missing: no "disturbed" state

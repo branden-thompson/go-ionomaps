@@ -184,8 +184,9 @@ func TestAnUpdateAsksOnlySinceTheLastReading(t *testing.T) {
 // TestAListStateIsCheckedOnApply is watchpost D-213: a list's state
 // comes back onto a fresh seed as it was - each station asked from its
 // reading time, the rotations where they stood - and is the list's own copy;
-// one naming a station the seed does not, a time after now, or a rotation
-// place below zero is refused, the list left as it was.
+// one with a time after now, a station left out twice, or a rotation place
+// below zero is refused, the list left as it was; a station the seed no
+// longer names is dropped and the rest taken (R2L-4).
 func TestAListStateIsCheckedOnApply(t *testing.T) {
 	l, _ := Seed(t0)
 	live := l.Live(t0)
@@ -212,12 +213,10 @@ func TestAListStateIsCheckedOnApply(t *testing.T) {
 	for name, s := range map[string]State{
 		"no seed time":                {Heard: map[string]time.Time{}},
 		"seeded past the skew":        {Seeded: now.Add(throttle.ClockSkew + time.Second)},
-		"a station never seeded":      {Seeded: t0, Heard: map[string]time.Time{"ZZ999": t0}},
 		"heard past the skew":         {Seeded: t0, Heard: map[string]time.Time{live[0]: now.Add(throttle.ClockSkew + time.Second)}},
 		"left out twice":              {Seeded: t0, LeftOut: []string{live[0], live[0]}},
 		"a poll place below zero":     {Seeded: t0, PollAt: -1},
 		"a probe place below zero":    {Seeded: t0, ProbeAt: -1},
-		"left out, never seeded":      {Seeded: t0, LeftOut: []string{"ZZ999"}},
 		"a probe place past the list": {Seeded: t0, ProbeAt: 10000},
 		"more left out than stations": {Seeded: t0, LeftOut: make([]string, 10000)},
 	} {
@@ -228,6 +227,10 @@ func TestAListStateIsCheckedOnApply(t *testing.T) {
 		if !fresh.seeded.Equal(now) || len(fresh.heard) != 0 {
 			t.Errorf("%s: a refused state changed the list", name)
 		}
+	}
+	retired, _ := Seed(now)
+	if err := retired.Apply(State{Seeded: t0, Heard: map[string]time.Time{"ZZ999": t0, live[0]: t0}, LeftOut: []string{"ZZ999", live[1]}}, now); err != nil || len(retired.heard) != 1 || !slices.Equal(retired.leftOut, []string{live[1]}) {
+		t.Errorf("a station the seed no longer names: %v, heard %v, left out %v; want it dropped and the rest taken", err, retired.heard, retired.leftOut)
 	}
 	ahead, _ := Seed(now)
 	if err := ahead.Apply(State{Seeded: now.Add(time.Minute), Heard: map[string]time.Time{live[0]: now.Add(time.Minute)}}, now); err != nil || !ahead.seeded.Equal(now) || !ahead.heard[live[0]].Equal(now) {

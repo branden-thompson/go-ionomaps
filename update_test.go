@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -126,6 +127,9 @@ func (n *noaa) drapAnswer(ctx context.Context, v ionomaps.Validators) (ionomaps.
 	if err := ctx.Err(); err != nil {
 		return ionomaps.Response{}, err
 	}
+	if n.down[drapURL] {
+		return ionomaps.Response{}, errors.New("no route")
+	}
 	if s, ok := n.status[drapURL]; ok {
 		return ionomaps.Response{Status: s}, nil
 	}
@@ -142,6 +146,12 @@ func (n *noaa) scalesAnswer(ctx context.Context, v ionomaps.Validators) (ionomap
 	n.scalesValidators = append(n.scalesValidators, v)
 	if err := ctx.Err(); err != nil {
 		return ionomaps.Response{}, err
+	}
+	if n.down[scalesURL] {
+		return ionomaps.Response{}, errors.New("no route")
+	}
+	if s, ok := n.status[scalesURL]; ok {
+		return ionomaps.Response{Status: s}, nil
 	}
 	if n.scales == nil {
 		return ionomaps.Response{Status: 404}, nil
@@ -420,8 +430,10 @@ func TestARefusalBacksOff(t *testing.T) {
 		t.Error("after an answer, a refusal's first back-off is ten minutes again: asked sooner")
 	}
 	c.Add(time.Second)
-	if s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 1 || s.Reason != ionomaps.Offline {
-		t.Errorf("after an answer, the first back-off is ten minutes again, and an update without NOAA is offline: %v", s.Reason)
+	// A failed index stops nothing (watchpost D-270): D-RAP and the scales
+	// still come, so the update is Partial, GloTEC named, not Offline.
+	if s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 1 || s.Reason != ionomaps.Partial || !slices.Contains(s.Inputs.Unread, "GloTEC") {
+		t.Errorf("after an answer, the first back-off is ten minutes again, and an update with the index down is Partial, GloTEC named: %v %v", s.Reason, s.Inputs.Unread)
 	}
 }
 

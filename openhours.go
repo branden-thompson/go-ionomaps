@@ -22,7 +22,7 @@ type typicalHour struct {
 	subQD  float64
 	sun    *sunTrack
 	long   longMemo      // the day's §5.3 work by path, shared by its hours
-	cells  typicalCells  // the climatology at each 2° cell, as worked out
+	cells  *typicalCells // the climatology at each 2° cell, as worked out
 	filled *atomic.Int64 // the cells of the typical day worked out, for the tests of what is kept
 }
 
@@ -83,12 +83,13 @@ func (t *typicalHour) read(p LatLon) (float64, float64, bool) {
 	if t.cells == nil {
 		return 0, 0, false // an hour outside its day: no climatology
 	}
-	w := t.cells[i].Load()
+	slot := t.cells.cell(i)
+	w := slot.Load()
 	if w == 0 {
 		lat, lon := grid.Centre(i)
 		qdlat, qdlon, _ := magcoords.QD(lat, lon, t.at)
 		w = packCell(t.hour.At(qdlat, magcoords.MLTFrom(qdlon, t.subQD)))
-		t.cells[i].Store(w)
+		slot.Store(w)
 		if t.filled != nil {
 			t.filled.Add(1)
 		}

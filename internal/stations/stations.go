@@ -341,23 +341,29 @@ func (l *List) Apply(s State, now time.Time) error {
 	if len(s.Heard) > len(l.known) || len(s.LeftOut) > len(l.known) {
 		return errBadState // more stations than the seed names
 	}
+	// A code the seed no longer names - a station retired in a later release
+	// - is dropped, never the whole state refused over it (R2L-4).
 	heard := make(map[string]time.Time, len(s.Heard))
 	for code, at := range s.Heard {
-		_, known := l.index[code]
-		if !known || at.After(latest) {
+		if at.After(latest) {
 			return errBadState
 		}
-		heard[code] = notAfter(at, now)
+		if _, known := l.index[code]; known {
+			heard[code] = notAfter(at, now)
+		}
 	}
 	out := make(map[string]bool, len(s.LeftOut))
+	var leftOut []string
 	for _, code := range s.LeftOut {
-		_, known := l.index[code]
-		if !known || out[code] {
+		if out[code] {
 			return errBadState // a station left out twice would be asked twice in one burst (RI-5)
 		}
 		out[code] = true
+		if _, known := l.index[code]; known {
+			leftOut = append(leftOut, code)
+		}
 	}
-	l.seeded, l.heard, l.pollAt, l.probeAt, l.leftOut = notAfter(s.Seeded, now), heard, s.PollAt, s.ProbeAt, slices.Clone(s.LeftOut)
+	l.seeded, l.heard, l.pollAt, l.probeAt, l.leftOut = notAfter(s.Seeded, now), heard, s.PollAt, s.ProbeAt, leftOut
 	return nil
 }
 

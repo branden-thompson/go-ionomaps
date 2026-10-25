@@ -95,13 +95,18 @@ func codeOf(t *testing.T, u string) string {
 	return q.Query().Get("ursiCode")
 }
 
-// TestAStationsFailureIsItsOwn is watchpost D-247: one station's server
-// error, 404 or no answer is that station's - counted, and the burst goes
-// on to every other - never GIRO paused.
+// TestAStationsFailureIsItsOwn is watchpost D-247 and D-272: one station's
+// server error, 404, 410, a status no rule names, or no answer is that
+// station's - counted, and the burst goes on to every other - never GIRO
+// paused, and never taken as an answer.
 func TestAStationsFailureIsItsOwn(t *testing.T) {
 	for name, fail := range map[string]func() (int, error){
 		"a server error": func() (int, error) { return 503, nil },
 		"a 404":          func() (int, error) { return 404, nil },
+		"a 410":          func() (int, error) { return 410, nil },
+		"a 400":          func() (int, error) { return 400, nil },
+		"a 451":          func() (int, error) { return 451, nil },
+		"a redirect":     func() (int, error) { return 302, nil },
 		"no answer":      func() (int, error) { return 0, errors.New("no route") },
 	} {
 		var a Asker
@@ -147,12 +152,56 @@ func TestFailuresInARowStopTheBurst(t *testing.T) {
 	}
 }
 
-// TestADenialPausesForADay is watchpost D-247: a 401, 403 or 410 is GIRO
-// refusing this host - the burst stops and GIRO is left alone for a day,
-// said as Denied, across a restart too - never an answer that resets the
-// back-off.
+// TestFailuresAfterAnAnswerAreTheStations is watchpost D-271: three
+// stations failing one after another once another has answered is not GIRO
+// down - each failure is its station's own, counted, and the burst goes on;
+// nothing is paused and the outcome stays Answered.
+func TestFailuresAfterAnAnswerAreTheStations(t *testing.T) {
+	var a Asker
+	var asked []string
+	a.Burst(context.Background(), now, func(_ context.Context, u string) (int, string, []byte, error) {
+		asked = append(asked, codeOf(t, u))
+		if n := len(asked); n >= 2 && n <= 1+failuresInARow {
+			return 503, "", nil, nil
+		}
+		return 200, "", nil, nil
+	})
+	live, _ := stations.Seed(now)
+	if len(asked) != len(live.Live(now))+1 || a.Failed != failuresInARow || a.Paused(now) || a.Outcome != Answered {
+		t.Errorf("%d asked of %d, %d failed, paused %v, %v; want every station asked, %d failed, no pause", len(asked), len(live.Live(now))+1, a.Failed, a.Paused(now), a.Outcome, failuresInARow)
+	}
+}
+
+// TestAHungGIROIsCalledDown is watchpost D-275: an ask that is never
+// answered ends at its own timeout, so three in a row before any answer
+// call GIRO down - backed off, said Unavailable - inside a host's update,
+// never run out to its deadline as a cancel.
+func TestAHungGIROIsCalledDown(t *testing.T) {
+	was := askTimeout
+	askTimeout = 20 * time.Millisecond
+	defer func() { askTimeout = was }()
+	var a Asker
+	asked := 0
+	started := time.Now()
+	a.Burst(context.Background(), now, func(ctx context.Context, _ string) (int, string, []byte, error) {
+		asked++
+		<-ctx.Done() // GIRO never answers
+		return 0, "", nil, ctx.Err()
+	})
+	if took := time.Since(started); asked != failuresInARow || a.Outcome != Unavailable || !a.Paused(now) || took > 10*askTimeout*failuresInARow {
+		t.Errorf("a hung GIRO: %d asked in %v, %v, paused %v; want %d asks, each ended at its timeout, and Unavailable", asked, took, a.Outcome, a.Paused(now), failuresInARow)
+	}
+	if failuresInARow*was >= 60*time.Second {
+		t.Errorf("%d asks of %v do not fit a 60-second update", failuresInARow, was)
+	}
+}
+
+// TestADenialPausesForADay is watchpost D-247 and D-272: a 401 or 403 is
+// GIRO refusing this host - the burst stops and GIRO is left alone for a
+// day, said as Denied, across a restart too - never an answer that resets
+// the back-off.
 func TestADenialPausesForADay(t *testing.T) {
-	for _, status := range []int{401, 403, 410} {
+	for _, status := range []int{401, 403} {
 		var a Asker
 		asked := 0
 		a.Burst(context.Background(), now, func(context.Context, string) (int, string, []byte, error) {

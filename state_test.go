@@ -2,6 +2,7 @@ package ionomaps_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -90,10 +91,13 @@ func TestTheStateHoldsNoReading(t *testing.T) {
 	}
 }
 
-// TestABadStateIsRefused is watchpost D-213 and R-3.3: a state that is not
-// one this library wrote, or that would hold GIRO back or ask it from the
-// future, is refused with ErrBadState and leaves the library as new; an
-// empty one, a first run's, restores nothing and is no error.
+// TestABadStateIsRefused is watchpost D-213, R-3.3 and R2L-4: a state that
+// is not one this library wrote is refused with ErrBadState and leaves the
+// library as new; one whose GIRO part would hold GIRO back or ask it from
+// the future is refused for that part alone, GIRO starting as new and the
+// kept mean taken; one whose mean is out of bounds keeps GIRO's state; a
+// station code the seed does not name is dropped, never the state refused
+// over it; an empty one, a first run's, restores nothing and is no error.
 func TestABadStateIsRefused(t *testing.T) {
 	l, n, c := giroLibrary(t)
 	update(t, l)
@@ -109,32 +113,72 @@ func TestABadStateIsRefused(t *testing.T) {
 		return b
 	}
 	now := c.Now().Unix()
-	for name, state := range map[string][]byte{
-		"not JSON":                         []byte("{held"),
-		"another version":                  edit("v", 2),
-		"too big":                          append(edit("out", []string{}), bytes.Repeat([]byte(" "), 70_000)...),
-		"a burst in the future":            edit("burst", now+3600),
-		"a pause past a day":               edit("pause", now+25*3600),
-		"a back-off past fifteen":          edit("backoff", 3600),
-		"a station code not GIRO's":        edit("heard", map[string]int64{"al945": now - 60}),
-		"a station never seeded":           edit("heard", map[string]int64{"ZZ999": now - 60}),
-		"a reading time past the skew":     edit("heard", map[string]int64{"AL945": now + 3600}),
-		"a mean past a flux's bounds":      edit("f107", 900),
-		"a mean taken past the skew":       edit("f107at", now+3600),
-		"a rotation place below zero":      edit("poll", -1),
-		"a rotation place no list reaches": edit("poll", int64(9223372036854775807)),
-		"a left-out station not GIRO's":    edit("out", []string{"../x"}),
-	} {
+	restore := func(state []byte) (*ionomaps.Library, error) {
 		again, err := ionomaps.New(n, ionomaps.Options{Clock: c.Now})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := again.Restore(state); !errors.Is(err, ionomaps.ErrBadState) {
+		return again, again.Restore(state)
+	}
+	for name, state := range map[string][]byte{
+		"not JSON":        []byte("{held"),
+		"another version": edit("v", 2),
+		"too big":         append(edit("out", []string{}), bytes.Repeat([]byte(" "), 70_000)...),
+	} {
+		again, err := restore(state)
+		if !errors.Is(err, ionomaps.ErrBadState) {
 			t.Errorf("%s: restored with %v", name, err)
 			continue
 		}
 		if s := update(t, again); s.Reason != ionomaps.StationsNext {
 			t.Errorf("%s: after a refused state the reason is %v; want the library as new", name, s.Reason)
+		}
+	}
+	for name, state := range map[string][]byte{
+		"a burst in the future":            edit("burst", now+3600),
+		"a pause past a day":               edit("pause", now+25*3600),
+		"a back-off past fifteen":          edit("backoff", 3600),
+		"a reading time past the skew":     edit("heard", map[string]int64{"AL945": now + 3600}),
+		"a rotation place below zero":      edit("poll", -1),
+		"a rotation place no list reaches": edit("poll", int64(9223372036854775807)),
+	} {
+		again, err := restore(state)
+		if !errors.Is(err, ionomaps.ErrBadState) {
+			t.Errorf("%s: restored with %v", name, err)
+			continue
+		}
+		n.down[solarURL] = true // the solar file unread: a field only from the mean the state kept (R2L-4)
+		s, err := again.Update(context.Background(), ionomaps.UpdateOptions{})
+		delete(n.down, solarURL)
+		if err != nil || s.Reason != ionomaps.StationsNext {
+			t.Errorf("%s: GIRO's part refused: reason %v, %v; want GIRO as new and the kept mean drawn", name, s.Reason, err)
+		}
+	}
+	for name, state := range map[string][]byte{
+		"a mean past a flux's bounds": edit("f107", 900),
+		"a mean taken past the skew":  edit("f107at", now+3600),
+	} {
+		again, err := restore(state)
+		if !errors.Is(err, ionomaps.ErrBadState) {
+			t.Errorf("%s: restored with %v", name, err)
+			continue
+		}
+		if s := update(t, again); s.Reason == ionomaps.StationsNext {
+			t.Errorf("%s: the mean refused threw GIRO's state away too: %v", name, s.Reason)
+		}
+	}
+	for name, state := range map[string][]byte{
+		"a station code not GIRO's":     edit("heard", map[string]int64{"al945": now - 60}),
+		"a station never seeded":        edit("heard", map[string]int64{"ZZ999": now - 60}),
+		"a left-out station not GIRO's": edit("out", []string{"../x"}),
+	} {
+		again, err := restore(state)
+		if err != nil {
+			t.Errorf("%s: refused with %v; want the unknown code dropped", name, err)
+			continue
+		}
+		if s := update(t, again); s.Reason == ionomaps.StationsNext {
+			t.Errorf("%s: GIRO's state was not taken: %v", name, s.Reason)
 		}
 	}
 	if err := restarted(t, n, c, good).Restore(nil); err != nil {
