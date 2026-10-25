@@ -237,3 +237,8 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **`gm3 -grid-age`**: each scored moment is also predicted from the hybrid built on the grid that much older, at the moment's own time and from the same readings, as a product still holding that grid would show it; a moment with no grid that much older is left out of both, so the two are scored on the same pairs. The recorded fresh days hold a grid every 3 hours, so D-253's hour-old grid does not exist in them (the agent's error in D-253's evidence, D-265); the 3-hour age bounds the hourly default's cost from above.
 - **Test:** `TestAnOlderGridIsScoredBesideTheNewest`, its older grid sloped by latitude so the readings' fit cannot absorb it as one shift. **Mutant:** m028.
 
+## `tools/tables` under every P10 leg (watchpost D-268; D-93)
+
+- **The root:** the local `.a2dh.yml` declares `tools/tables` a Go root of its own, so golangci-lint, staticcheck and the control-flow and loop checks read it, not the density count alone (RC-12). The evidence's two modules stay skipped.
+- **Its two findings, fixed:** the IGRF table's and the export's reading loops were bounded only by their input (P10-02, `igrf.go`, `main.go`); each now stops at a line bound - 4,096 for an IGRF table (IAGA's runs to 199 lines), 65,536 for an export (268) - and refuses what runs past it. `TestAnInputPastItsBoundIsRefused` holds both, its export a shape the lines inside the bound fill exactly, so only the bound can refuse it; each bound's removal, applied by hand, fails it. P10: 0 live findings.
+

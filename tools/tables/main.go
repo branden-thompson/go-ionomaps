@@ -34,6 +34,10 @@ type table struct {
 // maxValues bounds a table: far past the refits' 237,600.
 const maxValues = 4 << 20
 
+// maxExportLines is the most lines an export is read to: one a solar level,
+// month and Fourier term, and its comments, far under it.
+const maxExportLines = 1 << 16
+
 var errShape = errors.New("tables: the export has no shape line, or its values do not fill it")
 
 // parseExport reads an export: comment lines first, one of them its shape,
@@ -42,7 +46,8 @@ func parseExport(r io.Reader) (table, error) {
 	var t table
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	for sc.Scan() {
+	line := 0
+	for ; line < maxExportLines && sc.Scan(); line++ {
 		line := strings.TrimSpace(sc.Text())
 		if strings.HasPrefix(line, "# shape:") {
 			if _, err := fmt.Sscanf(line, "# shape: %d %d %d %d", &t.levels, &t.months, &t.terms, &t.harmonics); err != nil {
@@ -67,6 +72,9 @@ func parseExport(r io.Reader) (table, error) {
 		if len(t.values) > maxValues {
 			return table{}, errShape
 		}
+	}
+	if line == maxExportLines && sc.Scan() {
+		return table{}, errShape // longer than an export's lines can be
 	}
 	if err := sc.Err(); err != nil {
 		return table{}, err

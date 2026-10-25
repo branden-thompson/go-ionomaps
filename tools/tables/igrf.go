@@ -60,7 +60,8 @@ func loadIGRF(path string) (igrf, error) {
 // rows, the model's degree the highest among them.
 func (m *igrf) readRows(sc *bufio.Scanner) ([]igrfRow, error) {
 	var rows []igrfRow
-	for sc.Scan() {
+	line := 0
+	for ; line < maxIGRFLines && sc.Scan(); line++ {
 		fields := strings.Fields(sc.Text())
 		if len(fields) > 3 && fields[0] == "g/h" {
 			for _, e := range fields[3 : len(fields)-1] {
@@ -91,8 +92,15 @@ func (m *igrf) readRows(sc *bufio.Scanner) ([]igrfRow, error) {
 		rows = append(rows, r)
 		m.degree = max(m.degree, n)
 	}
+	if line == maxIGRFLines && sc.Scan() {
+		return nil, errIGRF // longer than any IAGA table: not one
+	}
 	return rows, sc.Err()
 }
+
+// maxIGRFLines is the longest IGRF table read: IAGA's runs to about two
+// hundred lines, its coefficients to degree 13.
+const maxIGRFLines = 4096
 
 // fill lays the rows into the model's coefficient tables, at each epoch and
 // for the secular variation; a row of the wrong length, or an order past its

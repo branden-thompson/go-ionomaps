@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"math"
 	"os"
 	"strconv"
@@ -75,5 +76,27 @@ func TestTheMagneticModelIsNotNearItsEnd(t *testing.T) {
 	}
 	if end := model.epochs[len(model.epochs)-1] + 5; decimalYear(time.Now()) > end-1 {
 		t.Errorf("IGRF's last model runs to %v and it is within a year of it: regenerate the magnetic tables from the next IGRF (D-107)", end)
+	}
+}
+
+// TestAnInputPastItsBoundIsRefused is RC-12 (watchpost D-268): the tables'
+// readers stop at a line bound and refuse what runs past it - an IGRF table
+// longer than IAGA's and an export longer than its lines can be - so neither
+// loop is bounded by its input alone; at the bound itself nothing is refused
+// for its length.
+func TestAnInputPastItsBoundIsRefused(t *testing.T) {
+	var m igrf
+	if _, err := m.readRows(bufio.NewScanner(strings.NewReader(strings.Repeat("#\n", maxIGRFLines+1)))); err == nil {
+		t.Error("an IGRF table a line past the bound was read")
+	}
+	var at igrf
+	if _, err := at.readRows(bufio.NewScanner(strings.NewReader(strings.Repeat("#\n", maxIGRFLines)))); err != nil {
+		t.Errorf("an IGRF table at the bound was refused for its length: %v", err)
+	}
+	// A shape the lines inside the bound fill exactly, then one line past it,
+	// so only the bound can refuse it.
+	long := fmt.Sprintf("# shape: %d 1 1 1\n", maxExportLines-1) + strings.Repeat("1\n", maxExportLines-1) + "# past the bound\n"
+	if _, err := parseExport(strings.NewReader(long)); err == nil {
+		t.Error("an export a line past the bound was read")
 	}
 }
