@@ -129,10 +129,10 @@ func TestAShiftIsHeldToTheFloor(t *testing.T) {
 	}
 }
 
-// TestAnImplausibleReadingIsRefused is watchpost D-248: a reading whose
-// foF2 is past FoF2Bound from its background, or whose M(3000)F2 is past
-// M3000Bound, is refused and counted, never assimilated; three such
-// readings move the field nowhere.
+// TestAnImplausibleReadingIsRefused is watchpost D-248 and D-279: a reading
+// whose foF2 is past FoF2Bound from its background, or past FoF2Fold times
+// it either way, or whose M(3000)F2 is past M3000Bound, is refused and
+// counted, never assimilated; three such readings move the field nowhere.
 func TestAnImplausibleReadingIsRefused(t *testing.T) {
 	wild := []Reading{
 		{Lat: 51.5, Lon: -0.1, FoF2: 20, M3000: 3, HasM: true},
@@ -142,6 +142,18 @@ func TestAnImplausibleReadingIsRefused(t *testing.T) {
 	r, err := Onto(flat(7), flat(3), wild)
 	if err != nil || r.Used != 0 || r.Implausible != 3 || r.FoF2[cellOf(-33.9, 151.2)] != 7 {
 		t.Errorf("three readings 13 MHz over the grid: %v, %d used, %d refused, Sydney %v; want none used, 3 refused, 7", err, r.Used, r.Implausible, r.FoF2[cellOf(-33.9, 151.2)])
+	}
+	night := []Reading{
+		{Lat: 51.5, Lon: -0.1, FoF2: 9.5}, // 7.5 MHz over a 2 MHz night, inside FoF2Bound, a fold of 4.75
+		{Lat: 51.6, Lon: -0.2, FoF2: 0.4}, // a fold of 5 under it
+		{Lat: 51.4, Lon: 0.0, FoF2: 8.8},  // a fold of 4.4: inside both bounds
+	}
+	r, err = Onto(flat(2), flat(3), night)
+	if err != nil || r.Implausible != 2 {
+		t.Errorf("a 2 MHz night, readings 4.75 and 5 times over and under it and one 4.4 times: %v, %d refused; want the two past FoF2Fold", err, r.Implausible)
+	}
+	if !withinFold(5, 0) || !withinFold(5, math.NaN()) {
+		t.Error("a background not above zero bounded a reading by its fold")
 	}
 	edge := []Reading{
 		{Lat: 45.1, Lon: -83.6, FoF2: 7 + FoF2Bound - 0.01, M3000: 3 + M3000Bound + 0.5, HasM: true},

@@ -31,13 +31,18 @@ type Result struct {
 	NearestUnscored []bool
 }
 
-// The plausibility bounds (watchpost D-248): a reading whose residual
-// against its background is larger is refused, not assimilated. Each sits
-// above the largest residual of every reading on PLAN's week and the fresh
-// days - foF2 7.19 MHz, M(3000)F2 1.48 - so none of those is refused, and
-// a station claiming foF2 20 MHz over a 7 MHz grid is (gm3 -residuals).
+// The plausibility bounds (watchpost D-248, D-279): a reading whose
+// residual against its background is larger is refused, not assimilated,
+// and so is one whose foF2 is more than FoF2Fold times its background, or
+// under a FoF2Fold-th of it - the bound that holds at night, where foF2 is a
+// few MHz and 8 MHz is no bound at all. Each sits above the largest of every
+// reading on PLAN's week and the fresh days - foF2 7.19 MHz and a fold of
+// 3.85, M(3000)F2 1.48 - so none of those is refused, and a station
+// claiming foF2 20 MHz over a 7 MHz grid, or 9.5 over 2, is (gm3
+// -residuals).
 const (
 	FoF2Bound  = 8.0 // MHz
+	FoF2Fold   = 4.5
 	M3000Bound = 2.0
 )
 
@@ -72,7 +77,7 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 		if !ok || !(x.FoF2 > 0) {
 			continue
 		}
-		if math.Abs(x.FoF2-b) > FoF2Bound {
+		if math.Abs(x.FoF2-b) > FoF2Bound || !withinFold(x.FoF2, b) {
 			r.Implausible++
 			continue
 		}
@@ -148,4 +153,16 @@ func nearest(used []Reading, lat, lon float64) (float32, bool) {
 		}
 	}
 	return float32(best), unscored
+}
+
+// withinFold is whether foF2 lies within FoF2Fold of its background either
+// way; a background not above zero bounds nothing by its fold.
+func withinFold(foF2, background float64) bool {
+	if !(background > 0) {
+		return true // no fold to take: FoF2Bound alone decides
+	}
+	if foF2 > background*FoF2Fold {
+		return false // over the background by more than the fold
+	}
+	return foF2*FoF2Fold >= background
 }

@@ -263,3 +263,8 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **The mirror test** (RC-13): fails where it could check, skips only where no harness is.
 - **RL-5:** twenty hand mutants encoded, m043 to m062, over the answers, the reach, the lower limit and its grid, GloTEC's reader and index, the limits' equations and the climatology. Five first survived or failed to build: two named the wrong test, two left a variable unused, and m061, the reach ignoring the MUF, survived the reach-against-Path test (which meets no cell above its MUF that the lower limit leaves open) and is killed by `TestAFrequencysReachIsAField`'s 25 MHz.
 
+## REVIEW's red team, round 2: the library's remediation, part 3 (watchpost D-279; D-97, A-31)
+
+- **A relative plausibility bound** (D-97, A-31): `FoF2Fold`, 4.5 either way, beside `FoF2Bound`'s 8 MHz, so a station reading 9.5 MHz over a 2 MHz night, inside 8 MHz, is refused. Set from `gm3 -residuals` at 60cd0b4 (clean tree): the largest fold 3.85 on PLAN's week, 2.28 on the fresh days. `TestAnImplausibleReadingIsRefused` adds a night's readings over and under the fold and one inside it. Mutants m063 and m064; m022 re-pointed. The first gate failed on m022's anchor and on `internal/assimilate`'s density, 1.88 over 8 with the new function's one guard; its "over" side is now a guard of its own, 2.00 (the failed row kept in `gate-runs.md`).
+- **G-M3 with the bound:** every figure and verdict on the fresh days unchanged from the run at 3c2da5a, so the bound refuses none of their readings; the committed run's figures are in the evidence folder's `gm3/d279-verdict.md`.
+

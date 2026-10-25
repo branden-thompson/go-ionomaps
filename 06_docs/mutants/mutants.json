@@ -214,8 +214,8 @@
     "row": "R-3.3",
     "what": "a reading 13 MHz over its background is assimilated",
     "file": "internal/assimilate/onto.go",
-    "old": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound {",
-    "new": "\t\tif math.Abs(x.FoF2-b) > 1e9 {",
+    "old": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound || !withinFold(x.FoF2, b) {",
+    "new": "\t\tif math.Abs(x.FoF2-b) > 1e9 || !withinFold(x.FoF2, b) {",
     "package": "./internal/assimilate",
     "test": "TestAnImplausibleReadingIsRefused"
   },
@@ -618,5 +618,25 @@
     "new": "\tif math.Abs(m[0]) < 0 || (m[0] < 0 && math.Abs(m[1]) < 0) {",
     "package": ".",
     "test": "TestTheReachsLowerLimitIsHeldToTheCircuit"
+  },
+  {
+    "id": "m063",
+    "row": "watchpost D-279",
+    "what": "a reading far past its background's fold, inside 8 MHz, is assimilated",
+    "file": "internal/assimilate/onto.go",
+    "old": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound || !withinFold(x.FoF2, b) {",
+    "new": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound {",
+    "package": "./internal/assimilate",
+    "test": "TestAnImplausibleReadingIsRefused"
+  },
+  {
+    "id": "m064",
+    "row": "watchpost D-279",
+    "what": "a reading far under its background's fold is assimilated",
+    "file": "internal/assimilate/onto.go",
+    "old": "\treturn foF2*FoF2Fold >= background\n}",
+    "new": "\treturn true\n}",
+    "package": "./internal/assimilate",
+    "test": "TestAnImplausibleReadingIsRefused"
   }
 ]
