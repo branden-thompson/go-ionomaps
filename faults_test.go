@@ -3,6 +3,7 @@ package ionomaps_test
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,5 +118,22 @@ func TestAGridHeldPastItsAgeIsNamed(t *testing.T) {
 	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
 	if err != nil || s.Background.FoF2 != ionomaps.Climatology || !slices.Equal(s.Inputs.Unread, []string{"GloTEC"}) || s.Reason != ionomaps.Partial {
 		t.Errorf("the grid held 70 minutes, the index naming no newer: background %v, unread %v, reason %v, error %v; want the climatology, GloTEC named, Partial", s.Background.FoF2, s.Inputs.Unread, s.Reason, err)
+	}
+}
+
+// TestAStaleIndexFetchesNoGrid is watchpost R2C-7 (RL-2's rule): an index
+// whose newest grid is past gridMaxAge costs the index alone - no grid is
+// fetched to be thrown away - and GloTEC is named unread.
+func TestAStaleIndexFetchesNoGrid(t *testing.T) {
+	l, n, _ := library(t)
+	stale := n.list(t, start.Add(-70*time.Minute), 7)
+	s, err := settled(l, context.Background(), ionomaps.UpdateOptions{})
+	for _, url := range n.take() {
+		if strings.HasSuffix(url, stale) {
+			t.Errorf("the grid valid 70 minutes ago was fetched: %s", url)
+		}
+	}
+	if err != nil || s.Background.FoF2 != ionomaps.Climatology || !slices.Contains(s.Inputs.Unread, "GloTEC") {
+		t.Errorf("a stale index: background %v, unread %v, %v; want the climatology and GloTEC named", s.Background.FoF2, s.Inputs.Unread, err)
 	}
 }

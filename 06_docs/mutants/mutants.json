@@ -4,8 +4,8 @@
     "row": "R-5.4",
     "what": "a snapshot short of a GloTEC grid past its age is said Fresh",
     "file": "update.go",
-    "old": "{\"GloTEC\", l.grid == nil || now.Sub(l.grid.Valid) > gridMaxAge},",
-    "new": "{\"GloTEC\", l.grid == nil},",
+    "old": "{UnreadGloTEC, l.heldGrid(now) == nil},",
+    "new": "{UnreadGloTEC, l.grid == nil},",
     "package": ".",
     "test": "TestAGridHeldPastItsAgeIsNamed"
   },
@@ -368,5 +368,255 @@
     "new": "\terrG := l.giro.Import(g, now)\n\tif errF == nil && errG == nil && f.OK {\n\t\tl.solar = f\n\t}\n",
     "package": ".",
     "test": "TestABadStateIsRefused"
+  },
+  {
+    "id": "m038",
+    "row": "watchpost D-280",
+    "what": "a docs-lane refusal before any leg is logged as a run",
+    "file": "scripts/gate",
+    "old": "    exit 1\n  fi\n  if other=",
+    "new": "    log_run 1\n    exit 1\n  fi\n  if other=",
+    "package": ".",
+    "test": "TestADocsLaneRefusalIsNoRun"
+  },
+  {
+    "id": "m039",
+    "row": "watchpost RP-5",
+    "what": "sunAt passes over steps the sun could have risen in",
+    "file": "answers.go",
+    "old": "const sunStepTurn = 0.0437",
+    "new": "const sunStepTurn = 0.01",
+    "package": ".",
+    "test": "TestTheSunsStepsPassedOverChangeNothing"
+  },
+  {
+    "id": "m040",
+    "row": "watchpost RP-5",
+    "what": "the kept year fraction is given for another moment",
+    "file": "internal/magcoords/magcoords.go",
+    "old": "if last := lastYear.Load(); last != nil && last.sec == sec && last.nsec == nsec {",
+    "new": "if last := lastYear.Load(); last != nil && last.sec == sec {",
+    "package": "./internal/magcoords",
+    "test": "TestTheYearFractionIsTheMoments"
+  },
+  {
+    "id": "m041",
+    "row": "watchpost R2C-7",
+    "what": "a grid past its age in the index is fetched to be thrown away",
+    "file": "update.go",
+    "old": "\tif !gridUsable(valid, listed, now) {",
+    "new": "\tif !gridUsable(valid, listed, valid) {",
+    "package": ".",
+    "test": "TestAStaleIndexFetchesNoGrid"
+  },
+  {
+    "id": "m042",
+    "row": "R-3.5 (watchpost R2C-9)",
+    "what": "a path's origin is not checked",
+    "file": "answers.go",
+    "old": "\t\terr = checkPlaces([]LatLon{from})\n",
+    "new": "\t\terr = checkPlaces(nil)\n",
+    "package": ".",
+    "test": "TestTheAnswersRefuseBadInput"
+  },
+  {
+    "id": "m043",
+    "row": "watchpost RL-5: P.533-14 eq. (3)",
+    "what": "the basic MUF's gyrofrequency term is doubled",
+    "file": "internal/limits/muf.go",
+    "old": "+ fH/2*(1-d/dmax) // (3)",
+    "new": "+ fH*(1-d/dmax) // (3)",
+    "package": "./internal/limits",
+    "test": "TestPathMUFFollowsP533"
+  },
+  {
+    "id": "m044",
+    "row": "watchpost RL-5: P.533-14 eq. (6)",
+    "what": "B's seasonal term is ten times its size",
+    "file": "internal/limits/muf.go",
+    "old": "(0.0215+0.005*math.Sin(7.854/x-1.9635))",
+    "new": "(0.0215+0.05*math.Sin(7.854/x-1.9635))",
+    "package": "./internal/limits",
+    "test": "TestPathMUFFollowsP533"
+  },
+  {
+    "id": "m045",
+    "row": "watchpost RL-5: P.1239-4 eq. (18)",
+    "what": "foE's night floor is ten times its size",
+    "file": "internal/limits/foe.go",
+    "old": "floor := 0.004 * math.Pow(1+0.021*flux, 2) // (18)",
+    "new": "floor := 0.04 * math.Pow(1+0.021*flux, 2) // (18)",
+    "package": "./internal/limits",
+    "test": "TestFoEFollowsP1239"
+  },
+  {
+    "id": "m046",
+    "row": "watchpost RL-5: P.1239-4 eq. (15b)",
+    "what": "foE's high-latitude branch starts at 42 degrees",
+    "file": "internal/limits/foe.go",
+    "old": "if math.Abs(lat) >= 32 {",
+    "new": "if math.Abs(lat) >= 42 {",
+    "package": "./internal/limits",
+    "test": "TestFoEFollowsP1239"
+  },
+  {
+    "id": "m047",
+    "row": "watchpost RL-5: P.1239-4 eq. (17d)",
+    "what": "foE decays after sunset at a tenth of the rate",
+    "file": "internal/limits/foe.go",
+    "old": "math.Exp(-1.4*sinceSunset)",
+    "new": "math.Exp(-0.14*sinceSunset)",
+    "package": "./internal/limits",
+    "test": "TestFoEFollowsP1239"
+  },
+  {
+    "id": "m048",
+    "row": "watchpost RL-5: P.533-14 eq. (20)",
+    "what": "the absorption is one hop's whatever the hops",
+    "file": "internal/limits/absorption.go",
+    "old": "return float64(hops) * (1 + r12Absorbed*r12) * meanTerm",
+    "new": "return (1 + r12Absorbed*r12) * meanTerm",
+    "package": "./internal/limits",
+    "test": "TestDaytimeAbsorptionClosesTheLowBands"
+  },
+  {
+    "id": "m049",
+    "row": "watchpost RL-5: P.533-14 eq. (20)",
+    "what": "the absorption's zenith factor is not taken against noon's",
+    "file": "internal/limits/absorption.go",
+    "old": "* f(p.Chi) / f(p.ChiNoon)",
+    "new": "* f(p.Chi)",
+    "package": "./internal/limits",
+    "test": "TestDaytimeAbsorptionClosesTheLowBands"
+  },
+  {
+    "id": "m050",
+    "row": "watchpost RL-5: P.533-14 eq. (16)",
+    "what": "the mirror height's base is 15 km low",
+    "file": "internal/limits/budget.go",
+    "old": "hr = 115 + h*j + u*d // (16)",
+    "new": "hr = 100 + h*j + u*d // (16)",
+    "package": "./internal/limits",
+    "test": "TestTheMirrorHeightFollowsP533"
+  },
+  {
+    "id": "m051",
+    "row": "watchpost RL-5: NmF2 to foF2 (plasma frequency)",
+    "what": "foF2 is read from NmF2 with the wrong constant",
+    "file": "internal/glotec/glotec.go",
+    "old": "return 8.98e-6 * math.Sqrt(nmF2)",
+    "new": "return 8.98e-5 * math.Sqrt(nmF2)",
+    "package": "./internal/glotec",
+    "test": "TestFoF2FromNmF2"
+  },
+  {
+    "id": "m052",
+    "row": "watchpost RL-5: G2.2",
+    "what": "a cell past its bounds is taken unless its foF2 is below zero",
+    "file": "internal/glotec/glotec.go",
+    "old": "\tif !inBounds {\n\t\treturn false\n\t}\n\tg.FoF2[i]",
+    "new": "\tif !inBounds && fo < 0 {\n\t\treturn false\n\t}\n\tg.FoF2[i]",
+    "package": "./internal/glotec",
+    "test": "TestOutOfRangeCellsAreRejectedAndCounted"
+  },
+  {
+    "id": "m053",
+    "row": "watchpost RL-5: G4.2",
+    "what": "a grid stamped up to a day after now is taken from the index",
+    "file": "internal/glotec/index.go",
+    "old": "usable := err == nil && !t.After(latest) && t.After(valid)",
+    "new": "usable := err == nil && !t.After(latest.Add(24*time.Hour)) && t.After(valid)",
+    "package": "./internal/glotec",
+    "test": "TestTheNewestGridIsReadFromTheIndex"
+  },
+  {
+    "id": "m054",
+    "row": "watchpost RL-5: PyIRI 0.1.7 (R-7.3)",
+    "what": "a parameter is read from the wrong end of the solar levels",
+    "file": "internal/climatology/day.go",
+    "old": "return min*(100-index)/100 + max*index/100",
+    "new": "return max*(100-index)/100 + min*index/100",
+    "package": "./internal/climatology",
+    "test": "TestTheClimatologyTakesF107"
+  },
+  {
+    "id": "m055",
+    "row": "watchpost RL-5: PyIRI 0.1.7 (R-7.3)",
+    "what": "R12 is taken from F10.7 by the wrong root",
+    "file": "internal/climatology/day.go",
+    "old": "return (-b + math.Sqrt(disc)) / (2 * a)",
+    "new": "return (-b - math.Sqrt(disc)) / (2 * a)",
+    "package": "./internal/climatology",
+    "test": "TestHighFluxFollowsPyIRI"
+  },
+  {
+    "id": "m056",
+    "row": "watchpost RL-5: PyIRI 0.1.7, real_FS_func",
+    "what": "the Fourier series' sine and cosine are swapped",
+    "file": "internal/climatology/climatology.go",
+    "old": "f[2*k-1], f[2*k] = math.Cos(phase), math.Sin(phase)",
+    "new": "f[2*k-1], f[2*k] = math.Sin(phase), math.Cos(phase)",
+    "package": "./internal/climatology",
+    "test": "TestTheFallbackMatchesPyIRI"
+  },
+  {
+    "id": "m057",
+    "row": "watchpost RL-5: R-2.2",
+    "what": "a band the MUF cuts through is said above the MUF",
+    "file": "answers.go",
+    "old": "\t\t\tif b.LowMHz() < limitMHz {\n\t\t\t\tst.Status = Open",
+    "new": "\t\t\tif b.HighMHz() < limitMHz {\n\t\t\t\tst.Status = Open",
+    "package": ".",
+    "test": "TestEachBandsStatusForAPath"
+  },
+  {
+    "id": "m058",
+    "row": "watchpost RL-5: R-2.5 (watchpost D-24)",
+    "what": "a disturbance closes bands above its frequency too",
+    "file": "answers.go",
+    "old": "if b.Status == Open && b.Band.LowMHz() < mhz {",
+    "new": "if b.Status == Open {",
+    "package": ".",
+    "test": "TestADisturbanceMarksTheBandsItCovers"
+  },
+  {
+    "id": "m059",
+    "row": "watchpost RL-5: R-2.4 (D-70)",
+    "what": "a circuit short of +13 dB for want of absorption alone is said weak",
+    "file": "lower.go",
+    "old": "\tif bare, okB := c.snr(f, false); okB && bare >= limits.RequiredSNR {\n\t\treturn Absorbed",
+    "new": "\tif bare, okB := c.snr(f, true); okB && bare >= limits.RequiredSNR {\n\t\treturn Absorbed",
+    "package": ".",
+    "test": "TestDaytimeAbsorptionClosesTheLowBands"
+  },
+  {
+    "id": "m060",
+    "row": "watchpost RL-5: R-2.9",
+    "what": "the skip zone is measured to the furthest reached cell",
+    "file": "reach.go",
+    "old": "skip = math.Min(skip, limits.Distance(origin.Lat, origin.Lon, lat, lon))",
+    "new": "skip = math.Max(math.Min(skip, 1e9), limits.Distance(origin.Lat, origin.Lon, lat, lon))",
+    "package": ".",
+    "test": "TestTheSkipZoneIsReturned"
+  },
+  {
+    "id": "m061",
+    "row": "watchpost RL-5: R-2.9",
+    "what": "a frequency above a cell's MUF reaches it where the lower limit allows",
+    "file": "reach.go",
+    "old": "\t\tif mhz >= muf {\n\t\t\tcontinue\n\t\t}",
+    "new": "\t\tif mhz >= muf+1e9 {\n\t\t\tcontinue\n\t\t}",
+    "package": ".",
+    "test": "TestAFrequencysReachIsAField"
+  },
+  {
+    "id": "m062",
+    "row": "watchpost RL-5: D-227",
+    "what": "a cell near the +13 dB threshold is decided by the interpolation",
+    "file": "lowergrid.go",
+    "old": "\tif math.Abs(m[0]) < lowerNearDB || (m[0] < 0 && math.Abs(m[1]) < lowerNearDB) {",
+    "new": "\tif math.Abs(m[0]) < 0 || (m[0] < 0 && math.Abs(m[1]) < 0) {",
+    "package": ".",
+    "test": "TestTheReachsLowerLimitIsHeldToTheCircuit"
   }
 ]

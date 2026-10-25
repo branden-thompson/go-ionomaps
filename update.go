@@ -59,20 +59,20 @@ const drapMaxAge = time.Hour
 const scalesMaxAge = time.Hour
 
 // UpdateOptions are one update's settings, the host's to give each time,
-// so a change needs no new library and no new burst (R-9.6, A-30).
+// so a change needs no new library and no new burst (R-9.6).
 type UpdateOptions struct {
 	// CorrectNoReadings moves GloTEC's foF2 by the typical offset when no
-	// station readings are assimilated (watchpost D-105 c); off, GloTEC is
+	// station readings are assimilated; off, GloTEC is
 	// shown as it is. The snapshot's Offset.Corrected says when it applied.
 	CorrectNoReadings bool
 
-	// Noise is the man-made noise the reference circuit's receiver hears
-	// (watchpost D-187), Residential by default; the band statuses' lower
+	// Noise is the man-made noise the reference circuit's receiver hears,
+	// Residential by default; the band statuses' lower
 	// limit moves with it. A change needs no request.
 	Noise Noise
 
 	// NoStations asks GIRO nothing and puts no station's reading on the
-	// field: NOAA's and the climatology's alone (watchpost D-214), for a
+	// field: NOAA's and the climatology's alone, for a
 	// host whose use GIRO's terms do not cover, or that wants none. The
 	// snapshot's Inputs.NoStations says so. A change needs no request:
 	// readings already held leave the field, and come back when it is
@@ -80,14 +80,14 @@ type UpdateOptions struct {
 	NoStations bool
 }
 
-// Update asks NOAA for what is new and returns the hour's snapshot (G4.2,
-// watchpost D-151): the daily solar file first, at most once a day, then
+// Update asks NOAA for what is new and returns the hour's snapshot (G4.2):
+// the daily solar file first, at most once a day, then
 // GloTEC's newest grid, found through its index; foF2 from GloTEC (the climatology,
 // named, without it or past an hour old), M(3000)F2 from the climatology,
 // MUF(3000) their product, with GIRO's readings up to an hour old
-// assimilated onto both (G5, D-64), NearestKm and NearestUnscored saying
+// assimilated onto both (G5), NearestKm and NearestUnscored saying
 // where, and the stations' offset against GloTEC (R-9.6). When GIRO is due it returns NOAA's snapshot said StationsNext, and
-// the next call makes GIRO's burst (D-63). Within ten minutes of the last
+// the next call makes GIRO's burst. Within ten minutes of the last
 // ask, or while backing off, the last snapshot comes back said too soon
 // (R-5.4), rebuilt from what is held when the options have changed, nothing
 // asked. An update its context stops - a deadline, or the host's cancel - is
@@ -96,7 +96,7 @@ type UpdateOptions struct {
 // ErrNoField, and the context's own error when it stopped the update, and
 // says when NOAA is asked again.
 //
-// Source: watchpost D-39, D-63, D-64, D-101, D-104, D-105, D-111, D-151; this library.
+// Source: NOAA SWPC's GloTEC and F10.7; GIRO's DIDBase; this library.
 func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -214,6 +214,45 @@ func (l *Library) solarUsable(now time.Time) bool {
 	return l.solar.Age(now) <= solarMaxAge
 }
 
+// gridUsable is whether a grid valid at a time may be the background: one
+// listed, or held, up to gridMaxAge old (A-29 (1): one rule, read wherever
+// a grid's age is asked).
+func gridUsable(valid time.Time, ok bool, now time.Time) bool {
+	if !ok {
+		return false // none listed or held
+	}
+	return now.Sub(valid) <= gridMaxAge
+}
+
+// heldGrid is the grid held when it is usable at now; nil otherwise.
+func (l *Library) heldGrid(now time.Time) *glotec.Grid {
+	if l.grid == nil {
+		return nil // none held
+	}
+	if !gridUsable(l.grid.Valid, true, now) {
+		return nil // past its age: the climatology, as Background says
+	}
+	return l.grid
+}
+
+// drapUsable is whether the D-RAP table held may say a disturbance: one
+// held, up to drapMaxAge old.
+func (l *Library) drapUsable(now time.Time) bool {
+	if l.drap == nil {
+		return false // none held
+	}
+	return now.Sub(l.drap.Valid) <= drapMaxAge
+}
+
+// scalesUsable is whether the scales held may be carried: ones held, up to
+// scalesMaxAge old.
+func scalesUsable(held *scales.Levels, now time.Time) bool {
+	if held == nil {
+		return false // none held
+	}
+	return now.Sub(held.Valid) <= scalesMaxAge
+}
+
 // short names each of NOAA's inputs the snapshot will lack - none held, or
 // the one held past its age - that the update has not named already, so a
 // snapshot short of any is never said Fresh (watchpost D-239): whatever left
@@ -223,10 +262,10 @@ func (l *Library) short(now time.Time) {
 		name  string
 		lacks bool
 	}{
-		{"solar", !l.solarUsable(now)},
-		{"GloTEC", l.grid == nil || now.Sub(l.grid.Valid) > gridMaxAge},
-		{"D-RAP", l.drap == nil || now.Sub(l.drap.Valid) > drapMaxAge},
-		{"scales", l.scales == nil || now.Sub(l.scales.Valid) > scalesMaxAge},
+		{UnreadSolar, !l.solarUsable(now)},
+		{UnreadGloTEC, l.heldGrid(now) == nil},
+		{UnreadDRAP, !l.drapUsable(now)},
+		{UnreadScales, !scalesUsable(l.scales, now)},
 	}
 	for _, in := range lacking {
 		if in.lacks && !slices.Contains(l.unread, in.name) {
@@ -278,10 +317,10 @@ func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response
 func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool) {
 	idx, ok, refused := l.ask(ctx, glotecIndex, Validators{})
 	if !ok {
-		return l.missed("GloTEC", refused) // the grid held stays, and its age says so; else the climatology, as Background says
+		return l.missed(UnreadGloTEC, refused) // the grid held stays, and its age says so; else the climatology, as Background says
 	}
 	name, valid, listed := glotec.Newest(idx.Body, now)
-	if !listed || now.Sub(valid) > gridMaxAge {
+	if !gridUsable(valid, listed, now) {
 		return false // no grid to use: short names GloTEC unread, and none is fetched to be thrown away
 	}
 	if name == l.gridName {
@@ -293,11 +332,11 @@ func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool)
 	}
 	r, ok, refused := l.ask(ctx, glotecIndex+name, Validators{})
 	if !ok {
-		return l.missed("GloTEC", refused)
+		return l.missed(UnreadGloTEC, refused)
 	}
 	g, err := glotec.Read(r.Body, now)
 	if err != nil {
-		l.unread = append(l.unread, "GloTEC")
+		l.unread = append(l.unread, UnreadGloTEC)
 		return false // a changed format: the grid held stays, and its age says so
 	}
 	l.grid, l.gridName = &g, name
@@ -334,7 +373,7 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 	}
 	r, ok, refused := l.ask(ctx, solarFile, l.solarVal)
 	if !ok {
-		return l.missed("solar", refused) // the mean held stands, if one is
+		return l.missed(UnreadSolar, refused) // the mean held stands, if one is
 	}
 	l.solarDay = today
 	if r.Status != statusOK {
@@ -342,7 +381,7 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 	}
 	l.solar = solar.Hold(l.solar, r.Body, now)
 	if !l.solar.Taken.Equal(now) {
-		l.unread = append(l.unread, "solar") // the mean held stands
+		l.unread = append(l.unread, UnreadSolar) // the mean held stands
 		return false
 	}
 	l.solarVal = r.Validators // the mean is this file's
@@ -355,14 +394,14 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool) {
 	r, ok, refused := l.ask(ctx, drapTable, l.drapVal)
 	if !ok {
-		return l.missed("D-RAP", refused)
+		return l.missed(UnreadDRAP, refused)
 	}
 	if r.Status != statusOK {
 		return false // unchanged since it was read: the table held stands
 	}
 	g, err := drap.ParseTable(r.Body, now)
 	if err != nil {
-		l.unread = append(l.unread, "D-RAP")
+		l.unread = append(l.unread, UnreadDRAP)
 		return false
 	}
 	l.drap, l.drapVal = &g, r.Validators
@@ -376,14 +415,14 @@ func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool)
 func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused bool) {
 	r, ok, refused := l.ask(ctx, scalesFile, l.scalesVal)
 	if !ok {
-		return l.missed("scales", refused)
+		return l.missed(UnreadScales, refused)
 	}
 	if r.Status != statusOK {
 		return false // unchanged since it was read: the levels held stand
 	}
 	s, err := scales.Read(r.Body, now)
 	if err != nil {
-		l.unread = append(l.unread, "scales")
+		l.unread = append(l.unread, UnreadScales)
 		return false
 	}
 	l.scales, l.scalesVal = &s, r.Validators
@@ -394,7 +433,7 @@ func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused boo
 // a zero valid time, when none was read or the last is over scalesMaxAge
 // old (watchpost D-88: never level 0).
 func scalesOf(held *scales.Levels, now time.Time) Scales {
-	if held == nil || now.Sub(held.Valid) > scalesMaxAge {
+	if !scalesUsable(held, now) {
 		return Scales{R: ScaleUnset, S: ScaleUnset, G: ScaleUnset}
 	}
 	s := Scales{R: held.R, S: held.S, G: held.G, Valid: held.Valid, Outlook: make([]DayScale, len(held.Days))}
@@ -409,10 +448,7 @@ func scalesOf(held *scales.Levels, now time.Time) Scales {
 // learned from, and the no-readings correction moves GloTEC's foF2 when no
 // reading is assimilated (R-9.6).
 func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
-	g := l.grid
-	if g != nil && now.Sub(g.Valid) > gridMaxAge {
-		g = nil
-	}
+	g := l.heldGrid(now)
 	b := l.bg.background(now, l.solar.Mean, g)
 	res, oldest, newest := assimilate.Result{FoF2: b.FoF2, M3000: b.M3000}, time.Time{}, time.Time{}
 	if !o.NoStations {
@@ -454,10 +490,10 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 	if s.Background.FoF2 == GloTEC {
 		s.Inputs.GloTECValid, s.Inputs.GloTECFilled = g.Valid, b.Filled
 	}
-	if d := l.drap; d != nil && now.Sub(d.Valid) <= drapMaxAge {
+	if l.drapUsable(now) {
 		s.Disturbance = newField()
-		copy(s.Disturbance.Values, d.MHz)
-		s.Inputs.DRAPValid = d.Valid
+		copy(s.Disturbance.Values, l.drap.MHz)
+		s.Inputs.DRAPValid = l.drap.Valid
 	}
 	return s
 }

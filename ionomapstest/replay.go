@@ -40,9 +40,9 @@ type Options struct {
 	WithoutGloTEC bool
 
 	// Answers answer the inputs they name in place of what is recorded, so
-	// a host can drive the library into each state it must say (RL-12):
-	// "GloTEC" (its index and grids), "solar", "D-RAP" or "scales" - the
-	// names Inputs.Unread uses - or a station's code. A 200 with a body
+	// a host can drive the library into each state it must say:
+	// ionomaps.UnreadGloTEC (its index and grids), UnreadSolar, UnreadDRAP
+	// or UnreadScales - the names Inputs.Unread uses - or a station's code. A 200 with a body
 	// serves D-RAP or the scales, which dry_fetch.py does not keep, so a
 	// replay can be Fresh.
 	Answers map[string]Answer
@@ -144,13 +144,13 @@ func (p *Replay) Fetch(_ context.Context, u string, _ ionomaps.Validators) (iono
 func inputOf(u string) string {
 	switch {
 	case strings.HasPrefix(u, terms.GloTECIndex):
-		return "GloTEC"
+		return ionomaps.UnreadGloTEC
 	case u == terms.SolarFile:
-		return "solar"
+		return ionomaps.UnreadSolar
 	case u == terms.DRAPTable:
-		return "D-RAP"
+		return ionomaps.UnreadDRAP
 	case u == terms.ScalesFile:
-		return "scales"
+		return ionomaps.UnreadScales
 	case strings.HasPrefix(u, terms.FastChar+"?"):
 		q, err := url.Parse(u)
 		if err != nil {

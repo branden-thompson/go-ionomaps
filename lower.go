@@ -22,7 +22,7 @@ const (
 	lufSteps   = 12
 )
 
-// Noise is the man-made noise the reference circuit hears (watchpost D-187):
+// Noise is the man-made noise the reference circuit hears:
 // ITU-R P.372's category, Residential by default; galactic noise is added
 // above foF2, atmospheric noise is not modelled.
 type Noise uint8

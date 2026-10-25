@@ -135,7 +135,7 @@ func gridJSON(valid time.Time, foF2 float64) ([]byte, error) {
 
 // DRAPTable is a D-RAP table in NOAA's layout, valid at a time, its 1 dB
 // frequency mhz everywhere: to serve as Answers["D-RAP"], which dry_fetch.py
-// does not keep, so a replay can be Fresh (RL-12).
+// does not keep, so a replay can be Fresh.
 //
 // Source: this library; NOAA SWPC's D-RAP global table layout.
 func DRAPTable(valid time.Time, mhz float64) []byte {
@@ -152,7 +152,7 @@ func DRAPTable(valid time.Time, mhz float64) []byte {
 }
 
 // ScalesFile is NOAA's scales file issued at a time, every level 0 and its
-// outlook quiet: to serve as Answers["scales"] (RL-12).
+// outlook quiet: to serve as Answers["scales"].
 //
 // Source: this library; NOAA SWPC's noaa-scales.json layout.
 func ScalesFile(at time.Time) []byte {

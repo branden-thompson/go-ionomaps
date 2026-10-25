@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
@@ -200,11 +201,29 @@ func (m Moment) Extrapolated() bool { return m.extrapolated }
 
 // yearFraction is a moment as a year and the part of it past.
 func yearFraction(at time.Time) float64 {
+	sec, nsec := at.Unix(), at.Nanosecond()
+	if last := lastYear.Load(); last != nil && last.sec == sec && last.nsec == nsec {
+		return last.fraction
+	}
 	at = at.UTC()
 	start := time.Date(at.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(1, 0, 0)
-	return float64(at.Year()) + at.Sub(start).Seconds()/end.Sub(start).Seconds()
+	f := float64(at.Year()) + at.Sub(start).Seconds()/end.Sub(start).Seconds()
+	lastYear.Store(&yearAt{sec: sec, nsec: nsec, fraction: f})
+	return f
 }
+
+// yearAt is a moment, as Unix seconds and nanoseconds, and its year
+// fraction.
+type yearAt struct {
+	sec      int64
+	nsec     int
+	fraction float64
+}
+
+// lastYear is the last moment yearFraction worked out: a reach or a path
+// reads the tables at every control point, all at one moment.
+var lastYear atomic.Pointer[yearAt]
 
 // cellValues is the bilinear interpolation of one year's table at a place:
 // between the four cell centres around it, longitudes wrapped, latitudes held

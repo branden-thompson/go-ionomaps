@@ -55,3 +55,38 @@ func TestTheSunTrackReadsEachPlace(t *testing.T) {
 		t.Errorf("near the north pole in October the sun has not risen for a day; %v hours since sunset", since)
 	}
 }
+
+// TestTheSunsStepsPassedOverChangeNothing is watchpost RP-5: sunAt passes
+// over the steps the sun cannot have risen in, and gives every place, at
+// every moment, the hours since sunset that a step at a time gives - the
+// polar edges, where a day can be shorter than an hour, among them.
+func TestTheSunsStepsPassedOverChangeNothing(t *testing.T) {
+	r := math.Pi / 180
+	checked := 0
+	for _, at := range []time.Time{noonUTC, noonUTC.AddDate(0, 2, 3).Add(5 * time.Hour), noonUTC.AddDate(0, 4, 0).Add(-7 * time.Hour), noonUTC.AddDate(0, 8, 11).Add(11 * time.Hour)} {
+		track := newSunTrack(at)
+		for lat := -89.5; lat <= 89.5; lat += 0.5 {
+			for lon := -180.0; lon < 180; lon += 7 {
+				_, chi, since := track.sunAt(lat, lon)
+				if chi < 90 {
+					continue
+				}
+				sl, cl := math.Sincos(lat * r)
+				want := 24.0
+				for i := 1; i <= sunSteps; i++ { // a step at a time (P10-02)
+					if sl*track.sin[i]+cl*track.cos[i]*math.Cos((lon-track.lon[i])*r) > 0 {
+						want = float64(i) / 6
+						break
+					}
+				}
+				checked++
+				if since != want {
+					t.Fatalf("%v at (%v, %v): %v hours since sunset; a step at a time gives %v", at, lat, lon, since, want)
+				}
+			}
+		}
+	}
+	if checked < 10000 {
+		t.Fatalf("only %d night places checked", checked)
+	}
+}

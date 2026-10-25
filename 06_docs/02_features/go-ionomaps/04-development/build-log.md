@@ -253,3 +253,13 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **gm3** (D-97): `-residuals` reports foF2's fold against each background; grid ages are said in words.
 - **Mutants:** m029 to m037; m003, m008, m012, m013, m016 and m017 re-pointed.
 
+## REVIEW's red team, round 2: the library's remediation, part 2 (watchpost D-280, D-281; D-98, D-99, A-30)
+
+- **A refusal is no run** (D-98): the docs lane with nothing staged, or with a file that is not Markdown, says REFUSED and logs nothing; `TestADocsLaneRefusalIsNoRun` (m038).
+- **Exported docs** (D-99): 71 comment lines in the public packages lose their ruling and red-team IDs. `Source:` lines that cited rulings alone cite the published work, or this library. Two stale comments were found and fixed on the way: `GIRODenied` named a 410, which D-95 made the station's own, and `Restore` said a refused state leaves the library as new, which R2L-4 changed.
+- **RP-5** (A-30 (6)): `sunAt` passes over the steps the sun cannot have risen in (`TestTheSunsStepsPassedOverChangeNothing`: every night place at four moments, 0.5 degrees apart, against a step at a time); the year fraction is kept for the last moment (`TestTheYearFractionIsTheMoments`). Mutants m039 and m040.
+- **One rule each** (R2C-3, R2C-9): the grid's, D-RAP's and the scales' freshness, and the places' check. `TestAStaleIndexFetchesNoGrid` pins RL-2's rule that a stale index costs no grid (R2C-7; m041). m042 holds a path's origin check.
+- **`Unread`'s names** (R2C-5): exported as constants, and its doc says what it holds now: files unread, files not asked, files held past their age.
+- **The mirror test** (RC-13): fails where it could check, skips only where no harness is.
+- **RL-5:** twenty hand mutants encoded, m043 to m062, over the answers, the reach, the lower limit and its grid, GloTEC's reader and index, the limits' equations and the climatology. Five first survived or failed to build: two named the wrong test, two left a variable unused, and m061, the reach ignoring the MUF, survived the reach-against-Path test (which meets no cell above its MUF that the lower limit leaves open) and is killed by `TestAFrequencysReachIsAField`'s 25 MHz.
+

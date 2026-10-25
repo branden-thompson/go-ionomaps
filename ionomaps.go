@@ -23,7 +23,7 @@ type Fetcher interface {
 }
 
 // Response is one answer: its status, only the rate-related headers - never a
-// whole header (watchpost D-83, I-1) - the validators for the next ask, and
+// whole header (I-1) - the validators for the next ask, and
 // the body, empty on a 304.
 type Response struct {
 	Status     int
@@ -39,8 +39,8 @@ type RateHeaders struct{ RetryAfter, Limit, Remaining, Reset string }
 type Validators struct{ ETag, LastModified string }
 
 // Options are the library's settings. The reference circuit is fixed by
-// ruling (watchpost D-73, D-91), so it is not an option; nor is the grid step,
-// which is 2° (D-138).
+// ruling, so it is not an option; nor is the grid step,
+// which is 2°.
 type Options struct {
 	Clock func() time.Time // the time now; time.Now when nil
 }
@@ -107,7 +107,7 @@ func New(f Fetcher, o Options) (*Library, error) {
 
 // Sources is every source the library reads or is built from, with its
 // hosts, terms and citation: a host credits them, and allows only those hosts
-// (R-4.1, watchpost D-113). Each call builds the list afresh, so it is the
+// (R-4.1). Each call builds the list afresh, so it is the
 // host's own copy; no library is needed to read it.
 //
 // Source: this library; each entry's terms and citation as NOTICE gives them.

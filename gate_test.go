@@ -66,9 +66,8 @@ func TestTheGateIsGreenOnAPassingTree(t *testing.T) {
 	}
 }
 
-// TestTheGateFailsOnWhatItCatches: a vet error, an unformatted file, a
-// failing test, and a docs lane with nothing staged each fail the gate, and
-// it names the leg.
+// TestTheGateFailsOnWhatItCatches: a vet error, an unformatted file and a
+// failing test each fail the gate, and it names the leg.
 func TestTheGateFailsOnWhatItCatches(t *testing.T) {
 	for _, c := range []struct {
 		what  string
@@ -79,7 +78,6 @@ func TestTheGateFailsOnWhatItCatches(t *testing.T) {
 		{"a vet error", map[string]string{"bad.go": "package lib\n\nimport \"fmt\"\n\n// Bad prints badly.\nfunc Bad() { fmt.Printf(\"%d\", \"x\") }\n"}, []string{"--quick"}, "vet"},
 		{"an unformatted file", map[string]string{"ugly.go": "package lib\n\n// Ugly is unformatted.\nfunc Ugly()  int {return 1}\n"}, []string{"--quick"}, "gofmt"},
 		{"a failing test", map[string]string{"fail_test.go": "package lib\n\nimport \"testing\"\n\nfunc TestFails(t *testing.T) { t.Fatal(\"planted\") }\n"}, []string{"--quick"}, "tests"},
-		{"an empty docs change", nil, []string{"--docs"}, "nothing is staged"},
 		{"a failing test in a tool module", map[string]string{"tools/t/go.mod": "module example.com/lib/tools/t\n\ngo 1.25.13\n",
 			"tools/t/t_test.go": "package t\n\nimport \"testing\"\n\nfunc TestFails(t *testing.T) { t.Fatal(\"planted\") }\n"}, []string{"--quick"}, "tools/t: tests"},
 	} {
@@ -87,6 +85,29 @@ func TestTheGateFailsOnWhatItCatches(t *testing.T) {
 		if ok || !strings.Contains(out, "gate: FAILED") || !strings.Contains(out, c.leg) {
 			t.Errorf("%s: the gate %s; want it FAILED, naming %q:\n%s", c.what, map[bool]string{true: "passed", false: "failed otherwise"}[ok], c.leg, out)
 		}
+	}
+}
+
+// TestADocsLaneRefusalIsNoRun is watchpost D-280: the docs lane with
+// nothing staged, or with a file that is not Markdown, is refused before any
+// leg runs, says why, and logs nothing.
+func TestADocsLaneRefusalIsNoRun(t *testing.T) {
+	log := "| When | HEAD | Tree | Mode | Result | Seconds | Overrides |\n|---|---|---|---|---|---|---|\n"
+	root := plantModule(t, map[string]string{"06_docs/gate-runs.md": log})
+	if out, ok := runGate(t, root, "--docs"); ok || !strings.Contains(out, "REFUSED") || !strings.Contains(out, "nothing is staged") {
+		t.Errorf("the docs lane with nothing staged: %v\n%s", ok, out)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lib.go"), []byte("package lib\n\n// Answer is the answer.\nfunc Answer() int { return 43 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", root, "add", "lib.go").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if out, ok := runGate(t, root, "--docs"); ok || !strings.Contains(out, "REFUSED") || !strings.Contains(out, "lib.go") {
+		t.Errorf("the docs lane with a source file staged: %v\n%s", ok, out)
+	}
+	if runs, err := os.ReadFile(filepath.Join(root, "06_docs", "gate-runs.md")); err != nil || string(runs) != log {
+		t.Errorf("a refusal was logged as a run (%v):\n%s", err, runs)
 	}
 }
 

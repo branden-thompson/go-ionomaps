@@ -7,10 +7,10 @@
 // dry_fetch.py keeps no D-RAP table and no scales file, so the replay
 // answers them as missing unless Options.Answers serves them: the library
 // names them in Inputs.Unread and says each snapshot Partial, as it would
-// of a NOAA that did not serve them (watchpost D-239). DRAPTable and
+// of a NOAA that did not serve them. DRAPTable and
 // ScalesFile build them, so a replay can be Fresh; Answers also gives any
 // input a status, a body or an error, so a host's tests reach every state
-// the library says (RL-12). A station not recorded answers as GIRO answers
+// the library says. A station not recorded answers as GIRO answers
 // one with no data.
 //
 // It is for a host's own tests and for the instruments that grade the
@@ -150,12 +150,12 @@ const recordedFields = 10
 
 // Reply is a station's recorded reply as GIRO would have answered the
 // library's ask at now: the rows in the window and not after now, in the
-// columns the library asks for (D-62) - the time, the score, foF2 and
+// columns the library asks for - the time, the score, foF2 and
 // M(3000)F2 with their qualifiers - and the header without the line naming
 // the requester, which is the fetch's, not the station's. A row of another
 // shape than dry_fetch.py's fails the reply.
 //
-// Source: GIRO's FastChar text, as dry_fetch.py and the library ask it (D-62).
+// Source: GIRO's FastChar text, as dry_fetch.py and the library ask it.
 func (r *Recorded) Reply(code string, from, to, now time.Time) ([]byte, error) {
 	body, ok := r.giro[code]
 	if !ok {

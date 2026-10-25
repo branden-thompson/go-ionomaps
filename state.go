@@ -41,8 +41,8 @@ type keptState struct {
 	F107At  int64            `json:"f107at,omitempty"`   // when it was taken
 }
 
-// State is what the library keeps across restarts, for the host to store
-// (watchpost D-213, D-249): GIRO's throttle - when the last burst began,
+// State is what the library keeps across restarts, for the host to store:
+// GIRO's throttle - when the last burst began,
 // when a pause ends, the back-off, and when each station last gave data,
 // with the rotation's places, never a reading, which GIRO's terms keep from
 // being stored - and NOAA's F10.7 mean held, public domain, with its days
@@ -50,7 +50,7 @@ type keptState struct {
 // still builds a field for up to 7 days. The bytes are the library's own; a
 // host stores them as they are and hands them to Restore.
 //
-// Source: watchpost D-213, D-249.
+// Source: this library.
 func (l *Library) State() []byte {
 	l.mu.Lock()
 	g, f := l.giro.Export(), l.solar
@@ -70,14 +70,16 @@ func (l *Library) State() []byte {
 }
 
 // Restore takes a state State wrote, so a restart within the hour of a
-// burst asks GIRO nothing new, a refusal's pause still holds (watchpost
-// D-213), and the F10.7 mean held comes back with its age (D-249). An empty
-// state, a first run's, restores nothing. A state that is not this
-// library's, or that fails its checks against the clock or a flux's
-// bounds, is refused with ErrBadState and the library is left as it was:
-// the host carries on without it.
+// burst asks GIRO nothing new, a refusal's pause still holds, and the
+// F10.7 mean held comes back with its age. An empty state, a first run's,
+// restores nothing. A state that is not this library's is refused with
+// ErrBadState and the library is left as it was. GIRO's part and the mean
+// are taken each on its own: one failing its checks against the clock or a
+// flux's bounds is refused, named in the ErrBadState returned, and the
+// other is still taken; a station the seed no longer names is dropped. The
+// host carries on either way.
 //
-// Source: watchpost D-213, D-249; R-3.3.
+// Source: this library; R-3.3.
 func (l *Library) Restore(state []byte) error {
 	if len(state) == 0 {
 		return nil

@@ -9,6 +9,7 @@ package ionomaps_test
 import (
 	"flag"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -100,13 +101,15 @@ func p10MirrorOf(rows []p10Row) string {
 }
 
 // TestTheP10MirrorMatchesTheLedger (D-51): the tracked mirror is what the
-// local ledger says, row for row. Where the ledger is not on this machine -
-// a hosted run, which has no harness - there is nothing to compare, and the
-// test says NOT RUN.
+// local ledger says, row for row. Where the harness is not on this machine
+// - a hosted run - there is nothing to compare, and the test says NOT RUN;
+// where the harness is but its ledger is not, the test fails, never skips
+// (watchpost RC-13): there it could check.
 func TestTheP10MirrorMatchesTheLedger(t *testing.T) {
 	body, err := os.ReadFile(p10Ledger)
-	if os.IsNotExist(err) {
-		t.Skip("NOT RUN: no local P10 ledger here (a hosted run has no harness); the mirror is held by TestEveryP10MirrorRowNamesCodeThatExists")
+	_, harness := exec.LookPath("a2dh")
+	if os.IsNotExist(err) && harness != nil {
+		t.Skip("NOT RUN: no P10 harness here (a hosted run has none); the mirror is held by TestEveryP10MirrorRowNamesCodeThatExists")
 	}
 	if err != nil {
 		t.Fatal(err)

@@ -16,7 +16,7 @@ var errBadFrequency = errors.New("ionomaps: the frequency is not from 1.8 to 30 
 // 0 where it is not; how far out the skip zone ends; whether any cell is
 // reached; the limit that bounds it - the MUF where the lower limit closes
 // no cell under it, else LimitAbsorption or LimitCircuit, whichever closes
-// the more (watchpost D-205).
+// the more.
 type ReachField struct {
 	Field   Field
 	SkipKm  float32 // the nearest reached cell's distance; 0 when the origin's own cell is reached
@@ -28,13 +28,13 @@ type ReachField struct {
 // Reach is where a frequency reaches from an origin in the snapshot's hour,
 // as the band statuses judge it: under the path's basic MUF by ITU-R
 // P.533-14 to every cell, and over the path's lower limit at the reference
-// circuit (watchpost D-205) - the circuit worked out on a polar grid around
-// the origin and interpolated between its nodes (D-227), within the measured
+// circuit - the circuit worked out on a polar grid around
+// the origin and interpolated between its nodes, within the measured
 // share of cells of each cell's own circuit; and the skip zone inside it
 // (R-2.9).
 //
 // Source: ITU-R P.533-14 §3.5 and §5 to §7 (02-analysis/evidence/p533-equations.md,
-// p533-field-strength.md); watchpost D-76, D-205.
+// p533-field-strength.md).
 func (s Snapshot) Reach(origin LatLon, mhz float64) (ReachField, error) {
 	return s.reach(origin, mhz, true)
 }

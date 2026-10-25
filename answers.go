@@ -36,7 +36,7 @@ var bandEdges = [...]float64{Band160m: 1.8, Band80m: 3.5, Band60m: 5.3, Band40m:
 
 // LowMHz is a band's lower edge, MHz; 0 for a value that is no band.
 //
-// Source: the amateur HF allocations (watchpost D-144).
+// Source: the amateur HF allocations.
 func (b Band) LowMHz() float64 {
 	if b < Band160m || b > Band10m {
 		return 0
@@ -51,7 +51,7 @@ var bandTops = [...]float64{Band160m: 2, Band80m: 4, Band60m: 5.4065, Band40m: 7
 
 // HighMHz is a band's upper edge, MHz; 0 for a value that is no band.
 //
-// Source: the amateur HF allocations, ITU Region 2 (A-11).
+// Source: the amateur HF allocations, ITU Region 2.
 func (b Band) HighMHz() float64 {
 	if b < Band160m || b > Band10m {
 		return 0
@@ -88,9 +88,9 @@ const (
 	StatusNoData Status = iota // no value where it was asked
 	Open                       // below the upper limit
 	AboveUpper                 // its lower edge at or past the upper limit
-	Disturbed                  // below the upper limit, its lower edge under D-RAP's 1 dB frequency: degraded, not closed (watchpost D-73)
-	Absorbed                   // below the upper limit, the reference circuit short of +13 dB by the day's absorption: closed (R-2.4, D-70)
-	Weak                       // below the upper limit, the reference circuit short of +13 dB even without absorption: closed (D-70)
+	Disturbed                  // below the upper limit, its lower edge under D-RAP's 1 dB frequency: degraded, not closed
+	Absorbed                   // below the upper limit, the reference circuit short of +13 dB by the day's absorption: closed (R-2.4)
+	Weak                       // below the upper limit, the reference circuit short of +13 dB even without absorption: closed
 )
 
 // statusNames are each status's name, by Status.
@@ -117,7 +117,7 @@ const (
 	LimitFoF2             // foF2, for the near-vertical area
 	LimitDRAP             // D-RAP's 1 dB frequency (R-2.5)
 	LimitAbsorption       // the LUF: the reference circuit's +13 dB, under the day's absorption (R-2.4)
-	LimitCircuit          // the reference circuit's +13 dB, out of reach even without absorption (D-70)
+	LimitCircuit          // the reference circuit's +13 dB, out of reach even without absorption
 )
 
 // limitNames are each limit's name, by Limit.
@@ -154,9 +154,9 @@ type Reading struct {
 
 // Nearest is how far an answer's place is from the nearest station whose
 // readings were assimilated, from the cell it falls in, and whether that
-// station's readings are unscored (R-2.11, D-65): the host says its
+// station's readings are unscored (R-2.11): the host says its
 // confidence, and tells the operator to verify on air where they are
-// unscored (watchpost D-181).
+// unscored.
 type Nearest struct {
 	Km       float32
 	Unscored bool
@@ -165,7 +165,7 @@ type Nearest struct {
 
 // Answer is each band's status at one place or on one path, and its
 // nearest station: a path's, from its control point furthest from any
-// (D-65, watchpost D-185).
+// station.
 type Answer struct {
 	Bands   []BandStatus
 	Nearest Nearest
@@ -211,7 +211,7 @@ func (s Snapshot) Readings(points []LatLon) ([]Reading, error) {
 // there, and the hours of the UTC day each is typically open, from the climatology (R-2.2, R-2.8); and
 // the place's nearest station (R-2.11).
 //
-// Source: watchpost D-24, D-73, D-135, D-185; this library's foF2; the climatology.
+// Source: this library's foF2; the climatology.
 func (s Snapshot) Bands(origins []LatLon, radiusKm float64) ([]Answer, error) {
 	if !(radiusKm > 0) || radiusKm > 2000 {
 		return nil, errBadRadius
@@ -242,11 +242,11 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64) ([]Answer, error) {
 // and the nearest station to the control point furthest from any (R-2.11).
 //
 // Source: ITU-R P.533-14 §3.5 (02-analysis/evidence/p533-equations.md);
-// foE from P.1239-4 §4; the gyrofrequency from IGRF-14; watchpost D-135, D-185.
+// foE from P.1239-4 §4; the gyrofrequency from IGRF-14.
 func (s Snapshot) Path(from LatLon, to []LatLon) ([]Answer, error) {
 	h, err := s.hourFor(to) // up to 64 destinations, the origin besides (RC-13)
 	if err == nil {
-		_, err = s.hourFor([]LatLon{from})
+		err = checkPlaces([]LatLon{from})
 	}
 	if err != nil {
 		return nil, err
@@ -390,8 +390,21 @@ func (t *sunTrack) cosZenith(lat, lon float64) float64 {
 	return math.Max(-1, math.Min(1, sl*t.sin[0]+cl*t.cos[0]*math.Cos((lon-t.lon[0])*r)))
 }
 
+// sunStepTurn bounds how far the sun turns about the Earth's axis in one of
+// the track's steps, radians: 2.5 degrees in ten minutes, with room for the
+// equation of time's drift.
+const sunStepTurn = 0.0437
+
+// sunStepDrift bounds what the declination's change in one step adds to the
+// zenith angle's cosine: under a hundredth of a degree in ten minutes.
+const sunStepDrift = 1e-3
+
 // sunAt is the sun's declination and zenith angle at a place, degrees, and
-// at night the hours since it set (to ten minutes, within a day).
+// at night the hours since it set (to ten minutes, within a day). Stepping
+// back, the zenith angle's cosine rises at most the place's cos(lat) times
+// sunStepTurn, and sunStepDrift, a step; the steps it cannot have reached
+// zero in are passed over, and the first step above it is the one a step at
+// a time finds.
 func (t *sunTrack) sunAt(lat, lon float64) (decl, chi, sinceSunset float64) {
 	r := math.Pi / 180
 	sl, cl := math.Sincos(lat * r)
@@ -400,10 +413,13 @@ func (t *sunTrack) sunAt(lat, lon float64) (decl, chi, sinceSunset float64) {
 	if chi < 90 {
 		return t.decl, chi, 0
 	}
-	for i := 1; i <= sunSteps; i++ { // a day back, ten minutes at a time (P10-02)
-		if cosZenith(i) > 0 {
+	rise := math.Abs(cl)*sunStepTurn + sunStepDrift
+	for i := 1; i <= sunSteps; { // a day back, i rising by one or more a turn (P10-02)
+		c := cosZenith(i)
+		if c > 0 {
 			return t.decl, chi, float64(i) / 6
 		}
+		i += 1 + int(math.Min(-c/rise, sunSteps))
 	}
 	return t.decl, chi, 24 // a polar night: equation (17e) decides
 }
@@ -426,19 +442,28 @@ func statuses(limitMHz float64, ok bool, by Limit) []BandStatus {
 
 // hourFor is the snapshot's hour, the places checked (R-3.5).
 func (s Snapshot) hourFor(places []LatLon) (Hour, error) {
-	if len(places) > maxPlaces {
-		return Hour{}, errTooManyPlaces
-	}
-	for _, p := range places {
-		finite := p.Lat == p.Lat && p.Lon == p.Lon && p.Lon >= -540 && p.Lon <= 540
-		if !finite || p.Lat < -90 || p.Lat > 90 {
-			return Hour{}, errBadPlace
-		}
+	if err := checkPlaces(places); err != nil {
+		return Hour{}, err
 	}
 	if len(s.Now.FoF2.Values) == 0 {
 		return Hour{}, errNoField
 	}
 	return s.Now, nil
+}
+
+// checkPlaces refuses more than maxPlaces places, or one that is no place
+// on the globe; nil for places an answer may be asked at.
+func checkPlaces(places []LatLon) error {
+	if len(places) > maxPlaces {
+		return errTooManyPlaces
+	}
+	for _, p := range places {
+		finite := p.Lat == p.Lat && p.Lon == p.Lon && p.Lon >= -540 && p.Lon <= 540
+		if !finite || p.Lat < -90 || p.Lat > 90 {
+			return errBadPlace
+		}
+	}
+	return nil
 }
 
 // cellAt is a field's value at a place, from the cell it falls in; false

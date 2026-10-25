@@ -13,16 +13,16 @@ const maxAhead = 24
 var errNotAhead = errors.New("ionomaps: an hour ahead is from 1 to 24")
 
 // Ahead is the hour k hours after the snapshot's, 1 to 24, as a snapshot of
-// its own (D-60): the climatology's foF2 and M(3000)F2 at the start of that
+// its own: the climatology's foF2 and M(3000)F2 at the start of that
 // UTC hour, at the snapshot's F10.7 mean, MUF(3000) their product, marked
 // typical - never a forecast (R-1.3). It carries none of now's
 // measurements: no D-RAP disturbance and no live offset, which hold for now
-// alone (watchpost D-216, L-F2); the stations' distances stay, the hours
+// alone (L-F2); the stations' distances stay, the hours
 // ahead's typical error read by them. The hour's cells are the typical
 // day's, which the answers share, so each is worked out once a day whichever
-// snapshot or answer asks it (R-8.1, watchpost D-222).
+// snapshot or answer asks it (R-8.1).
 //
-// Source: the climatology (PyIRI's method, watchpost D-114); R-1.3.
+// Source: the climatology (PyIRI's method); R-1.3.
 func (s Snapshot) Ahead(k int) (Snapshot, error) {
 	if k < 1 || k > maxAhead {
 		return Snapshot{}, errNotAhead

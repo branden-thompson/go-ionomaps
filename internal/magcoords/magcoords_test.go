@@ -178,3 +178,21 @@ func TestExtrapolatedCoordinatesAreSaid(t *testing.T) {
 		t.Errorf("past the tables the latitude is %v; the last year's is near 48", q)
 	}
 }
+
+// TestTheYearFractionIsTheMoments is watchpost RP-5: the year fraction kept
+// for the last moment is given for that moment alone - one half a second on,
+// or the moment before again, is worked out afresh - and is the year's share
+// gone at it.
+func TestTheYearFractionIsTheMoments(t *testing.T) {
+	a := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	b := a.Add(500 * time.Millisecond)
+	want := func(at time.Time) float64 {
+		start := time.Date(at.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+		return float64(at.Year()) + at.Sub(start).Seconds()/start.AddDate(1, 0, 0).Sub(start).Seconds()
+	}
+	for _, at := range []time.Time{a, a, b, a, b, b, a.In(time.FixedZone("east", 3600))} {
+		if got := yearFraction(at); got != want(at) {
+			t.Fatalf("%v: year fraction %v; want %v", at, got, want(at))
+		}
+	}
+}

@@ -5,7 +5,9 @@
 #
 #   scripts/gate            every leg
 #   scripts/gate --quick    skip the slow legs: fuzzing, the vulnerability
-#                           scans and the cross-compiles (P10 still runs)
+#                           scans and the cross-compiles (P10 still runs
+#                           where the harness is; elsewhere the run says
+#                           "green without P10", NOT RUN, never green)
 #   scripts/gate --docs     the docs lane: for a STAGED change of Markdown
 #                           only, the module's tests (which read the
 #                           documents) and no other leg. Any other staged file
@@ -21,9 +23,12 @@
 #                           below by default): a count, not a time (H-11)
 #   GATE_FUZZ_LIMIT=S       the wall-clock seconds a fuzz leg may take (600)
 #
-# EVERY RUN IS LOGGED to 06_docs/gate-runs.md when that file exists: HEAD, the
-# git tree that was tested (this log left out), the mode, the result (and the
-# legs that failed), the seconds it took and any override.
+# EVERY RUN THAT REACHES A LEG IS LOGGED to 06_docs/gate-runs.md when that
+# file exists: HEAD, the git tree that was tested (this log left out), the
+# mode, the result (and the legs that failed), the seconds it took and any
+# override. A lane that refuses before any leg runs - the docs lane with
+# nothing staged, or with a file that is not Markdown - says why and logs
+# nothing: a refusal is no run (watchpost D-280).
 #
 # GATE_ROOT names the tree to check; by default, the repository this script
 # is in. The floor toolchain is read from go.mod's go directive.
@@ -230,12 +235,14 @@ echo "gate: $root ($mode), toolchain $GOTOOLCHAIN"
 if [ "$docs" = 1 ]; then
   staged="$(git diff --cached --name-only 2>&1)" || { echo "gate: git cannot read the staged change"; exit 2; }
   if [ -z "$staged" ]; then
-    fail "the docs lane: nothing is staged; stage the Markdown change first"
-  elif other="$(printf '%s\n' "$staged" | grep -v '\.md$' | grep -v '^06_docs/gate-runs\.md$')"; then
-    fail "the docs lane takes Markdown alone; run the full gate for: $(echo $other)"
-  else
-    leg "tests (docs lane)" go test -count=1 ./...
+    echo "gate: REFUSED - the docs lane: nothing is staged; stage the Markdown change first"
+    exit 1
   fi
+  if other="$(printf '%s\n' "$staged" | grep -v '\.md$' | grep -v '^06_docs/gate-runs\.md$')"; then
+    echo "gate: REFUSED - the docs lane takes Markdown alone; run the full gate for: $(echo $other)"
+    exit 1
+  fi
+  leg "tests (docs lane)" go test -count=1 ./...
 fi
 
 # --- the module ---------------------------------------------------------------
