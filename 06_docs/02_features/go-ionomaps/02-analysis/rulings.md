@@ -110,6 +110,7 @@ restated here; this log holds go-giro-data's own.
 | D-89 | 2026-10-24 | Restates watchpost D-260: NOAA's back-off (RL-7) | see watchpost D-260 ("Floor at 10 min (Rec.)") | **NOAA's back-off never shorter than its 10-minute cadence, then 15; a NOAA 5xx a refusal.** |
 | D-90 | 2026-10-24 | Restates watchpost D-262: a nightly scan (RH-7) | see watchpost D-262 ("v0.2.2 + nightly (Rec.)") | **The hosted full gate runs nightly as well as on dispatch.** |
 | D-91 | 2026-10-24 | Restates watchpost D-264: D-252's batch, the density rows whose function count grew | see watchpost D-264 ("Ratify all as floors (Rec.)") | **Every density row is re-ratified at the figure measured on 2026-10-24, its floor: the root 0.70 over 112, `internal/giro` 1.21 over 19, `internal/stations` 1.33 over 15, `internal/throttle` 0.60 over 10, `ionomapstest` 0.64 over 22, `tools/gm3` 0.95 over 20, and the rest at theirs; `TestEveryDensityRowHoldsItsFloor` fails a package under its row's floor.** |
+| D-92 | 2026-10-25 | Restates watchpost D-265: D-253's grid-age measurement on 3-hourly days | see watchpost D-265 ("3 h bound now, fetch if gap (Rec.)") | **`gm3 -grid-age 3h` scores the hybrid from the newest grid beside the one built from the grid 3 hours older, at the same moment, from the same readings, on the recorded days; a day of 10-minute grids is fetched only if that shows a gap and the HUM LEAD authorises it.** |
 
 ## Agent decisions (A-n, watchpost D-13)
 

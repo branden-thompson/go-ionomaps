@@ -61,6 +61,7 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 	from := fs.String("from", "", "score only the grids from this UTC day on, YYYY-MM-DD")
 	pairWord := fs.String("pairing", "shipped", "the other stations' readings: shipped (as the library takes them) or week (week.py's)")
 	resid := fs.Bool("residuals", false, "report each reading's residual against its backgrounds instead, which the plausibility bound is set from (watchpost D-248)")
+	age := fs.Duration("grid-age", 0, "also score the hybrid built from the grid this much older than each scored one, on the moments that have one (watchpost D-253, D-265)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -90,7 +91,11 @@ func run(args []string, out, errOut io.Writer, now time.Time) int {
 		}
 		since = t
 	}
-	report, missed, err := score(*inputs, *solarFile, since, p, now)
+	if *age < 0 {
+		_, _ = fmt.Fprintln(errOut, "gm3: -grid-age is a span before each grid, never after")
+		return 2
+	}
+	report, missed, err := score(*inputs, *solarFile, since, p, *age, now)
 	if err != nil {
 		_, _ = fmt.Fprintln(errOut, "gm3:", err)
 		return 2
@@ -112,7 +117,7 @@ var methods = map[pairing]string{
 
 // score reads the inputs, holds every station out at every grid from since,
 // and renders the figures and the verdicts.
-func score(dir, solarFile string, since time.Time, p pairing, now time.Time) (string, int, error) {
+func score(dir, solarFile string, since time.Time, p pairing, age time.Duration, now time.Time) (string, int, error) {
 	rec, err := ionomapstest.Open(dir, solarFile)
 	if err != nil {
 		return "", 0, err
@@ -134,11 +139,16 @@ func score(dir, solarFile string, since time.Time, p pairing, now time.Time) (st
 		return "", 0, fmt.Errorf("%w (%s)", errNoStations, strings.Join(unread, "; "))
 	}
 	var pairs []pair
-	scored, f107Lo, f107Hi := 0, 0.0, 0.0
+	scored, f107Lo, f107Hi, noOlder := 0, 0.0, 0.0, 0
 	for i := range grids {
 		g := &grids[i]
 		if g.Valid.Before(since) {
 			continue
+		}
+		older := olderGrid(grids, g.Valid, age)
+		if age > 0 && older == nil {
+			noOlder++
+			continue // a moment with no grid that much older is not scored either way, so both are scored on the same moments
 		}
 		f107, n, ok := solar.Mean(days, g.Valid)
 		if !ok || n < minF107Days {
@@ -148,7 +158,12 @@ func score(dir, solarFile string, since time.Time, p pairing, now time.Time) (st
 			f107Lo = f107
 		}
 		f107Hi = max(f107Hi, f107)
-		ps, err := heldOut(momentAt(g, f107), stations, p)
+		mo := momentAt(g, f107)
+		if older != nil {
+			stale := background.Build(g.Valid, f107, older)
+			mo.stale = &stale
+		}
+		ps, err := heldOut(mo, stations, p)
 		if err != nil {
 			return "", 0, err
 		}
@@ -168,9 +183,16 @@ func score(dir, solarFile string, since time.Time, p pairing, now time.Time) (st
 	if len(unread) > 0 {
 		fmt.Fprintf(&b, "Replies not read: %s.\n", strings.Join(unread, "; "))
 	}
+	if age > 0 {
+		fmt.Fprintf(&b, "Grid age: each moment also scored with the hybrid built from the grid %s older, at the moment's time (watchpost D-265); %d grids with none that much older were not scored.\n", age, noOlder)
+	}
 	fmt.Fprintf(&b, "Method: each station with a sounding within 10 minutes of a grid, carrying M(3000)F2, its score as the library takes it (70 or more, manual or unknown, D-61), held out; predicted from %s, at least three, by internal/hybrid over background.Build with the grid; the climatology background.Build without one; both read at the station by grid.Sample. MUF(3000) is foF2 times M(3000)F2.\n", methods[p])
 	table(&b, "By region", pairs, regions)
 	table(&b, "By distance to the nearest station assimilated", pairs, bands)
+	if age > 0 {
+		agedTable(&b, fmt.Sprintf("The newest grid against one %s older, by region", age), pairs, regions, age)
+		agedTable(&b, fmt.Sprintf("The newest grid against one %s older, by distance to the nearest station assimilated", age), pairs, bands, age)
+	}
 	missed := 0
 	b.WriteString("\n## G-M3 (D-108) and D-75's floor (1)\n\n| Measure | Hybrid against the climatology | Target | Verdict |\n|---|---|---|---|\n")
 	for _, v := range judge(pairs) {
@@ -187,6 +209,35 @@ func score(dir, solarFile string, since time.Time, p pairing, now time.Time) (st
 // the grid as the update builds it, and the climatology's alone.
 func momentAt(g *glotec.Grid, f107 float64) moment {
 	return moment{at: g.Valid, hybrid: background.Build(g.Valid, f107, g), clim: background.Build(g.Valid, f107, nil)}
+}
+
+// olderGrid is the grid valid exactly age before at, or nil: none that much
+// older, or no age asked.
+func olderGrid(grids []glotec.Grid, at time.Time, age time.Duration) *glotec.Grid {
+	if age <= 0 {
+		return nil
+	}
+	for i := range grids { // bounded by the grids read (P10-02)
+		if grids[i].Valid.Equal(at.Add(-age)) {
+			return &grids[i]
+		}
+	}
+	return nil
+}
+
+// agedTable writes the hybrid's errors from the newest grid beside those
+// from the older grid, for each group (watchpost D-265).
+func agedTable(b *strings.Builder, title string, ps []pair, groups []group, age time.Duration) {
+	fmt.Fprintf(b, "\n## %s\n\nRMS / bias, MHz.\n\n| Group | Pairs | foF2, newest | foF2, %s older | MUF(3000), newest | MUF(3000), %s older |\n|---|---|---|---|---|---|\n", title, age, age)
+	for _, g := range groups {
+		in := selected(ps, g)
+		if len(in) == 0 {
+			continue
+		}
+		hy, old := errorsOf(in, true), errorsBy(in, func(p pair) (float64, float64) { return p.oldFo, p.oldM })
+		fmt.Fprintf(b, "| %s | %d | %.2f / %+.2f | %.2f / %+.2f | %.2f / %+.2f | %.2f / %+.2f |\n",
+			g.name, len(in), hy.foRMS, hy.foBias, old.foRMS, old.foBias, hy.mRMS, hy.mBias, old.mRMS, old.mBias)
+	}
 }
 
 // table writes the hybrid's and the climatology's errors for each group.

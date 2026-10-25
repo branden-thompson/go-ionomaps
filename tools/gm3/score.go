@@ -39,10 +39,13 @@ type station struct {
 }
 
 // moment is one grid's time and its two backgrounds: the hybrid's (foF2
-// from GloTEC, M(3000)F2 the climatology's) and the climatology's alone.
+// from GloTEC, M(3000)F2 the climatology's) and the climatology's alone; and
+// with -grid-age, the hybrid's built from an older grid at the same time,
+// as a product still holding that grid would show it (watchpost D-265).
 type moment struct {
 	at           time.Time
 	hybrid, clim background.Fields
+	stale        *background.Fields
 }
 
 // pair is one station held out at one moment: what it measured, what the
@@ -55,6 +58,7 @@ type pair struct {
 	obsFo, obsMUF float64
 	hyFo, hyM     float64
 	climFo, climM float64
+	oldFo, oldM   float64 // from the older grid, with -grid-age (D-265)
 }
 
 var errNoPairs = errors.New("gm3: no station could be held out at any grid time: nothing to score")
@@ -149,7 +153,15 @@ func heldOut(m moment, stations []station, p pairing) ([]pair, error) {
 		// A NaN in one prediction would make every RMS it enters NaN, and a
 		// NaN compares false: the verdicts would read as missed for no reason
 		// the report could give.
-		sum := pr.hyFo + pr.hyM + pr.climFo + pr.climM
+		if m.stale != nil {
+			old := hybrid.Field(*m.stale, rs)
+			pr.oldFo, ok[0] = grid.Sample(old.FoF2, pr.lat, pr.lon)
+			pr.oldM, ok[1] = grid.Sample(old.M3000, pr.lat, pr.lon)
+			if !ok[0] || !ok[1] {
+				return nil, fmt.Errorf("%s at %s: the older grid's field could not be read at the station", s.code, m.at.Format(time.RFC3339))
+			}
+		}
+		sum := pr.hyFo + pr.hyM + pr.climFo + pr.climM + pr.oldFo + pr.oldM
 		if math.IsNaN(sum) || math.IsInf(sum, 0) {
 			return nil, fmt.Errorf("%s at %s: a prediction is not a number", s.code, m.at.Format(time.RFC3339))
 		}
@@ -204,17 +216,22 @@ type errs struct {
 	foRMS, foBias, mRMS, mBias float64
 }
 
-// errorsOf is the hybrid's error over the pairs, or the climatology's;
-// MUF(3000) as foF2 times M(3000)F2, against the station's MUF(3000)
-// (week.py's errors).
+// errorsOf is the hybrid's error over the pairs, or the climatology's.
 func errorsOf(ps []pair, hybrid bool) errs {
+	if hybrid {
+		return errorsBy(ps, func(p pair) (float64, float64) { return p.hyFo, p.hyM })
+	}
+	return errorsBy(ps, func(p pair) (float64, float64) { return p.climFo, p.climM })
+}
+
+// errorsBy is one prediction's error over the pairs, the prediction taken by
+// pick; MUF(3000) as foF2 times M(3000)F2, against the station's MUF(3000)
+// (week.py's errors).
+func errorsBy(ps []pair, pick func(pair) (fo, m float64)) errs {
 	var e errs
 	var fo2, m2 float64
 	for _, p := range ps {
-		fo, m := p.climFo, p.climM
-		if hybrid {
-			fo, m = p.hyFo, p.hyM
-		}
+		fo, m := pick(p)
 		dfo, dm := fo-p.obsFo, fo*m-p.obsMUF
 		e.foBias, e.mBias = e.foBias+dfo, e.mBias+dm
 		fo2, m2 = fo2+dfo*dfo, m2+dm*dm

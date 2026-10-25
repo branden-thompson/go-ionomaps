@@ -268,5 +268,15 @@
     "new": "\treturn float64(checks)/float64(funcs) < floor-1\n",
     "package": ".",
     "test": "TestEveryDensityRowHoldsItsFloor"
+  },
+  {
+    "id": "m028",
+    "row": "watchpost D-265",
+    "what": "the older grid's prediction is the newest grid's",
+    "file": "tools/gm3/score.go",
+    "old": "\t\t\told := hybrid.Field(*m.stale, rs)\n",
+    "new": "\t\t\told := hybrid.Field(m.hybrid, rs)\n",
+    "package": "./tools/gm3",
+    "test": "TestAnOlderGridIsScoredBesideTheNewest"
   }
 ]

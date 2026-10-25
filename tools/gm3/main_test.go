@@ -352,3 +352,44 @@ func TestTheInstrumentScoresTheFieldTheLibraryShips(t *testing.T) {
 		t.Errorf("the instrument's field differs from the library's in %d of %d cells", differ, len(res.FoF2))
 	}
 }
+
+// TestAnOlderGridIsScoredBesideTheNewest is watchpost D-265: with an older
+// grid, each held-out station is also predicted from the hybrid built on
+// that grid at the moment's time, from the same readings, so the newest grid
+// and the older are scored on the same pairs; a run asked for an age no grid
+// has scores nothing, and a negative age is refused.
+func TestAnOlderGridIsScoredBesideTheNewest(t *testing.T) {
+	sloped := make([]float32, grid.Cells) // foF2 rising northward: a field the readings' fit cannot absorb as one shift
+	for i := range sloped {
+		lat, _ := grid.Centre(i)
+		sloped[i] = float32(10 + lat/10)
+	}
+	mo := fixed
+	mo.stale = &background.Fields{FoF2: sloped, M3000: flat(3)}
+	odd := usStations(10.5, 3, -4*time.Minute)
+	odd[0].readings[0].FoF2, odd[0].readings[0].MUF3000 = 12.5, 37.5
+	ps, err := heldOut(mo, odd, asShipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apart := 0
+	for _, p := range ps {
+		if p.oldFo == 0 || p.oldM == 0 {
+			t.Errorf("%s: no prediction from the older grid: %+v", p.code, p)
+		}
+		if math.Abs(p.oldFo-p.hyFo) > 0.01 {
+			apart++
+		}
+	}
+	if apart == 0 {
+		t.Errorf("the older grid's predictions equal the newest's at every station: %+v", ps)
+	}
+	dir, sol := synthetic(t, 10)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"-inputs", dir, "-solar", sol, "-grid-age", "3h"}, &out, &errOut, now); code != 2 {
+		t.Errorf("an age no grid is older by: exit %d; want nothing scored (2):\n%s", code, out.String())
+	}
+	if code := run([]string{"-inputs", dir, "-solar", sol, "-grid-age", "-3h"}, &out, &errOut, now); code != 2 {
+		t.Errorf("a negative age: exit %d; want 2", code)
+	}
+}

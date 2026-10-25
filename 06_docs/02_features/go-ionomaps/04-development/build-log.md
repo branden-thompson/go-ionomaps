@@ -232,3 +232,8 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **The test:** `TestTheRootDensityHoldsItsRatifiedFigure` became `TestEveryDensityRowHoldsItsFloor`, over every row in the mirror; the root row is still required, a row whose package has no function fails, and planted figures hold the comparison either side of a floor. It runs where a2dh does not, on the hosted gate too.
 - **Mutant:** m027, killed by the planted figures.
 
+## The grid's age, scored (watchpost D-253, D-265; D-92)
+
+- **`gm3 -grid-age`**: each scored moment is also predicted from the hybrid built on the grid that much older, at the moment's own time and from the same readings, as a product still holding that grid would show it; a moment with no grid that much older is left out of both, so the two are scored on the same pairs. The recorded fresh days hold a grid every 3 hours, so D-253's hour-old grid does not exist in them (the agent's error in D-253's evidence, D-265); the 3-hour age bounds the hourly default's cost from above.
+- **Test:** `TestAnOlderGridIsScoredBesideTheNewest`, its older grid sloped by latitude so the readings' fit cannot absorb it as one shift. **Mutant:** m028.
+
