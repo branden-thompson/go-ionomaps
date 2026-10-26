@@ -54,6 +54,7 @@ type noaa struct {
 	status    map[string]int // a status in place of 200
 	down      map[string]bool
 	stall     map[string]bool // asks held until their context ends: a host that accepts and never answers
+	gaveUp    map[string]bool // asks the host's client gives up on at once, its own timeout error
 	giro      giroSide
 
 	drap           []byte // D-RAP's table; none served when nil, as a test of its absence sets it
@@ -72,7 +73,7 @@ type noaa struct {
 // a file's absence sets it to nil (watchpost D-239: an absent file is named
 // unread, the snapshot Partial).
 func newNOAA(c *clock) *noaa {
-	return &noaa{clock: c, grids: map[string][]byte{}, status: map[string]int{}, down: map[string]bool{}, stall: map[string]bool{}, solar: solarFile(start, 30, 140),
+	return &noaa{clock: c, grids: map[string][]byte{}, status: map[string]int{}, down: map[string]bool{}, stall: map[string]bool{}, gaveUp: map[string]bool{}, solar: solarFile(start, 30, 140),
 		drap: drapTable(start.Add(-3*time.Minute), 3), scales: scalesFile(start.Add(-2*time.Minute), `"0"`, `"0"`, `"0"`)}
 }
 
@@ -107,6 +108,9 @@ func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (io
 	if n.stall[key] {
 		<-ctx.Done()
 		return ionomaps.Response{}, ctx.Err()
+	}
+	if n.gaveUp[key] {
+		return ionomaps.Response{}, fmt.Errorf("asking %s: %w", key, clientTimeout{})
 	}
 	if s, ok := n.status[key]; ok {
 		return ionomaps.Response{Status: s}, nil
@@ -575,4 +579,44 @@ func settled(l *ionomaps.Library, ctx context.Context, o ionomaps.UpdateOptions)
 		return l.Update(ctx, o)
 	}
 	return s, err
+}
+
+// clientTimeout is the error a host's HTTP client gives when its own
+// timeout runs out first: a timeout by its own account.
+type clientTimeout struct{}
+
+func (clientTimeout) Error() string { return "the client's timeout ran out" }
+func (clientTimeout) Timeout() bool { return true }
+
+// TestNOAAsRoundEndsInsideTheHostsDeadline is watchpost D-285 with R4L-1
+// and R4L-3: a host's client that gives up on an ask first is taken as the
+// ask run out, and stops NOAA's round; and with no room left in the host's
+// update for one more ask, none is started - the round ends there, the
+// next update backed off - so the update never runs into the host's
+// deadline.
+func TestNOAAsRoundEndsInsideTheHostsDeadline(t *testing.T) {
+	if got := ionomaps.NOAAAskTimeout(); got != 20*time.Second || 3*got > 60*time.Second {
+		t.Errorf("a NOAA ask has %v; D-285 gives it 20 s, a round's stop and its asks inside a host's 60 s", got)
+	}
+	l, n, _ := library(t)
+	n.list(t, start.Add(-30*time.Minute), 7)
+	n.gaveUp[indexURL] = true
+	settled(l, context.Background(), ionomaps.UpdateOptions{})
+	if len(n.drapAsks) != 0 || n.scalesAsks != 0 {
+		t.Errorf("the host's client gave up on the index, and the round went on: %d D-RAP asks, %d scales asks", len(n.drapAsks), n.scalesAsks)
+	}
+	defer ionomaps.SetNOAAAskTimeout(time.Second)()
+	fresh, m, mc := library(t)
+	m.list(t, start.Add(-30*time.Minute), 7)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	fresh.Update(ctx, ionomaps.UpdateOptions{})
+	if a := m.take(); len(a) != 0 || len(m.drapAsks) != 0 {
+		t.Errorf("an update with 300 ms left and asks of a second each asked %v and %d D-RAP; want none started", a, len(m.drapAsks))
+	}
+	mc.Add(10*time.Minute - time.Second)
+	fresh.Update(context.Background(), ionomaps.UpdateOptions{})
+	if a := m.take(); len(a) != 0 {
+		t.Errorf("an update left no room, and NOAA was asked again within ten minutes: %v", a)
+	}
 }

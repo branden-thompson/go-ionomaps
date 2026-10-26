@@ -42,3 +42,7 @@ func SetNOAAAskTimeout(d time.Duration) (restore func()) {
 	noaaAskTimeout = d
 	return func() { noaaAskTimeout = was }
 }
+
+// NOAAAskTimeout is how long one of NOAA's asks may take, for the test that
+// holds it under a host's budget.
+func NOAAAskTimeout() time.Duration { return noaaAskTimeout }

@@ -17,7 +17,7 @@ import (
 // Otherwise GIRO's part and the F10.7 mean are taken each on its own, and
 // the error also wraps ErrBadGIROState, ErrBadMean or both, naming the part
 // refused; the other part was taken.
-var ErrBadState = errors.New("ionomaps: the state given is not one this library keeps")
+var ErrBadState = errors.New("ionomaps: the state given was not taken whole")
 
 // ErrBadGIROState is wrapped in ErrBadState when the state's GIRO part is
 // refused - one that would hold GIRO back longer than any refusal does, or

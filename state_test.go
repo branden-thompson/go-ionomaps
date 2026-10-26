@@ -188,6 +188,16 @@ func TestABadStateIsRefused(t *testing.T) {
 			t.Errorf("%s: GIRO's state was not taken: %v", name, s.Reason)
 		}
 	}
+	both := edit("f107", 900)
+	var m map[string]any
+	if err := json.Unmarshal(both, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["burst"] = now + 3600
+	both, _ = json.Marshal(m)
+	if _, err := restore(both); !errors.Is(err, ionomaps.ErrBadGIROState) || !errors.Is(err, ionomaps.ErrBadMean) || strings.Contains(err.Error(), "\n") {
+		t.Errorf("both parts refused: %v; want both named, on one line (R4L-6)", err)
+	}
 	if err := restarted(t, n, c, good).Restore(nil); err != nil {
 		t.Errorf("an empty state: %v", err)
 	}

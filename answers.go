@@ -240,7 +240,7 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64) ([]Answer, error) {
 // UTC day each is typically open, from the climatology;
 // and the nearest station to the control point furthest from any.
 //
-// Source: ITU-R P.533-14 §3.5 (02-analysis/evidence/p533-equations.md);
+// Source: ITU-R P.533-14 §3.5 (06_docs/02_features/go-ionomaps/02-analysis/evidence/p533-equations.md);
 // foE from P.1239-4 §4; the gyrofrequency from IGRF-14.
 func (s Snapshot) Path(from LatLon, to []LatLon) ([]Answer, error) {
 	h, err := s.hourFor(to) // up to 64 destinations, the origin besides (RC-13)

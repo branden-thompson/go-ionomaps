@@ -476,15 +476,16 @@ func TestAnImplausibleReadingIsCounted(t *testing.T) {
 // NOAA host that accepts and never answers costs one ask's time, stops
 // NOAA's round as a refusal does, backs NOAA off, 10 minutes then 15, and
 // leaves the update inside its deadline, so GIRO, healthy, is still asked.
-// Each update runs under a guard deadline, so a round that waited on the
-// stall fails here rather than hanging the package.
+// Each update runs under a guard deadline - longer than a GIRO ask's 15 s,
+// so the burst has room - and a round that waited on the stall fails here
+// rather than hanging the package.
 func TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked(t *testing.T) {
 	defer ionomaps.SetNOAAAskTimeout(20 * time.Millisecond)()
 	l, n, c := giroLibrary(t)
 	n.stall[indexURL] = true
 	run := func() ionomaps.Snapshot {
 		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		s, _ := settled(l, ctx, ionomaps.UpdateOptions{})
 		return s

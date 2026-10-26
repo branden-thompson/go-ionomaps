@@ -38,9 +38,8 @@ type RateHeaders struct{ RetryAfter, Limit, Remaining, Reset string }
 // Validators let a host ask again for an answer only if it has changed.
 type Validators struct{ ETag, LastModified string }
 
-// Options are the library's settings. The reference circuit is fixed by
-// ruling, so it is not an option; nor is the grid step,
-// which is 2°.
+// Options are the library's settings. The reference circuit is the
+// library's own, so it is not an option; nor is the grid step, which is 2°.
 type Options struct {
 	Clock func() time.Time // the time now; time.Now when nil
 }

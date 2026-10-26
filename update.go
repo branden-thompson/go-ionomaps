@@ -80,12 +80,14 @@ type UpdateOptions struct {
 	NoStations bool
 }
 
-// Update asks NOAA for what is new and returns the hour's snapshot:
+// Update asks NOAA for what is new and returns the hour's snapshot, never
+// running into ctx's deadline - each NOAA ask has 20 s and each GIRO ask
+// 15 s, and no ask starts the deadline leaves no room for:
 // the daily solar file first, at most once a day, then
 // GloTEC's newest grid, found through its index; foF2 from GloTEC (the climatology,
 // named, without it or past an hour old), M(3000)F2 from the climatology,
 // MUF(3000) their product, with GIRO's readings up to an hour old
-// assimilated onto both (G5), NearestKm and NearestUnscored saying
+// assimilated onto both, NearestKm and NearestUnscored saying
 // where, and the stations' offset against GloTEC. When GIRO is due it returns NOAA's snapshot said StationsNext, and
 // the next call makes GIRO's burst. Within ten minutes of the last
 // ask, or while backing off, the last snapshot comes back said too soon,
@@ -126,16 +128,16 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 		return l.early(now, o)
 	}
 	l.unread, l.heard, l.trouble = l.unread[:0], false, false
-	refused := l.refreshSolar(ctx, now) // first: with no F10.7 mean there is no field at all (L-F4)
-	fieldable := l.solarUsable(now)     // without one, no grid is fetched to be thrown away (RL-2)
-	if !refused && fieldable {          // a 429 stops the update (D-39); a failed or unanswered file does not (watchpost D-270)
-		refused = l.refreshGrid(ctx, now)
+	endsRound := l.refreshSolar(ctx, now) // first: with no F10.7 mean there is no field at all (L-F4)
+	fieldable := l.solarUsable(now)       // without one, no grid is fetched to be thrown away (RL-2)
+	if !endsRound && fieldable {          // a 429, or an ask run out, stops the round (D-39, watchpost D-285); a failed file does not (watchpost D-270)
+		endsRound = l.refreshGrid(ctx, now)
 	}
-	if !refused && fieldable {
-		refused = l.refreshDRAP(ctx, now)
+	if !endsRound && fieldable {
+		endsRound = l.refreshDRAP(ctx, now)
 	}
-	if !refused && fieldable {
-		refused = l.refreshScales(ctx, now)
+	if !endsRound && fieldable {
+		endsRound = l.refreshScales(ctx, now)
 	}
 	stopped := ctx.Err() != nil
 	if stopped {
@@ -290,22 +292,28 @@ func nextAsk(now time.Time, backOff time.Duration, trouble bool) (time.Time, tim
 }
 
 // noaaAskTimeout is how long one of NOAA's asks may take. One that runs out
+// - by this library's own clock, or the host's client giving up first -
 // stops the round, so a host that accepts and never answers costs one ask's
-// time, and the update ends inside a host's deadline whatever its client's
-// own timeout (watchpost D-285).
+// time; and no ask starts that the host's update has no room for, so the
+// update ends inside the host's deadline (watchpost D-285, R4L-1, R4L-3).
 var noaaAskTimeout = 20 * time.Second
 
 // ask is one request: the answer, whether it is one to use (200, or 304
 // when validators were sent), and whether it stops the update's round - a
-// 429 (D-39, watchpost D-270), or an ask that ran out of noaaAskTimeout
-// (watchpost D-285). It sets l.trouble when NOAA refused, failed on its side
-// or did not answer, which backs the next update off (watchpost D-260); a
-// failure, or an error that is no timeout, stops nothing, the file missed and
-// the round going on (watchpost D-270).
-func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response, ok, refused bool) {
+// 429 (D-39, watchpost D-270), an ask that ran out (watchpost D-285), or no
+// room left in the host's update for one more. It sets l.trouble when NOAA
+// refused, failed on its side, did not answer or left no room, which backs
+// the next update off (watchpost D-260); a failure, or an error that is no
+// timeout, stops nothing, the file missed and the round going on (watchpost
+// D-270).
+func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response, ok, endsRound bool) {
+	if deadline, set := ctx.Deadline(); set && time.Until(deadline) < noaaAskTimeout {
+		l.trouble = true
+		return Response{}, false, true // no room for one more ask: the round ends before the host's deadline (watchpost D-285)
+	}
 	askCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout)
 	r, err := l.fetch.Fetch(askCtx, url, v)
-	timedOut := err != nil && askCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+	timedOut := err != nil && ctx.Err() == nil && (askCtx.Err() == context.DeadlineExceeded || isTimeout(err))
 	cancel()
 	l.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError
 	if timedOut {
@@ -328,12 +336,12 @@ func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response
 // refreshGrid asks the index and, when it names a grid not held and young
 // enough to use, that grid, within six grid asks an hour; GloTEC is named
 // unread when either does not come back or the grid cannot be read, and by
-// short when the index names none young enough. refused is whether either
-// ask was refused with a 429.
-func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool) {
-	idx, ok, refused := l.ask(ctx, glotecIndex, Validators{})
+// short when the index names none young enough. endsRound is whether
+// either ask stops the round: a 429, or an ask run out.
+func (l *Library) refreshGrid(ctx context.Context, now time.Time) (endsRound bool) {
+	idx, ok, endsRound := l.ask(ctx, glotecIndex, Validators{})
 	if !ok {
-		return l.missed(UnreadGloTEC, refused) // the grid held stays, and its age says so; else the climatology, as Background says
+		return l.missed(UnreadGloTEC, endsRound) // the grid held stays, and its age says so; else the climatology, as Background says
 	}
 	name, valid, listed := glotec.Newest(idx.Body, now)
 	if !gridUsable(valid, listed, now) {
@@ -346,9 +354,9 @@ func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool)
 	if !may {
 		return false
 	}
-	r, ok, refused := l.ask(ctx, glotecIndex+name, Validators{})
+	r, ok, endsRound := l.ask(ctx, glotecIndex+name, Validators{})
 	if !ok {
-		return l.missed(UnreadGloTEC, refused)
+		return l.missed(UnreadGloTEC, endsRound)
 	}
 	g, err := glotec.Read(r.Body, now)
 	if err != nil {
@@ -361,10 +369,10 @@ func (l *Library) refreshGrid(ctx context.Context, now time.Time) (refused bool)
 
 // missed names a NOAA file the update asked for and did not read -
 // unanswered, refused, or not a 200 or a 304 - and passes on whether the ask
-// was refused or unanswered (watchpost D-239).
-func (l *Library) missed(file string, refused bool) bool {
+// stops the round (watchpost D-239, D-285).
+func (l *Library) missed(file string, endsRound bool) bool {
 	l.unread = append(l.unread, file)
-	return refused
+	return endsRound
 }
 
 // mayAskGrid is whether a grid may be asked now, at most six in any hour
@@ -380,16 +388,16 @@ func (l *Library) mayAskGrid(now time.Time) bool {
 
 // refreshSolar reads the solar file once a UTC day, with the validators of
 // the file the held mean was taken from; a failed ask is tried at the next
-// update. refused is whether it was refused with a 429.
-func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool) {
+// update. endsRound is whether its ask stops the round: a 429, or run out.
+func (l *Library) refreshSolar(ctx context.Context, now time.Time) (endsRound bool) {
 	today := now.Truncate(24 * time.Hour)
 	readToday := l.solar.OK && l.solarDay.Equal(today)
 	if readToday {
 		return false
 	}
-	r, ok, refused := l.ask(ctx, solarFile, l.solarVal)
+	r, ok, endsRound := l.ask(ctx, solarFile, l.solarVal)
 	if !ok {
-		return l.missed(UnreadSolar, refused) // the mean held stands, if one is
+		return l.missed(UnreadSolar, endsRound) // the mean held stands, if one is
 	}
 	l.solarDay = today
 	if r.Status != statusOK {
@@ -406,11 +414,12 @@ func (l *Library) refreshSolar(ctx context.Context, now time.Time) (refused bool
 
 // refreshDRAP asks for D-RAP's table at each update, with the validators of
 // the table held (R-2.5, R-5.7); a table that cannot be read leaves the one
-// held, its age saying so. refused is whether it was refused with a 429.
-func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool) {
-	r, ok, refused := l.ask(ctx, drapTable, l.drapVal)
+// held, its age saying so. endsRound is whether its ask stops the round: a
+// 429, or run out.
+func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (endsRound bool) {
+	r, ok, endsRound := l.ask(ctx, drapTable, l.drapVal)
 	if !ok {
-		return l.missed(UnreadDRAP, refused)
+		return l.missed(UnreadDRAP, endsRound)
 	}
 	if r.Status != statusOK {
 		return false // unchanged since it was read: the table held stands
@@ -426,12 +435,12 @@ func (l *Library) refreshDRAP(ctx context.Context, now time.Time) (refused bool)
 
 // refreshScales asks for NOAA's scales at each update, with D-RAP and the
 // validators of the file held (R-2.10, watchpost D-88); a file that cannot
-// be read leaves the one held. refused is whether it was refused with a
-// 429.
-func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused bool) {
-	r, ok, refused := l.ask(ctx, scalesFile, l.scalesVal)
+// be read leaves the one held. endsRound is whether its ask stops the
+// round: a 429, or run out.
+func (l *Library) refreshScales(ctx context.Context, now time.Time) (endsRound bool) {
+	r, ok, endsRound := l.ask(ctx, scalesFile, l.scalesVal)
 	if !ok {
-		return l.missed(UnreadScales, refused)
+		return l.missed(UnreadScales, endsRound)
 	}
 	if r.Status != statusOK {
 		return false // unchanged since it was read: the levels held stand
@@ -572,4 +581,13 @@ func (f Field) owned() Field {
 	c.Values = slices.Clone(f.Values)
 	c.NoData = Bitset{bits: slices.Clone(f.NoData.bits), n: f.NoData.n}
 	return c
+}
+
+// isTimeout is whether an error is a timeout by its own account - the
+// host's client giving up before noaaAskTimeout does - told by the Timeout
+// method the standard library's network errors carry, never by importing
+// them (the library opens no connection of its own).
+func isTimeout(err error) bool {
+	var t interface{ Timeout() bool }
+	return errors.As(err, &t) && t.Timeout()
 }

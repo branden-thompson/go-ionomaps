@@ -21,6 +21,9 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
 - **The hours ahead** are the climatology's, labelled typical, never a forecast.
 - **The host supplies the network.** The library opens no connection of its own; it asks NOAA at most
   every ten minutes and GIRO in one burst of at most 40 an hour, and never retries a refusal itself.
+  Each NOAA ask has 20 s and each GIRO ask 15 s: one that runs out - by the library's clock, or the
+  host's client giving up first - counts as no answer and backs off; and no ask starts that the
+  context's deadline leaves no room for, so an update ends inside its deadline.
 
 ## Using it
 

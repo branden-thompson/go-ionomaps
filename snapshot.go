@@ -8,7 +8,7 @@ import (
 )
 
 // A Snapshot is one hour's fields and what they were made from, and answers
-// for that hour. It is immutable: every update returns fresh slices (P-6).
+// for that hour. It is immutable: every update returns fresh slices.
 // An update's snapshot is now; Ahead gives an hour ahead as a snapshot of
 // its own, typical.
 type Snapshot struct {
@@ -151,7 +151,7 @@ type GIROOutcome uint8
 // The outcomes.
 const (
 	GIROAnswered    GIROOutcome = iota // the burst ran, or none has been made; Inputs.StationsFailed counts stations that failed one by one
-	GIROUnavailable                    // GIRO refused (a 429), or three stations failed in a row before any answered: GIRO is backing off
+	GIROUnavailable                    // GIRO refused (a 429) or stopped answering - three stations failed in a row before any answered, three asks ran out in a row, or the burst reached the host's deadline after its asks ran out: GIRO is backing off
 	GIRODenied                         // GIRO refused this host - a 401 or 403 - and is left alone for a day
 )
 
@@ -221,7 +221,8 @@ type DayScale struct {
 
 // Offset is the stations' foF2 against GloTEC's:
 // the live offset, this update's, when measured; the typical offset and its
-// spread (one standard deviation), seeded from PLAN's week and learned from
+// spread (one standard deviation), seeded from a week of GIRO's readings in
+// late September 2026 and learned from
 // this library's own updates; whether the no-readings correction moved
 // GloTEC's foF2 by the typical offset; and where the seed was measured.
 type Offset struct {
@@ -236,7 +237,7 @@ type Offset struct {
 // typical: the host's status says so; false when no live offset is
 // measured.
 //
-// Source: this library (02-analysis/evidence/offset.py).
+// Source: this library (06_docs/02_features/go-ionomaps/02-analysis/evidence/offset.py).
 func (o Offset) Apart() bool {
 	if !o.Measured {
 		return false

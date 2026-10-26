@@ -173,21 +173,20 @@ func (l *List) Plan(now time.Time, budget int) (poll []string, probe string) {
 // Unasked puts the stations a stopped burst did not reach first for the
 // next, ahead of those left out by the budget, so a burst that stops at the
 // same station each hour still moves on (watchpost D-247); a code the list
-// does not poll now (the probe) is passed over. The stations whose failures
-// stopped it go behind the rest: the rotation's head moves past the last of
-// them, so stations dead at the head cannot stop a burst again while the
-// rest still answer (watchpost D-287).
+// does not poll now (the probe) is passed over. When a run of failures
+// stopped it, the rotation's head moves past past - the station whose
+// failure ended the run - so stations dead at the head cannot stop a burst
+// again while the rest still answer (watchpost D-287); a burst GIRO refused
+// or denied, or the host cancelled, names none and moves nothing.
 //
 // Source: watchpost D-247, D-287.
-func (l *List) Unasked(codes, failed []string, now time.Time) {
+func (l *List) Unasked(codes []string, past string, now time.Time) {
 	live := l.Live(now)
 	if len(live) == 0 {
 		return // none live: none to put first, and no head to move
 	}
-	for _, c := range failed[max(len(failed)-1, 0):] { // the last failed station, when there is one
-		if at := slices.Index(live, c); at >= 0 {
-			l.pollAt += (at + 1 - l.pollAt%len(live) + len(live)) % len(live) // the head past it
-		}
+	if at := slices.Index(live, past); at >= 0 {
+		l.pollAt += (at + 1 - l.pollAt%len(live) + len(live)) % len(live) // the head past it
 	}
 	var first []string
 	for _, c := range codes {

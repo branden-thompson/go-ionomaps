@@ -3,6 +3,7 @@ package giro
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"testing"
@@ -158,28 +159,30 @@ func TestFailuresInARowStopTheBurst(t *testing.T) {
 // hours every burst asks every station and stays Answered, never paused,
 // where the head would otherwise have stopped every other burst.
 func TestStationsDeadAtTheHeadStopOneBurstOnly(t *testing.T) {
-	var a Asker
-	var dead []string
-	for hour := range 8 {
-		var asked []string
-		at := now.Add(time.Duration(hour) * time.Hour)
-		a.Burst(context.Background(), at, func(_ context.Context, u string) (int, string, []byte, error) {
-			code := codeOf(t, u)
-			asked = append(asked, code)
-			if hour == 0 && len(dead) < failuresInARow {
-				dead = append(dead, code) // the head of the rotation: dead from now on
+	for _, deadAtHead := range []int{failuresInARow, failuresInARow + 1} { // four: the head moves past the last that failed, not the first (R4C-8)
+		var a Asker
+		var dead []string
+		for hour := range 8 {
+			var asked []string
+			at := now.Add(time.Duration(hour) * time.Hour)
+			a.Burst(context.Background(), at, func(_ context.Context, u string) (int, string, []byte, error) {
+				code := codeOf(t, u)
+				asked = append(asked, code)
+				if hour == 0 && len(dead) < deadAtHead {
+					dead = append(dead, code) // the head of the rotation: dead from now on
+				}
+				if slices.Contains(dead, code) {
+					return 500, "", nil, nil
+				}
+				return 200, "", nil, nil
+			})
+			stopped := a.Outcome == Unavailable
+			if hour == 0 && (!stopped || len(asked) != failuresInARow) {
+				t.Fatalf("%d dead, hour 0: %d asked, %v; want the first three to stop the burst", deadAtHead, len(asked), a.Outcome)
 			}
-			if slices.Contains(dead, code) {
-				return 500, "", nil, nil
+			if hour > 0 && (stopped || a.Paused(at) || len(asked) <= failuresInARow) {
+				t.Errorf("%d dead, hour %d: %d asked, %v, paused %v; want every station asked and the burst Answered", deadAtHead, hour, len(asked), a.Outcome, a.Paused(at))
 			}
-			return 200, "", nil, nil
-		})
-		stopped := a.Outcome == Unavailable
-		if hour == 0 && (!stopped || len(asked) != failuresInARow) {
-			t.Fatalf("hour 0: %d asked, %v; want the three dead stations to stop the burst", len(asked), a.Outcome)
-		}
-		if hour > 0 && (stopped || a.Paused(at) || len(asked) <= failuresInARow) {
-			t.Errorf("hour %d: %d asked, %v, paused %v; want every station asked and the burst Answered", hour, len(asked), a.Outcome, a.Paused(at))
 		}
 	}
 }
@@ -302,5 +305,189 @@ func TestAPlacedStationKeepsItsPlace(t *testing.T) {
 	a.hold("AL945", near)
 	if r := a.Readings(); len(r) != 1 || r[0].Station.Lat != at.Lat || r[0].Station.Lon != at.Lon {
 		t.Errorf("AL945 11 km from its place: held %+v; want at the seed's place %+v", r, at)
+	}
+}
+
+// TestABurstEndsBeforeTheHostsDeadline is watchpost D-291: before each ask
+// the burst reads the time left on the host's update and ends while one
+// more ask's askTimeout would not fit - GIRO called down if its last ask ran
+// out or three did, otherwise the stations not reached first next hour -
+// so it never runs into the host's deadline. Times are scaled: askTimeout
+// 200 ms, the host's deadline 700 ms, an answer 10 ms or 40 ms.
+func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
+	was := askTimeout
+	askTimeout = 200 * time.Millisecond
+	defer func() { askTimeout = was }()
+	type answerFunc func(n int, code string, ctx context.Context) (int, string, []byte, error)
+	run := func(t *testing.T, a *Asker, at time.Time, answer answerFunc) (asked []string, beat bool) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+		defer cancel()
+		a.Burst(ctx, at, func(ctx context.Context, u string) (int, string, []byte, error) {
+			code := codeOf(t, u)
+			asked = append(asked, code)
+			return answer(len(asked), code, ctx)
+		})
+		return asked, ctx.Err() == nil
+	}
+	answerIn := func(d time.Duration) (int, string, []byte, error) {
+		time.Sleep(d)
+		return 200, "", nil, nil
+	}
+	t.Run("a hang after 20 answers", func(t *testing.T) {
+		var a Asker
+		asked, beat := run(t, &a, now, func(n int, _ string, ctx context.Context) (int, string, []byte, error) {
+			if n <= 20 {
+				return answerIn(10 * time.Millisecond)
+			}
+			return hang(ctx)
+		})
+		if !beat || a.Outcome != Unavailable || !a.Paused(now) || len(asked) > 23 {
+			t.Errorf("%d asked, before the deadline %v, %v, paused %v; want GIRO called down before the host's deadline", len(asked), beat, a.Outcome, a.Paused(now))
+		}
+	})
+	t.Run("hangs alternating with a server error", func(t *testing.T) {
+		var a Asker
+		_, beat := run(t, &a, now, func(n int, _ string, ctx context.Context) (int, string, []byte, error) {
+			switch {
+			case n == 1:
+				return 200, "", nil, nil
+			case n%2 == 0:
+				return hang(ctx)
+			}
+			return 500, "", nil, nil
+		})
+		if !beat || a.Outcome != Unavailable || !a.Paused(now) {
+			t.Errorf("before the deadline %v, %v, paused %v; want GIRO called down, though never three hangs in a row", beat, a.Outcome, a.Paused(now))
+		}
+	})
+	t.Run("slow answers, no hang", func(t *testing.T) {
+		var a Asker
+		asked, beat := run(t, &a, now, func(int, string, context.Context) (int, string, []byte, error) {
+			return answerIn(40 * time.Millisecond)
+		})
+		if !beat || a.Outcome != Answered || a.Paused(now) || len(asked) >= 30 {
+			t.Fatalf("%d asked, before the deadline %v, %v, paused %v; want the burst cut short, Answered, nothing paused", len(asked), beat, a.Outcome, a.Paused(now))
+		}
+		next, _ := run(t, &a, now.Add(time.Hour), func(int, string, context.Context) (int, string, []byte, error) { return 200, "", nil, nil })
+		if len(next) == 0 || slices.Contains(asked, next[0]) {
+			t.Errorf("the next burst began at %v, a station already asked; want one not reached", next[:min(1, len(next))])
+		}
+	})
+	t.Run("three hanging stations", func(t *testing.T) {
+		// Three station hosts that hang look like GIRO hanging, whichever
+		// way the rotation orders them: GIRO is called down each hour, the
+		// other stations still asked first (D-291's counter-argument).
+		var a Asker
+		var trio []string
+		for hour := range 3 {
+			at := now.Add(time.Duration(hour) * time.Hour)
+			asked, beat := run(t, &a, at, func(_ int, code string, ctx context.Context) (int, string, []byte, error) {
+				if hour == 0 && len(trio) < failuresInARow {
+					trio = append(trio, code)
+				}
+				if slices.Contains(trio, code) {
+					return hang(ctx)
+				}
+				return 200, "", nil, nil
+			})
+			if !beat || a.Outcome != Unavailable || (hour > 0 && len(asked) <= failuresInARow) {
+				t.Errorf("hour %d: %d asked, before the deadline %v, %v; want the others asked and GIRO called down, inside the deadline", hour, len(asked), beat, a.Outcome)
+			}
+		}
+	})
+}
+
+// TestTimeoutsAreFailuresAndARunOfThem is watchpost D-271 and D-286, the
+// counts underneath: an ask that runs out counts as its station's failure,
+// so a server error, a timeout and a server error before any answer are
+// three failures in a row and stop the burst; asks that run out with answers
+// between them are no run, and the burst goes on.
+func TestTimeoutsAreFailuresAndARunOfThem(t *testing.T) {
+	was := askTimeout
+	askTimeout = 20 * time.Millisecond
+	defer func() { askTimeout = was }()
+	var before Asker
+	n := 0
+	before.Burst(context.Background(), now, func(ctx context.Context, _ string) (int, string, []byte, error) {
+		n++
+		if n == 2 {
+			return hang(ctx)
+		}
+		return 500, "", nil, nil
+	})
+	if n != failuresInARow || before.Failed != failuresInARow || before.Outcome != Unavailable {
+		t.Errorf("500, a timeout, 500 before any answer: %d asked, %d failed, %v; want three failures in a row, GIRO down", n, before.Failed, before.Outcome)
+	}
+	var scattered Asker
+	n = 0
+	scattered.Burst(context.Background(), now, func(ctx context.Context, _ string) (int, string, []byte, error) {
+		n++
+		if n <= 5 && n%2 == 1 {
+			return hang(ctx) // asks 1, 3 and 5 run out, answers between them
+		}
+		return 200, "", nil, nil
+	})
+	if scattered.Outcome != Answered || scattered.Paused(now) || n <= 5 {
+		t.Errorf("three timeouts with answers between: %d asked, %v, paused %v; want the burst run on", n, scattered.Outcome, scattered.Paused(now))
+	}
+}
+
+// clientTimeout is the error a host's HTTP client gives when its own
+// timeout runs out first: a timeout by its own account.
+type clientTimeout struct{}
+
+func (clientTimeout) Error() string { return "the client's timeout ran out" }
+func (clientTimeout) Timeout() bool { return true }
+
+// TestAHostClientsTimeoutIsATimeout is watchpost R4L-3: a host whose client
+// gives up before askTimeout does returns its own timeout error, and the
+// burst takes it as an ask run out - three in a row after an answer call
+// GIRO down (D-286) - never as a station's other failure.
+func TestAHostClientsTimeoutIsATimeout(t *testing.T) {
+	var a Asker
+	n := 0
+	a.Burst(context.Background(), now, func(context.Context, string) (int, string, []byte, error) {
+		n++
+		if n == 1 {
+			return 200, "", nil, nil
+		}
+		return 0, "", nil, fmt.Errorf("asking: %w", clientTimeout{})
+	})
+	if n != 1+failuresInARow || a.Outcome != Unavailable || !a.Paused(now) {
+		t.Errorf("an answer, then the host's client timing out: %d asked, %v, paused %v; want three timeouts calling GIRO down", n, a.Outcome, a.Paused(now))
+	}
+}
+
+// TestStationsTimingOutGoBehindTheRest is watchpost D-287 for asks that run
+// out: three stations hanging after an answer stop the burst (D-286), and
+// every later burst begins past them, the rest asked first - once the
+// stations not reached are spent, the rotation's head is what keeps them
+// behind.
+func TestStationsTimingOutGoBehindTheRest(t *testing.T) {
+	was := askTimeout
+	askTimeout = 20 * time.Millisecond
+	defer func() { askTimeout = was }()
+	var a Asker
+	var trio []string
+	for hour := range 4 {
+		var asked []string
+		a.Burst(context.Background(), now.Add(time.Duration(hour)*time.Hour), func(ctx context.Context, u string) (int, string, []byte, error) {
+			code := codeOf(t, u)
+			asked = append(asked, code)
+			if hour == 0 && len(asked) > 1 && len(trio) < failuresInARow {
+				trio = append(trio, code)
+			}
+			if slices.Contains(trio, code) {
+				return hang(ctx)
+			}
+			return 200, "", nil, nil
+		})
+		if hour == 0 && (a.Outcome != Unavailable || len(asked) != 1+failuresInARow) {
+			t.Fatalf("an answer, then three hangs: %d asked, %v; want the burst stopped at the third", len(asked), a.Outcome)
+		}
+		if hour > 0 && (len(asked) <= 1+failuresInARow || slices.Contains(trio, asked[0])) {
+			t.Errorf("hour %d asked %d, first %s; want it begun past the stations that hung %v", hour, len(asked), asked[0], trio)
+		}
 	}
 }
