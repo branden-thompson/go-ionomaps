@@ -471,3 +471,42 @@ func TestAnImplausibleReadingIsCounted(t *testing.T) {
 		t.Errorf("one station reading 20 MHz over a 7 MHz grid: %d implausible, %d rejected, %d stations; want 1, 0, 39", s.Inputs.Implausible, s.Inputs.Rejected, s.Inputs.Stations)
 	}
 }
+
+// TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked is watchpost D-285: a
+// NOAA host that accepts and never answers costs one ask's time, stops
+// NOAA's round as a refusal does, backs NOAA off, 10 minutes then 15, and
+// leaves the update inside its deadline, so GIRO, healthy, is still asked.
+// Each update runs under a guard deadline, so a round that waited on the
+// stall fails here rather than hanging the package.
+func TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked(t *testing.T) {
+	defer ionomaps.SetNOAAAskTimeout(20 * time.Millisecond)()
+	l, n, c := giroLibrary(t)
+	n.stall[indexURL] = true
+	run := func() ionomaps.Snapshot {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s, _ := settled(l, ctx, ionomaps.UpdateOptions{})
+		return s
+	}
+	s := run()
+	if s.Reason == ionomaps.Unfinished || len(n.giro.asks) == 0 {
+		t.Fatalf("a stalled index: reason %v, %d GIRO asks; want the update finished and GIRO asked", s.Reason, len(n.giro.asks))
+	}
+	if len(n.drapAsks) != 0 || n.scalesAsks != 0 {
+		t.Errorf("after the stalled index the round went on: %d D-RAP asks, %d scales asks; want it stopped", len(n.drapAsks), n.scalesAsks)
+	}
+	n.take()
+	for i, wait := range []time.Duration{10 * time.Minute, 15 * time.Minute} {
+		c.Add(wait - time.Second)
+		run()
+		if a := n.take(); len(a) != 0 {
+			t.Fatalf("stall %d: NOAA asked again before %v: %v", i+1, wait, a)
+		}
+		c.Add(time.Second)
+		run()
+		if a := n.take(); len(a) == 0 {
+			t.Fatalf("stall %d: NOAA not asked again after %v", i+1, wait)
+		}
+	}
+}

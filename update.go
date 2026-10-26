@@ -59,7 +59,7 @@ const drapMaxAge = time.Hour
 const scalesMaxAge = time.Hour
 
 // UpdateOptions are one update's settings, the host's to give each time,
-// so a change needs no new library and no new burst (R-9.6).
+// so a change needs no new library and no new burst.
 type UpdateOptions struct {
 	// CorrectNoReadings moves GloTEC's foF2 by the typical offset when no
 	// station readings are assimilated; off, GloTEC is
@@ -80,18 +80,18 @@ type UpdateOptions struct {
 	NoStations bool
 }
 
-// Update asks NOAA for what is new and returns the hour's snapshot (G4.2):
+// Update asks NOAA for what is new and returns the hour's snapshot:
 // the daily solar file first, at most once a day, then
 // GloTEC's newest grid, found through its index; foF2 from GloTEC (the climatology,
 // named, without it or past an hour old), M(3000)F2 from the climatology,
 // MUF(3000) their product, with GIRO's readings up to an hour old
 // assimilated onto both (G5), NearestKm and NearestUnscored saying
-// where, and the stations' offset against GloTEC (R-9.6). When GIRO is due it returns NOAA's snapshot said StationsNext, and
+// where, and the stations' offset against GloTEC. When GIRO is due it returns NOAA's snapshot said StationsNext, and
 // the next call makes GIRO's burst. Within ten minutes of the last
-// ask, or while backing off, the last snapshot comes back said too soon
-// (R-5.4), rebuilt from what is held when the options have changed, nothing
+// ask, or while backing off, the last snapshot comes back said too soon,
+// rebuilt from what is held when the options have changed, nothing
 // asked. An update its context stops - a deadline, or the host's cancel - is
-// built from what is held and said Unfinished, with no back-off (L-F4).
+// built from what is held and said Unfinished, with no back-off.
 // With no F10.7 mean to be had there is no field: the error wraps
 // ErrNoField, and the context's own error when it stopped the update, and
 // says when NOAA is asked again.
@@ -216,7 +216,9 @@ func (l *Library) solarUsable(now time.Time) bool {
 
 // gridUsable is whether a grid valid at a time may be the background: one
 // listed, or held, up to gridMaxAge old (A-29 (1): one rule, read wherever
-// a grid's age is asked).
+// a grid's age is asked). It takes a time, not the library, because the
+// index's newest grid is not held; each held input's own rule is a method -
+// solarUsable, heldGrid, drapUsable, scalesUsable.
 func gridUsable(valid time.Time, ok bool, now time.Time) bool {
 	if !ok {
 		return false // none listed or held
@@ -246,11 +248,11 @@ func (l *Library) drapUsable(now time.Time) bool {
 
 // scalesUsable is whether the scales held may be carried: ones held, up to
 // scalesMaxAge old.
-func scalesUsable(held *scales.Levels, now time.Time) bool {
-	if held == nil {
+func (l *Library) scalesUsable(now time.Time) bool {
+	if l.scales == nil {
 		return false // none held
 	}
-	return now.Sub(held.Valid) <= scalesMaxAge
+	return now.Sub(l.scales.Valid) <= scalesMaxAge
 }
 
 // short names each of NOAA's inputs the snapshot will lack - none held, or
@@ -265,7 +267,7 @@ func (l *Library) short(now time.Time) {
 		{UnreadSolar, !l.solarUsable(now)},
 		{UnreadGloTEC, l.heldGrid(now) == nil},
 		{UnreadDRAP, !l.drapUsable(now)},
-		{UnreadScales, !scalesUsable(l.scales, now)},
+		{UnreadScales, !l.scalesUsable(now)},
 	}
 	for _, in := range lacking {
 		if in.lacks && !slices.Contains(l.unread, in.name) {
@@ -275,26 +277,40 @@ func (l *Library) short(now time.Time) {
 }
 
 // nextAsk is when NOAA may next be asked, and the back-off then: ten
-// minutes on after an update without a refusal, which ends the back-off;
-// after one, ten minutes, then 15 - never sooner than a healthy NOAA is
-// asked (watchpost D-260, under D-39's cap).
-func nextAsk(now time.Time, backOff time.Duration, refused bool) (time.Time, time.Duration) {
-	if !refused {
+// minutes on after an update without trouble - no refusal, no failure on
+// NOAA's side, no ask unanswered - which ends the back-off; after one with
+// it, ten minutes, then 15 - never sooner than a healthy NOAA is asked
+// (watchpost D-260, under D-39's cap).
+func nextAsk(now time.Time, backOff time.Duration, trouble bool) (time.Time, time.Duration) {
+	if !trouble {
 		return now.Add(noaaEvery), 0
 	}
 	backOff = min(max(2*backOff, noaaEvery), longestPause)
 	return now.Add(backOff), backOff
 }
 
+// noaaAskTimeout is how long one of NOAA's asks may take. One that runs out
+// stops the round, so a host that accepts and never answers costs one ask's
+// time, and the update ends inside a host's deadline whatever its client's
+// own timeout (watchpost D-285).
+var noaaAskTimeout = 20 * time.Second
+
 // ask is one request: the answer, whether it is one to use (200, or 304
-// when validators were sent), and whether NOAA refused it with a 429, which
-// stops the update's round (D-39, watchpost D-270). A refusal, a failure on
-// NOAA's side or no answer each backs the next update off (watchpost D-260);
-// a failure or no answer stops nothing, the file missed and the round going
-// on (watchpost D-270).
+// when validators were sent), and whether it stops the update's round - a
+// 429 (D-39, watchpost D-270), or an ask that ran out of noaaAskTimeout
+// (watchpost D-285). It sets l.trouble when NOAA refused, failed on its side
+// or did not answer, which backs the next update off (watchpost D-260); a
+// failure, or an error that is no timeout, stops nothing, the file missed and
+// the round going on (watchpost D-270).
 func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response, ok, refused bool) {
-	r, err := l.fetch.Fetch(ctx, url, v)
+	askCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout)
+	r, err := l.fetch.Fetch(askCtx, url, v)
+	timedOut := err != nil && askCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+	cancel()
 	l.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError
+	if timedOut {
+		return Response{}, false, true // a stalled host: the round stops as a refusal stops it (watchpost D-285)
+	}
 	if err != nil {
 		return Response{}, false, false
 	}
@@ -432,8 +448,9 @@ func (l *Library) refreshScales(ctx context.Context, now time.Time) (refused boo
 // scalesOf are the scales held as the snapshot carries them: none, said by
 // a zero valid time, when none was read or the last is over scalesMaxAge
 // old (watchpost D-88: never level 0).
-func scalesOf(held *scales.Levels, now time.Time) Scales {
-	if !scalesUsable(held, now) {
+func (l *Library) scalesOf(now time.Time) Scales {
+	held := l.scales
+	if !l.scalesUsable(now) {
 		return Scales{R: ScaleUnset, S: ScaleUnset, G: ScaleUnset}
 	}
 	s := Scales{R: held.R, S: held.S, G: held.G, Valid: held.Valid, Outlook: make([]DayScale, len(held.Days))}
@@ -484,7 +501,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		TypicalError:    typicalError(),
 		Offset:          l.offset.offset(res.MeanResidual, measured, corrected),
 		Noise:           o.Noise,
-		Scales:          scalesOf(l.scales, now),
+		Scales:          l.scalesOf(now),
 		typical:         l.typical,
 	}
 	if s.Background.FoF2 == GloTEC {

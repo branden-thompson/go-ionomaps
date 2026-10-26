@@ -27,7 +27,7 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
 ```go
 lib, err := ionomaps.New(fetcher, ionomaps.Options{}) // fetcher: the host's HTTP client
 if err != nil { ... }
-_ = lib.Restore(savedState) // optional: GIRO's throttle and the F10.7 mean across restarts; ErrBadState leaves it as it was
+_ = lib.Restore(savedState) // optional: GIRO's throttle and the F10.7 mean across restarts; each part is taken on its own, ErrBadGIROState or ErrBadMean naming one refused
 
 snap, err := lib.Update(ctx, ionomaps.UpdateOptions{})
 if errors.Is(err, ionomaps.ErrNoField) { ... } // the words say why, and when to try again

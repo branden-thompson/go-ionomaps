@@ -11,7 +11,7 @@ import (
 )
 
 // Synthetic describes recorded days built for a test, in the layout
-// dry_fetch.py writes, never a service's own data (R-4.3): no GIRO or NOAA
+// dry_fetch.py writes, never a service's own data: no GIRO or NOAA
 // file may be committed, so a test that needs recorded days writes these.
 type Synthetic struct {
 	// Grids are the times GloTEC grids are valid at, each 72 by 72 points

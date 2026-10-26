@@ -164,8 +164,8 @@
     "row": "R-5.3",
     "what": "stations failing in a row never stop the burst",
     "file": "internal/giro/asker.go",
-    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered):",
-    "new": "\tcase res == refused:",
+    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered) || timeouts >= failuresInARow:",
+    "new": "\tcase res == refused || timeouts >= failuresInARow:",
     "package": "./internal/giro",
     "test": "TestFailuresInARowStopTheBurst"
   },
@@ -184,7 +184,7 @@
     "row": "R-5.3",
     "what": "a stopped burst begins at the same stations next hour",
     "file": "internal/giro/asker.go",
-    "old": "\t\t\ta.list.Unasked(asks[i+1:granted], now)\n",
+    "old": "\t\t\ta.list.Unasked(asks[i+1:granted], failedCodes, now)\n",
     "new": "",
     "package": "./internal/giro",
     "test": "TestFailuresInARowStopTheBurst"
@@ -294,8 +294,8 @@
     "row": "watchpost D-271",
     "what": "failures in a row after a station has answered stop the burst as GIRO down",
     "file": "internal/giro/asker.go",
-    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered):",
-    "new": "\tcase res == refused || inARow >= failuresInARow:",
+    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered) || timeouts >= failuresInARow:",
+    "new": "\tcase res == refused || inARow >= failuresInARow || timeouts >= failuresInARow:",
     "package": "./internal/giro",
     "test": "TestFailuresAfterAnAnswerAreTheStations"
   },
@@ -638,5 +638,85 @@
     "new": "\treturn true\n}",
     "package": "./internal/assimilate",
     "test": "TestAnImplausibleReadingIsRefused"
+  },
+  {
+    "id": "m065",
+    "row": "watchpost D-285",
+    "what": "a NOAA ask that runs out goes on to the next file",
+    "file": "update.go",
+    "old": "\tif timedOut {\n\t\treturn Response{}, false, true",
+    "new": "\tif false && timedOut {\n\t\treturn Response{}, false, true",
+    "package": ".",
+    "test": "TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked"
+  },
+  {
+    "id": "m066",
+    "row": "watchpost D-285",
+    "what": "a NOAA ask waits on the host's own deadline",
+    "file": "update.go",
+    "old": "\taskCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout)\n\tr, err := l.fetch.Fetch(askCtx, url, v)",
+    "new": "\taskCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout*1e6)\n\tr, err := l.fetch.Fetch(askCtx, url, v)",
+    "package": ".",
+    "test": "TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked"
+  },
+  {
+    "id": "m067",
+    "row": "watchpost D-286",
+    "what": "asks running out in a row after an answer leave GIRO asked to the end",
+    "file": "internal/giro/asker.go",
+    "old": "(inARow >= failuresInARow && !anyAnswered) || timeouts >= failuresInARow:",
+    "new": "(inARow >= failuresInARow && !anyAnswered) || timeouts >= 1<<30:",
+    "package": "./internal/giro",
+    "test": "TestAGIROHangingAfterAnAnswerIsCalledDown"
+  },
+  {
+    "id": "m068",
+    "row": "watchpost D-286",
+    "what": "an ask that ran out is taken as a station's own failure",
+    "file": "internal/giro/asker.go",
+    "old": "\tif err != nil && askCtx.Err() == context.DeadlineExceeded {\n",
+    "new": "\tif false && err != nil && askCtx.Err() == context.DeadlineExceeded {\n",
+    "package": "./internal/giro",
+    "test": "TestAGIROHangingAfterAnAnswerIsCalledDown"
+  },
+  {
+    "id": "m069",
+    "row": "watchpost D-287",
+    "what": "a stop leaves the rotation's head at the stations that failed",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tif at := slices.Index(live, c); at >= 0 {\n",
+    "new": "\t\tif at := slices.Index(live, c); at >= 1<<30 {\n",
+    "package": "./internal/giro",
+    "test": "TestStationsDeadAtTheHeadStopOneBurstOnly"
+  },
+  {
+    "id": "m070",
+    "row": "watchpost D-260, D-270",
+    "what": "an unanswered NOAA ask does not back the next update off",
+    "file": "update.go",
+    "old": "\tl.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError\n",
+    "new": "\tl.trouble = l.trouble || r.Status == statusRefused || r.Status >= statusServerError\n",
+    "package": ".",
+    "test": "TestARefusalBacksOff"
+  },
+  {
+    "id": "m071",
+    "row": "watchpost R3L-6, R3C-2",
+    "what": "a refused mean is named as GIRO's part",
+    "file": "state.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: %w (%v)\", ErrBadState, ErrBadMean, errF)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: %w (%v)\", ErrBadState, ErrBadGIROState, errF)\n",
+    "package": ".",
+    "test": "TestABadStateIsRefused"
+  },
+  {
+    "id": "m072",
+    "row": "watchpost D-288",
+    "what": "an exported doc comment carries an ID",
+    "file": "state.go",
+    "old": "// F10.7 mean held comes back with its age.",
+    "new": "// F10.7 mean held comes back with its age (D-213).",
+    "package": ".",
+    "test": "TestNoExportedDocCarriesAnID"
   }
 ]

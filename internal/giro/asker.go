@@ -21,14 +21,15 @@ const (
 
 // failuresInARow is how many stations failing one after another, before
 // any has answered, stop a burst as GIRO itself down (watchpost D-247,
-// D-271).
+// D-271); and how many asks running out of askTimeout one after another
+// stop it whatever answered before (watchpost D-286).
 const failuresInARow = 3
 
 // askTimeout is how long one station's ask may take: failuresInARow of them
-// fit inside a host's update (watchpost's 60 s), so a GIRO that does not
-// answer is called down and backed off, never left to run the update out
-// (watchpost D-275). A burst of 39 took about 36 s in PLAN, under a second
-// an ask.
+// fit inside a host's update (watchpost's 60 s), so a GIRO that stops
+// answering - before any station has answered or after - is called down and
+// backed off, never left to run the update out (watchpost D-275, D-286). A
+// burst of 39 took about 36 s in PLAN, under a second an ask.
 var askTimeout = 15 * time.Second
 
 // movedKm is how far from where the list places a station its reply may
@@ -51,7 +52,8 @@ type result uint8
 // The results.
 const (
 	answered  result = iota // an answer, whatever it held
-	failed                  // the station's own: a server error, a 404, no answer
+	failed                  // the station's own: a server error, a 404, an error that is no timeout
+	timedOut                // no answer within askTimeout: the station's failure, and GIRO down when it runs on
 	refused                 // GIRO's 429
 	denied                  // GIRO refused this host: a 401 or 403
 	cancelled               // the host's cancel
@@ -175,40 +177,54 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 	if granted > 0 {
 		a.Rejected, a.Failed, a.Outcome = 0, 0, Answered // the counts are this burst's
 	}
-	inARow, anyAnswered := 0, false
+	inARow, timeouts, anyAnswered := 0, 0, false
+	var failedCodes []string // the stations whose failures may stop the burst, in the order asked
 	for i, code := range asks[:granted] {
 		stopped := ctx.Err() != nil
 		if stopped && i == 0 {
 			a.thr = before // nothing asked: GIRO saw no burst
 		}
 		if stopped {
-			a.list.Unasked(asks[i:granted], now)
+			a.list.Unasked(asks[i:granted], nil, now)
 			return
 		}
 		res, retryAfter := a.ask(ctx, code, now, fetch)
-		inARow, anyAnswered = a.count(res, inARow), anyAnswered || res == answered
-		if a.stops(res, retryAfter, inARow, anyAnswered, now) {
-			a.list.Unasked(asks[i+1:granted], now)
+		inARow, timeouts, anyAnswered = a.count(res, inARow), timeoutsAfter(res, timeouts), anyAnswered || res == answered
+		if res == failed || res == timedOut {
+			failedCodes = append(failedCodes, code)
+		}
+		if a.stops(res, retryAfter, inARow, timeouts, anyAnswered, now) {
+			a.list.Unasked(asks[i+1:granted], failedCodes, now)
 			return
 		}
 	}
 }
 
 // count is the failures in a row after one ask: one more for a station's
-// own failure, none after any other end.
+// own failure or an ask that ran out, none after any other end.
 func (a *Asker) count(res result, inARow int) int {
-	if res != failed {
+	if res != failed && res != timedOut {
 		return 0
 	}
 	a.Failed++
 	return inARow + 1
 }
 
+// timeoutsAfter is the asks run out in a row after one ask: one more for
+// an ask that ran out, none after any other end.
+func timeoutsAfter(res result, timeouts int) int {
+	if res != timedOut {
+		return 0
+	}
+	return timeouts + 1
+}
+
 // stops is whether the burst ends after an ask, pausing GIRO as the ask's
 // end asks (watchpost D-39, D-247): failures in a row are GIRO itself down
 // only while nothing in the burst has answered - after an answer, each
-// failure is its station's own (watchpost D-271).
-func (a *Asker) stops(res result, retryAfter string, inARow int, anyAnswered bool, now time.Time) bool {
+// failure is its station's own (watchpost D-271) - but asks running out in
+// a row are GIRO down whatever answered before (watchpost D-286).
+func (a *Asker) stops(res result, retryAfter string, inARow, timeouts int, anyAnswered bool, now time.Time) bool {
 	switch {
 	case res == cancelled:
 		return true // the host's cancel: no refusal of GIRO's
@@ -216,7 +232,7 @@ func (a *Asker) stops(res result, retryAfter string, inARow int, anyAnswered boo
 		a.thr.Deny(now)
 		a.Outcome = Denied
 		return true
-	case res == refused || (inARow >= failuresInARow && !anyAnswered):
+	case res == refused || (inARow >= failuresInARow && !anyAnswered) || timeouts >= failuresInARow:
 		a.thr.Refused(now, retryAfter)
 		a.Outcome = Unavailable
 		return true
@@ -236,6 +252,9 @@ func (a *Asker) ask(ctx context.Context, code string, now time.Time, fetch Fetch
 	status, retryAfter, body, err := fetch(askCtx, u)
 	if ctx.Err() != nil {
 		return cancelled, ""
+	}
+	if err != nil && askCtx.Err() == context.DeadlineExceeded {
+		return timedOut, "" // no answer within askTimeout (watchpost D-286)
 	}
 	if r, ended := ended(status, err); ended {
 		return r, retryAfter

@@ -269,3 +269,12 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **G-M3 with the bound:** every figure and verdict on the fresh days unchanged from the run at 3c2da5a, so the bound refuses none of their readings; the committed run's figures are in the evidence folder's `gm3/d279-verdict.md`.
 - **The nightly** (R2H-6): `gate.yml` is not on `main` until the release merges, so its schedule cannot fire yet; the build log says so, and each candidate's full gate is dispatched until then.
 
+## REVIEW's red team, round 3: the library's remediation (watchpost D-285 to D-288; D-100 to D-103, A-32)
+
+- **A stalling NOAA** (D-100): each NOAA ask has its own 20 s; one that runs out stops the round and backs NOAA off, so the update ends inside a host's deadline and GIRO is still asked. `TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked` stalls the index under a guard deadline (m065, m066).
+- **A GIRO hanging after an answer** (D-101): three asks run out in a row call GIRO down whatever answered (`TestAGIROHangingAfterAnAnswerIsCalledDown`; m067, m068). The hung fakes now end at a two-second guard, so a missing timeout fails its test rather than hanging the package (R3C-7).
+- **Dead stations at the head** (D-102): a stop moves the rotation's head past the stations that failed; `TestStationsDeadAtTheHeadStopOneBurstOnly` runs the reviewer's eight hours: one stopped burst, then seven Answered (m069).
+- **No IDs in public docs** (D-103): every exported doc comment's requirement, plan, ruling and red-team IDs stripped, and the host's tool names; `TestNoExportedDocCarriesAnID` scans `go doc -all` (m072).
+- **Smaller:** the requirements R-3.3, R-5.3, R-5.8 and R-9.8 say rounds 2 and 3's rules and name their tests (R3D-1); `Restore` names the part it refused, `ErrBadGIROState` or `ErrBadMean`, its docs, the README and `api-review.md` saying each part is taken on its own (R3D-2, R3L-6; m071); the constants table carries the fold, from quiet days, and `Implausible`'s doc says it (R3D-3); `nextAsk`'s parameter is `trouble`, `ask`'s doc says it sets it (R3C-6); an index unanswered twice backs off 15 minutes, now tested (R3C-7, R3L-4; m070); the held inputs' rules are methods (R3C-11).
+- **Mutants:** m065 to m072; m017, m019 and m030 re-pointed.
+

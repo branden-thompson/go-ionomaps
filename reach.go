@@ -10,7 +10,7 @@ import (
 
 var errBadFrequency = errors.New("ionomaps: the frequency is not from 1.8 to 30 MHz")
 
-// ReachField is a frequency's reach from an origin (R-2.9): a field over
+// ReachField is a frequency's reach from an origin: a field over
 // the library's global grid, 1 where the frequency is under the path's upper
 // limit from the origin and over its lower limit at the reference circuit,
 // 0 where it is not; how far out the skip zone ends; whether any cell is
@@ -30,8 +30,7 @@ type ReachField struct {
 // P.533-14 to every cell, and over the path's lower limit at the reference
 // circuit - the circuit worked out on a polar grid around
 // the origin and interpolated between its nodes, within the measured
-// share of cells of each cell's own circuit; and the skip zone inside it
-// (R-2.9).
+// share of cells of each cell's own circuit; and the skip zone inside it.
 //
 // Source: ITU-R P.533-14 §3.5 and §5 to §7 (02-analysis/evidence/p533-equations.md,
 // p533-field-strength.md).

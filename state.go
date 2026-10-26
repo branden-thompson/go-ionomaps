@@ -12,10 +12,22 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/throttle"
 )
 
-// ErrBadState is the error, wrapped, for a state Restore will not take: not
-// one this library wrote, or one that would hold GIRO back longer than any
-// refusal does, or ask it from the future. The library is left as it was.
+// ErrBadState is the error, wrapped, for a state Restore will not take
+// whole. A state this library did not write leaves the library as it was.
+// Otherwise GIRO's part and the F10.7 mean are taken each on its own, and
+// the error also wraps ErrBadGIROState, ErrBadMean or both, naming the part
+// refused; the other part was taken.
 var ErrBadState = errors.New("ionomaps: the state given is not one this library keeps")
+
+// ErrBadGIROState is wrapped in ErrBadState when the state's GIRO part is
+// refused - one that would hold GIRO back longer than any refusal does, or
+// ask it from the future: GIRO starts as new.
+var ErrBadGIROState = errors.New("ionomaps: the state's GIRO part is refused, and GIRO starts as new")
+
+// ErrBadMean is wrapped in ErrBadState when the state's F10.7 mean is
+// refused - past a flux's bounds, or taken in the future: no mean is kept
+// from it.
+var ErrBadMean = errors.New("ionomaps: the state's F10.7 mean is refused, and none is kept from it")
 
 // stateVersion is the state's layout; another is refused.
 const stateVersion = 1
@@ -79,7 +91,7 @@ func (l *Library) State() []byte {
 // other is still taken; a station the seed no longer names is dropped. The
 // host carries on either way.
 //
-// Source: this library; R-3.3.
+// Source: this library.
 func (l *Library) Restore(state []byte) error {
 	if len(state) == 0 {
 		return nil
@@ -103,15 +115,21 @@ func (l *Library) Restore(state []byte) error {
 	defer l.mu.Unlock()
 	now := l.clock().UTC()
 	// The mean and GIRO's state are restored each on its own, so a state
-	// whose GIRO part is refused still keeps the mean (R2L-4), and the
-	// reverse; what is refused is named.
+	// whose GIRO part is refused still keeps the mean, and the reverse; the
+	// error names the part refused, on one line.
 	f, errF := solar.Resume(k.F107, k.F107Day, fromUnix(k.F107At), now)
 	if errF == nil && f.OK {
 		l.solar = f
 	}
 	errG := l.giro.Import(g, now)
-	if errF != nil || errG != nil {
-		return fmt.Errorf("%w: %v", ErrBadState, errors.Join(errF, errG))
+	if errF != nil && errG != nil {
+		return fmt.Errorf("%w: %w (%v); %w (%v)", ErrBadState, ErrBadGIROState, errG, ErrBadMean, errF)
+	}
+	if errG != nil {
+		return fmt.Errorf("%w: %w (%v)", ErrBadState, ErrBadGIROState, errG)
+	}
+	if errF != nil {
+		return fmt.Errorf("%w: %w (%v)", ErrBadState, ErrBadMean, errF)
 	}
 	return nil
 }

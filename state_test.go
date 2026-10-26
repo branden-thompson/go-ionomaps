@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,6 +148,9 @@ func TestABadStateIsRefused(t *testing.T) {
 			t.Errorf("%s: restored with %v", name, err)
 			continue
 		}
+		if !errors.Is(err, ionomaps.ErrBadGIROState) || errors.Is(err, ionomaps.ErrBadMean) || strings.Contains(err.Error(), "\n") {
+			t.Errorf("%s: %v; want GIRO's part named, the mean not, on one line", name, err)
+		}
 		n.down[solarURL] = true // the solar file unread: a field only from the mean the state kept (R2L-4)
 		s, err := again.Update(context.Background(), ionomaps.UpdateOptions{})
 		delete(n.down, solarURL)
@@ -162,6 +166,9 @@ func TestABadStateIsRefused(t *testing.T) {
 		if !errors.Is(err, ionomaps.ErrBadState) {
 			t.Errorf("%s: restored with %v", name, err)
 			continue
+		}
+		if !errors.Is(err, ionomaps.ErrBadMean) || errors.Is(err, ionomaps.ErrBadGIROState) {
+			t.Errorf("%s: %v; want the mean named, GIRO's part not", name, err)
 		}
 		if s := update(t, again); s.Reason == ionomaps.StationsNext {
 			t.Errorf("%s: the mean refused threw GIRO's state away too: %v", name, s.Reason)

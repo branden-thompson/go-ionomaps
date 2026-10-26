@@ -40,6 +40,6 @@ var constants = []constant{
 		"tuned against GIRO's stations over a week in early October 2026", "week.py section \"kernel tuned\" (A-29; D-61)", planWeekEnd},
 	{"the typical offset's seed and spread", fmt.Sprintf("%g MHz, SD %g", seedOffsetMHz, seedSpreadMHz), offsetBasis, offsetSource, planWeekEnd},
 	{"the hours ahead's typical error", fmt.Sprint(typicalError().Bands), typicalError().Basis, typicalError().Source, planWeekEnd},
-	{"the plausibility bounds", fmt.Sprintf("foF2 %g MHz, M(3000)F2 %g", assimilate.FoF2Bound, assimilate.M3000Bound),
-		"above every residual of GIRO's readings over PLAN's week and the fresh days", "gm3 -residuals over both (watchpost D-248)", freshDaysEnd},
+	{"the plausibility bounds", fmt.Sprintf("foF2 %g MHz or a fold of %g either way, M(3000)F2 %g", assimilate.FoF2Bound, assimilate.FoF2Fold, assimilate.M3000Bound),
+		"above every residual and every fold of GIRO's readings over PLAN's week and the fresh days, quiet days with no storm among them", "gm3 -residuals over both (watchpost D-248, D-279; A-31)", freshDaysEnd},
 }

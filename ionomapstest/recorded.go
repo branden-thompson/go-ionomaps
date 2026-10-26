@@ -14,9 +14,9 @@
 // one with no data.
 //
 // It is for a host's own tests and for the instruments that grade the
-// library on recorded days (G10.4's tools/gm3; watchpost's tools/reachscore,
-// W10.3). The recorded files stay outside any repository: GIRO's replies
-// carry the requester's address and its data is CC BY-NC-SA (R-4.3).
+// library on recorded days (this module's tools/gm3, and a host's own
+// instruments). The recorded files stay outside any repository: GIRO's replies
+// carry the requester's address and its data is CC BY-NC-SA.
 //
 //	rec, err := ionomapstest.Open(dir, solarFile)
 //	replay := rec.Replay(ionomapstest.Options{})

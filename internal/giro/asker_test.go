@@ -152,6 +152,38 @@ func TestFailuresInARowStopTheBurst(t *testing.T) {
 	}
 }
 
+// TestStationsDeadAtTheHeadStopOneBurstOnly is watchpost D-287: three dead
+// stations at the head of the rotation stop the first burst, and go behind
+// the rest - the rotation's head moved past them - so for the next seven
+// hours every burst asks every station and stays Answered, never paused,
+// where the head would otherwise have stopped every other burst.
+func TestStationsDeadAtTheHeadStopOneBurstOnly(t *testing.T) {
+	var a Asker
+	var dead []string
+	for hour := range 8 {
+		var asked []string
+		at := now.Add(time.Duration(hour) * time.Hour)
+		a.Burst(context.Background(), at, func(_ context.Context, u string) (int, string, []byte, error) {
+			code := codeOf(t, u)
+			asked = append(asked, code)
+			if hour == 0 && len(dead) < failuresInARow {
+				dead = append(dead, code) // the head of the rotation: dead from now on
+			}
+			if slices.Contains(dead, code) {
+				return 500, "", nil, nil
+			}
+			return 200, "", nil, nil
+		})
+		stopped := a.Outcome == Unavailable
+		if hour == 0 && (!stopped || len(asked) != failuresInARow) {
+			t.Fatalf("hour 0: %d asked, %v; want the three dead stations to stop the burst", len(asked), a.Outcome)
+		}
+		if hour > 0 && (stopped || a.Paused(at) || len(asked) <= failuresInARow) {
+			t.Errorf("hour %d: %d asked, %v, paused %v; want every station asked and the burst Answered", hour, len(asked), a.Outcome, a.Paused(at))
+		}
+	}
+}
+
 // TestFailuresAfterAnAnswerAreTheStations is watchpost D-271: three
 // stations failing one after another once another has answered is not GIRO
 // down - each failure is its station's own, counted, and the burst goes on;
@@ -185,14 +217,47 @@ func TestAHungGIROIsCalledDown(t *testing.T) {
 	started := time.Now()
 	a.Burst(context.Background(), now, func(ctx context.Context, _ string) (int, string, []byte, error) {
 		asked++
-		<-ctx.Done() // GIRO never answers
-		return 0, "", nil, ctx.Err()
+		return hang(ctx) // GIRO never answers
 	})
 	if took := time.Since(started); asked != failuresInARow || a.Outcome != Unavailable || !a.Paused(now) || took > 10*askTimeout*failuresInARow {
 		t.Errorf("a hung GIRO: %d asked in %v, %v, paused %v; want %d asks, each ended at its timeout, and Unavailable", asked, took, a.Outcome, a.Paused(now), failuresInARow)
 	}
 	if failuresInARow*was >= 60*time.Second {
 		t.Errorf("%d asks of %v do not fit a 60-second update", failuresInARow, was)
+	}
+}
+
+// hang is an ask GIRO never answers: it ends when its context does, and
+// after a guard of two seconds if the context never does, so a missing
+// timeout fails its test rather than hanging the package (R3C-7).
+func hang(ctx context.Context) (int, string, []byte, error) {
+	select {
+	case <-ctx.Done():
+		return 0, "", nil, ctx.Err()
+	case <-time.After(2 * time.Second):
+		return 0, "", nil, errors.New("the guard ran out: the ask had no timeout")
+	}
+}
+
+// TestAGIROHangingAfterAnAnswerIsCalledDown is watchpost D-286: asks that
+// run out one after another call GIRO down whatever answered before - a
+// station answers, then GIRO hangs: three asks run out, the burst stops,
+// GIRO is backed off and said Unavailable, inside a host's update.
+func TestAGIROHangingAfterAnAnswerIsCalledDown(t *testing.T) {
+	was := askTimeout
+	askTimeout = 20 * time.Millisecond
+	defer func() { askTimeout = was }()
+	var a Asker
+	asked := 0
+	a.Burst(context.Background(), now, func(ctx context.Context, u string) (int, string, []byte, error) {
+		asked++
+		if asked == 1 {
+			return 200, "", nil, nil // the first station answers
+		}
+		return hang(ctx)
+	})
+	if asked != 1+failuresInARow || a.Outcome != Unavailable || !a.Paused(now) {
+		t.Errorf("an answer, then GIRO hung: %d asked, %v, paused %v; want %d asked, Unavailable and paused", asked, a.Outcome, a.Paused(now), 1+failuresInARow)
 	}
 }
 

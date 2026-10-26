@@ -10,18 +10,18 @@ import (
 // A Snapshot is one hour's fields and what they were made from, and answers
 // for that hour. It is immutable: every update returns fresh slices (P-6).
 // An update's snapshot is now; Ahead gives an hour ahead as a snapshot of
-// its own, typical (R-1.3).
+// its own, typical.
 type Snapshot struct {
 	Computed        time.Time    // the age is the host's clock minus this
 	Now             Hour         // the hour it answers for: now, or from Ahead an hour ahead
-	NearestKm       []float32    // per cell: distance to the nearest assimilated station (R-2.11); measured within 500 km (R-3.2)
+	NearestKm       []float32    // per cell: distance to the nearest assimilated station; measured within 500 km
 	NearestUnscored Bitset       // per cell: whether that nearest station's readings are unscored - verify on air
 	Background      Backgrounds  // per field
-	Inputs          Inputs       // what fed it, and when (R-3.3, R-9.5, R-9.7)
-	Reason          Reason       // why this is not from new data (R-5.4)
+	Inputs          Inputs       // what fed it, and when
+	Reason          Reason       // why this is not from new data
 	Scales          Scales       // NOAA's space-weather levels
 	Offset          Offset       // stations against GloTEC
-	Disturbance     Field        // D-RAP's highest frequency absorbed by 1 dB, MHz a cell (R-2.5); no cells without D-RAP
+	Disturbance     Field        // D-RAP's highest frequency absorbed by 1 dB, MHz a cell; no cells without D-RAP
 	Noise           Noise        // the man-made noise the reference circuit hears, as the update asked
 	TypicalError    TypicalError // the hours ahead's error, with its basis
 
@@ -33,11 +33,11 @@ type Hour struct {
 	At      time.Time
 	MUF3000 Field
 	FoF2    Field
-	Typical bool // an hour ahead: the climatology's, typical, never a forecast (R-1.3)
+	Typical bool // an hour ahead: the climatology's, typical, never a forecast
 }
 
 // Field is a value a cell over a box: rows from the north, each west to east,
-// Cols times Rows of them, every one finite (R-3.3). A cell with no known
+// Cols times Rows of them, every one finite. A cell with no known
 // value is marked in NoData; its value is then not to be read.
 type Field struct {
 	West, South, East, North float64
@@ -125,10 +125,10 @@ const (
 	UnreadScales = "scales" // NOAA's scales file
 )
 
-// Inputs are what fed a snapshot, and when (R-3.3, R-9.5, R-9.7).
+// Inputs are what fed a snapshot, and when.
 type Inputs struct {
 	Stations, Rejected int           // readings used, and the last burst's rows refused: past range checks, or from a station placed over 50 km from where it is
-	Implausible        int           // readings refused whole this build, their foF2 past its residual's bound against the background
+	Implausible        int           // readings refused whole this build, their foF2 past its residual's bound, or its fold, against the background
 	ImplausibleM       int           // readings whose M(3000)F2 alone was refused this build, past its bound; their foF2 was used
 	GloTECValid        time.Time     // the grid's own valid time; zero when GloTEC was missing
 	OldestReading      time.Time     // the oldest GIRO reading assimilated
@@ -168,7 +168,7 @@ func (g GIROOutcome) String() string {
 	return "answered"
 }
 
-// Reason is why a snapshot is not from new data (R-5.4).
+// Reason is why a snapshot is not from new data.
 type Reason uint8
 
 // The reasons.
@@ -178,7 +178,7 @@ const (
 	GIROPaused                 // GIRO is backing off, or left alone after a denial: Inputs.GIRO says which
 	Offline                    // no NOAA file came back and GIRO was not due: built from what is held; with ErrNoField, there is nothing yet to build from
 	StationsNext               // NOAA's fields, GIRO due: update again at once for the stations
-	Unfinished                 // the update stopped before every file arrived - its deadline passed, or the host cancelled it - so it is built from what is held; NOAA may be asked again at once (L-F4)
+	Unfinished                 // the update stopped before every file arrived - its deadline passed, or the host cancelled it - so it is built from what is held; NOAA may be asked again at once
 	Partial                    // some of NOAA's files did not come back - Inputs.Unread names each - and what is held, or the climatology, stands in for them; the rest is new
 )
 
@@ -219,7 +219,7 @@ type DayScale struct {
 	G                          int
 }
 
-// Offset is the stations' foF2 against GloTEC's (R-9.6):
+// Offset is the stations' foF2 against GloTEC's:
 // the live offset, this update's, when measured; the typical offset and its
 // spread (one standard deviation), seeded from PLAN's week and learned from
 // this library's own updates; whether the no-readings correction moved

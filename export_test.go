@@ -34,3 +34,11 @@ func Built(l *Library) (cells, backgrounds int) {
 func ReachExact(s Snapshot, origin LatLon, mhz float64) (ReachField, error) {
 	return s.reach(origin, mhz, false)
 }
+
+// SetNOAAAskTimeout sets how long one of NOAA's asks may take, for the tests
+// of a stalled host, and is what puts it back.
+func SetNOAAAskTimeout(d time.Duration) (restore func()) {
+	was := noaaAskTimeout
+	noaaAskTimeout = d
+	return func() { noaaAskTimeout = was }
+}

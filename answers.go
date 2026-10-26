@@ -80,7 +80,7 @@ func AllBands() []Band {
 	return []Band{Band160m, Band80m, Band60m, Band40m, Band30m, Band20m, Band17m, Band15m, Band12m, Band10m}
 }
 
-// Status is a band's state on a path or over an area (R-2.6).
+// Status is a band's state on a path or over an area.
 type Status uint8
 
 // The statuses.
@@ -89,7 +89,7 @@ const (
 	Open                       // below the upper limit
 	AboveUpper                 // its lower edge at or past the upper limit
 	Disturbed                  // below the upper limit, its lower edge under D-RAP's 1 dB frequency: degraded, not closed
-	Absorbed                   // below the upper limit, the reference circuit short of +13 dB by the day's absorption: closed (R-2.4)
+	Absorbed                   // below the upper limit, the reference circuit short of +13 dB by the day's absorption: closed
 	Weak                       // below the upper limit, the reference circuit short of +13 dB even without absorption: closed
 )
 
@@ -115,8 +115,8 @@ const (
 	LimitNone       Limit = iota
 	LimitMUF              // the path's basic MUF (P.533)
 	LimitFoF2             // foF2, for the near-vertical area
-	LimitDRAP             // D-RAP's 1 dB frequency (R-2.5)
-	LimitAbsorption       // the LUF: the reference circuit's +13 dB, under the day's absorption (R-2.4)
+	LimitDRAP             // D-RAP's 1 dB frequency
+	LimitAbsorption       // the LUF: the reference circuit's +13 dB, under the day's absorption
 	LimitCircuit          // the reference circuit's +13 dB, out of reach even without absorption
 )
 
@@ -135,7 +135,7 @@ func (l Limit) String() string {
 }
 
 // BandStatus is one band's answer: its status and the limit that decided
-// it, and the spans of the UTC day it is typically open (R-2.8).
+// it, and the spans of the UTC day it is typically open.
 type BandStatus struct {
 	Band      Band
 	Status    Status
@@ -145,7 +145,7 @@ type BandStatus struct {
 }
 
 // Reading is foF2 and MUF(3000) at a place, MHz; NoData where the field has
-// no value there (R-2.1); and its nearest station (R-2.11).
+// no value there; and its nearest station.
 type Reading struct {
 	FoF2, MUF3000 float32
 	NoData        bool
@@ -154,7 +154,7 @@ type Reading struct {
 
 // Nearest is how far an answer's place is from the nearest station whose
 // readings were assimilated, from the cell it falls in, and whether that
-// station's readings are unscored (R-2.11): the host says its
+// station's readings are unscored: the host says its
 // confidence, and tells the operator to verify on air where they are
 // unscored.
 type Nearest struct {
@@ -188,8 +188,7 @@ var (
 // maxPlaces is the most places one call answers (R-3.5).
 const maxPlaces = 64
 
-// Readings are foF2 and MUF(3000) at each place, in the snapshot's hour
-// (R-2.1, R-2.3).
+// Readings are foF2 and MUF(3000) at each place, in the snapshot's hour.
 //
 // Source: this library's fields.
 func (s Snapshot) Readings(points []LatLon) ([]Reading, error) {
@@ -208,8 +207,8 @@ func (s Snapshot) Readings(points []LatLon) ([]Reading, error) {
 
 // Bands is each band's status over the near-vertical area around each place,
 // within the radius (km), in the snapshot's hour: its upper limit foF2
-// there, and the hours of the UTC day each is typically open, from the climatology (R-2.2, R-2.8); and
-// the place's nearest station (R-2.11).
+// there, and the hours of the UTC day each is typically open, from the climatology; and
+// the place's nearest station.
 //
 // Source: this library's foF2; the climatology.
 func (s Snapshot) Bands(origins []LatLon, radiusKm float64) ([]Answer, error) {
@@ -238,8 +237,8 @@ func (s Snapshot) Bands(origins []LatLon, radiusKm float64) ([]Answer, error) {
 
 // Path is each band's status on the path from one place to each other, in
 // the snapshot's hour: its upper limit the path's basic MUF by ITU-R P.533-14, and the hours of the
-// UTC day each is typically open, from the climatology (R-2.2, R-2.7, R-2.8);
-// and the nearest station to the control point furthest from any (R-2.11).
+// UTC day each is typically open, from the climatology;
+// and the nearest station to the control point furthest from any.
 //
 // Source: ITU-R P.533-14 §3.5 (02-analysis/evidence/p533-equations.md);
 // foE from P.1239-4 §4; the gyrofrequency from IGRF-14.

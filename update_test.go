@@ -53,6 +53,7 @@ type noaa struct {
 	solar     []byte
 	status    map[string]int // a status in place of 200
 	down      map[string]bool
+	stall     map[string]bool // asks held until their context ends: a host that accepts and never answers
 	giro      giroSide
 
 	drap           []byte // D-RAP's table; none served when nil, as a test of its absence sets it
@@ -71,7 +72,7 @@ type noaa struct {
 // a file's absence sets it to nil (watchpost D-239: an absent file is named
 // unread, the snapshot Partial).
 func newNOAA(c *clock) *noaa {
-	return &noaa{clock: c, grids: map[string][]byte{}, status: map[string]int{}, down: map[string]bool{}, solar: solarFile(start, 30, 140),
+	return &noaa{clock: c, grids: map[string][]byte{}, status: map[string]int{}, down: map[string]bool{}, stall: map[string]bool{}, solar: solarFile(start, 30, 140),
 		drap: drapTable(start.Add(-3*time.Minute), 3), scales: scalesFile(start.Add(-2*time.Minute), `"0"`, `"0"`, `"0"`)}
 }
 
@@ -102,6 +103,10 @@ func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (io
 	}
 	if n.down[key] {
 		return ionomaps.Response{}, errors.New("no route")
+	}
+	if n.stall[key] {
+		<-ctx.Done()
+		return ionomaps.Response{}, ctx.Err()
 	}
 	if s, ok := n.status[key]; ok {
 		return ionomaps.Response{Status: s}, nil
@@ -434,6 +439,16 @@ func TestARefusalBacksOff(t *testing.T) {
 	// still come, so the update is Partial, GloTEC named, not Offline.
 	if s, _ := settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 1 || s.Reason != ionomaps.Partial || !slices.Contains(s.Inputs.Unread, "GloTEC") {
 		t.Errorf("after an answer, the first back-off is ten minutes again, and an update with the index down is Partial, GloTEC named: %v %v", s.Reason, s.Inputs.Unread)
+	}
+	// An index unanswered twice backs off as a refusal does, 15 minutes the
+	// second time (watchpost D-260, D-270; R3C-7).
+	c.Add(15*time.Minute - time.Second)
+	if _, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) != 0 {
+		t.Error("an index unanswered twice: NOAA asked again before 15 minutes")
+	}
+	c.Add(time.Second)
+	if _, _ = settled(l, context.Background(), ionomaps.UpdateOptions{}); len(n.take()) == 0 {
+		t.Error("an index unanswered twice: NOAA not asked again after 15 minutes")
 	}
 }
 
