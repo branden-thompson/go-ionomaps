@@ -21,9 +21,14 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
 - **The hours ahead** are the climatology's, labelled typical, never a forecast.
 - **The host supplies the network.** The library opens no connection of its own; it asks NOAA at most
   every ten minutes and GIRO in one burst of at most 40 an hour, and never retries a refusal itself.
-  Each NOAA ask has 20 s and each GIRO ask 15 s: one that runs out - by the library's clock, or the
-  host's client giving up first - counts as no answer and backs off; and no ask starts that the
-  context's deadline leaves no room for, so an update ends inside its deadline.
+  Each NOAA ask has 20 s and each GIRO ask 15 s, in real time. A NOAA ask that runs out, or that the
+  host's client gives up on first, stops that round and backs NOAA off. A GIRO ask that runs out is
+  that station's failure; three in a row, or two as the update's deadline comes, call GIRO down.
+- **An update ends inside its deadline**, which is to leave it at least `MinDeadline` (20 s); give
+  each `Update` its own. No NOAA ask starts without its 20 s left: the round ends there, the files not
+  asked named in `Inputs.Unread`, nothing backed off. GIRO's last asks get the time left, and the
+  stations not reached are counted (`Inputs.StationsNotReached`) and asked first next hour. With no
+  room for any ask, nothing is asked and the error wraps `ErrNoRoom`.
 
 ## Using it
 
@@ -32,10 +37,15 @@ lib, err := ionomaps.New(fetcher, ionomaps.Options{}) // fetcher: the host's HTT
 if err != nil { ... }
 _ = lib.Restore(savedState) // optional: GIRO's throttle and the F10.7 mean across restarts; each part is taken on its own, ErrBadGIROState or ErrBadMean naming one refused
 
-snap, err := lib.Update(ctx, ionomaps.UpdateOptions{})
+update := func() (ionomaps.Snapshot, error) { // each update its own deadline
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return lib.Update(ctx, ionomaps.UpdateOptions{})
+}
+snap, err := update()
 if errors.Is(err, ionomaps.ErrNoField) { ... } // the words say why, and when to try again
 if snap.Reason == ionomaps.StationsNext {
-	snap, err = lib.Update(ctx, ionomaps.UpdateOptions{}) // GIRO's burst, at once
+	snap, err = update() // GIRO's burst, at once
 }
 
 bands, err := snap.Bands([]ionomaps.LatLon{{Lat: 40, Lon: -100}}, 400) // radius in km

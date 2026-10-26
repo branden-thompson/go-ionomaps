@@ -11,6 +11,7 @@ import (
 	"github.com/branden-thompson/go-ionomaps/internal/assimilate"
 	"github.com/branden-thompson/go-ionomaps/internal/background"
 	"github.com/branden-thompson/go-ionomaps/internal/drap"
+	"github.com/branden-thompson/go-ionomaps/internal/giro"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
 	"github.com/branden-thompson/go-ionomaps/internal/scales"
@@ -80,23 +81,31 @@ type UpdateOptions struct {
 	NoStations bool
 }
 
-// Update asks NOAA for what is new and returns the hour's snapshot, never
-// running into ctx's deadline - each NOAA ask has 20 s and each GIRO ask
-// 15 s, and no ask starts the deadline leaves no room for:
-// the daily solar file first, at most once a day, then
-// GloTEC's newest grid, found through its index; foF2 from GloTEC (the climatology,
-// named, without it or past an hour old), M(3000)F2 from the climatology,
+// Update asks NOAA for what is new and returns the hour's snapshot: the
+// daily solar file first, at most once a day, then GloTEC's newest grid,
+// found through its index; foF2 from GloTEC (the climatology, named,
+// without it or past an hour old), M(3000)F2 from the climatology,
 // MUF(3000) their product, with GIRO's readings up to an hour old
-// assimilated onto both, NearestKm and NearestUnscored saying
-// where, and the stations' offset against GloTEC. When GIRO is due it returns NOAA's snapshot said StationsNext, and
-// the next call makes GIRO's burst. Within ten minutes of the last
-// ask, or while backing off, the last snapshot comes back said too soon,
-// rebuilt from what is held when the options have changed, nothing
-// asked. An update its context stops - a deadline, or the host's cancel - is
-// built from what is held and said Unfinished, with no back-off.
-// With no F10.7 mean to be had there is no field: the error wraps
-// ErrNoField, and the context's own error when it stopped the update, and
-// says when NOAA is asked again.
+// assimilated onto both, NearestKm and NearestUnscored saying where, and
+// the stations' offset against GloTEC. When GIRO is due it returns NOAA's
+// snapshot said StationsNext, and the next call makes GIRO's burst. Within
+// ten minutes of the last ask, or while backing off, the last snapshot
+// comes back said too soon, rebuilt from what is held when the options have
+// changed, nothing asked. An update the host cancels is built from what is
+// held and said Unfinished, with no back-off. With no F10.7 mean to be had
+// there is no field: the error wraps ErrNoField, and the context's own
+// error when it stopped the update, and says when NOAA is asked again.
+//
+// An update never runs into ctx's deadline, which is to leave it at least
+// MinDeadline. Each NOAA ask has 20 s and each GIRO ask 15 s, in real time
+// whatever Options.Clock says. A NOAA ask that runs out, or that the host's
+// client gives up on first, stops that round and backs NOAA off; a GIRO ask
+// that runs out is its station's failure, and two or three in a row call
+// GIRO down. No NOAA ask starts without its 20 s left: the round ends there,
+// the files not asked named in Inputs.Unread, nothing backed off. GIRO's
+// last asks get the time the deadline leaves, and the stations not reached
+// are counted in Inputs.StationsNotReached and asked first next hour. With
+// no room for any ask, nothing is asked and the error wraps ErrNoRoom.
 //
 // Source: NOAA SWPC's GloTEC and F10.7; GIRO's DIDBase; this library.
 func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error) {
@@ -107,14 +116,17 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 		l.stationsNext = false // no burst is made while the host wants none
 	}
 	if l.stationsNext && l.made { // NOAA's snapshot went out: now the burst (D-63)
-		l.stationsNext = false
 		l.giro.Burst(ctx, now, l.giroFetch())
+		if l.giro.NoRoom {
+			return l.roomless(ctx, now, o) // no room for the burst's first ask: it is still to make (watchpost D-298)
+		}
+		l.stationsNext = false
 		l.giro.LetGo(now)
 		s := l.build(now, o) // NOAA's fields held, the stations' readings now on them
 		switch {
 		case ctx.Err() != nil:
-			s.Reason = Unfinished                 // stopped mid-burst: the readings that came are on the field
-			l.stationsNext = l.giro.BurstDue(now) // stopped before its first ask: the burst is still to make
+			s.Reason = Unfinished                 // the host cancelled it mid-burst: the readings that came are on the field
+			l.stationsNext = l.giro.BurstDue(now) // cancelled before its first ask: the burst is still to make
 		case l.giro.Paused(now):
 			s.Reason = GIROPaused // GIRO refused or did not answer the burst: the readings that came are on the field
 		case len(l.unread) > 0:
@@ -127,10 +139,10 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	if early {
 		return l.early(now, o)
 	}
-	l.unread, l.heard, l.trouble = l.unread[:0], false, false
+	l.unread, l.heard, l.trouble, l.asked, l.noRoom = l.unread[:0], false, false, false, false
 	endsRound := l.refreshSolar(ctx, now) // first: with no F10.7 mean there is no field at all (L-F4)
 	fieldable := l.solarUsable(now)       // without one, no grid is fetched to be thrown away (RL-2)
-	if !endsRound && fieldable {          // a 429, or an ask run out, stops the round (D-39, watchpost D-285); a failed file does not (watchpost D-270)
+	if !endsRound && fieldable {          // a 429, an ask run out, or no room for the next, stops the round (D-39, watchpost D-285, D-298); a failed file does not (watchpost D-270)
 		endsRound = l.refreshGrid(ctx, now)
 	}
 	if !endsRound && fieldable {
@@ -142,6 +154,9 @@ func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error)
 	stopped := ctx.Err() != nil
 	if stopped {
 		return l.unfinished(ctx, now, o) // the host's, not NOAA's: no back-off, no ten minutes spent
+	}
+	if l.noRoom && !l.asked {
+		return l.roomless(ctx, now, o) // nothing asked: nothing backed off, nothing spent (watchpost D-298)
 	}
 	l.notBefore, l.backOff = nextAsk(now, l.backOff, l.trouble)
 	l.short(now)
@@ -199,6 +214,21 @@ func (l *Library) unfinished(ctx context.Context, now time.Time, o UpdateOptions
 	s.Reason = Unfinished
 	l.last, l.made, l.opts = s, true, o
 	return s.clone(), nil
+}
+
+// roomless is the answer to an update whose deadline left no room for its
+// first ask: nothing asked, nothing backed off, a burst due still to make;
+// the last snapshot, said Unfinished, or none; and an error that names the
+// time left and the least an update needs (watchpost D-298).
+func (l *Library) roomless(ctx context.Context, now time.Time, o UpdateOptions) (Snapshot, error) {
+	left, _ := giro.TimeLeft(ctx)
+	err := fmt.Errorf("%w: it left %s, and an update needs at least %s; nothing was asked, and nothing backed off", ErrNoRoom, max(left, 0).Round(time.Millisecond), MinDeadline)
+	if !l.made {
+		return Snapshot{Computed: now, Reason: Unfinished}, err
+	}
+	s, _ := l.early(now, o) // the last snapshot, rebuilt when the options differ
+	s.Reason = Unfinished
+	return s, err
 }
 
 // notYet is the error for an update with no field to give, once NOAA's
@@ -291,29 +321,41 @@ func nextAsk(now time.Time, backOff time.Duration, trouble bool) (time.Time, tim
 	return now.Add(backOff), backOff
 }
 
-// noaaAskTimeout is how long one of NOAA's asks may take. One that runs out
-// - by this library's own clock, or the host's client giving up first -
-// stops the round, so a host that accepts and never answers costs one ask's
-// time; and no ask starts that the host's update has no room for, so the
-// update ends inside the host's deadline (watchpost D-285, R4L-1, R4L-3).
-var noaaAskTimeout = 20 * time.Second
+// MinDeadline is the least time an update's context may leave it: one of
+// NOAA's asks. With less, nothing is asked and Update's error wraps
+// ErrNoRoom.
+const MinDeadline = 20 * time.Second
+
+// ErrNoRoom is the error, wrapped, when an update's deadline left no room
+// for its first ask: nothing was asked and nothing backed off, and the
+// update is to be made again with a longer deadline.
+var ErrNoRoom = errors.New("ionomaps: the update's deadline left no room for an ask")
+
+// noaaAskTimeout is how long one of NOAA's asks may take, in real time. One
+// that runs out, or that the host's client gives up on first, stops the
+// round and backs NOAA off, so a host that accepts and never answers costs
+// one ask's time; and no ask starts without it left, the round ending there
+// with nothing backed off, so the update ends inside the host's deadline
+// (watchpost D-285, D-298, R4L-3).
+var noaaAskTimeout = MinDeadline
 
 // ask is one request: the answer, whether it is one to use (200, or 304
 // when validators were sent), and whether it stops the update's round - a
-// 429 (D-39, watchpost D-270), an ask that ran out (watchpost D-285), or no
-// room left in the host's update for one more. It sets l.trouble when NOAA
-// refused, failed on its side, did not answer or left no room, which backs
-// the next update off (watchpost D-260); a failure, or an error that is no
-// timeout, stops nothing, the file missed and the round going on (watchpost
-// D-270).
+// 429 (D-39, watchpost D-270), an ask that ran out (watchpost D-285), or the
+// host's update leaving no room for one more (watchpost D-298). It sets
+// l.trouble when NOAA refused, failed on its side or did not answer, which
+// backs the next update off (watchpost D-260); no room backs nothing off,
+// and a failure, or an error that is no timeout, stops nothing, the file
+// missed and the round going on (watchpost D-270).
 func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response, ok, endsRound bool) {
-	if deadline, set := ctx.Deadline(); set && time.Until(deadline) < noaaAskTimeout {
-		l.trouble = true
-		return Response{}, false, true // no room for one more ask: the round ends before the host's deadline (watchpost D-285)
+	if left, set := giro.TimeLeft(ctx); set && left < noaaAskTimeout {
+		l.noRoom = true
+		return Response{}, false, true // no room for one more ask: the round ends before the host's deadline (watchpost D-298)
 	}
+	l.asked = true
 	askCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout)
 	r, err := l.fetch.Fetch(askCtx, url, v)
-	timedOut := err != nil && ctx.Err() == nil && (askCtx.Err() == context.DeadlineExceeded || isTimeout(err))
+	timedOut := err != nil && ctx.Err() == nil && (askCtx.Err() == context.DeadlineExceeded || giro.IsTimeout(err))
 	cancel()
 	l.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError
 	if timedOut {
@@ -504,7 +546,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
 			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected, Implausible: res.Implausible, ImplausibleM: res.ImplausibleM, NoStations: o.NoStations,
-			GIRO: GIROOutcome(l.giro.Outcome), StationsFailed: l.giro.Failed, Unread: slices.Clone(l.unread)},
+			GIRO: GIROOutcome(l.giro.Outcome), StationsFailed: l.giro.Failed, StationsNotReached: l.giro.NotReached, Unread: slices.Clone(l.unread)},
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),
@@ -581,13 +623,4 @@ func (f Field) owned() Field {
 	c.Values = slices.Clone(f.Values)
 	c.NoData = Bitset{bits: slices.Clone(f.NoData.bits), n: f.NoData.n}
 	return c
-}
-
-// isTimeout is whether an error is a timeout by its own account - the
-// host's client giving up before noaaAskTimeout does - told by the Timeout
-// method the standard library's network errors carry, never by importing
-// them (the library opens no connection of its own).
-func isTimeout(err error) bool {
-	var t interface{ Timeout() bool }
-	return errors.As(err, &t) && t.Timeout()
 }

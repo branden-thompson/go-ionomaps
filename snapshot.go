@@ -141,6 +141,7 @@ type Inputs struct {
 	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
 	GIRO               GIROOutcome   // how the last burst ended, carried until the next
 	StationsFailed     int           // stations whose own ask failed in the last burst - a server error, a 404, no answer - the burst going on
+	StationsNotReached int           // stations the last burst did not ask, or asked with too little of the update left to answer: asked first next hour
 	Unread             []string      // NOAA's inputs the snapshot lacks, by the Unread names: a file this update asked for and could not read - unanswered, refused or unreadable - one not asked, as no grid, D-RAP or scales is fetched without a usable F10.7 mean, or one held past its age; the one held used instead where one is usable, its age saying so; Background says what foF2 was drawn from
 }
 
@@ -151,7 +152,7 @@ type GIROOutcome uint8
 // The outcomes.
 const (
 	GIROAnswered    GIROOutcome = iota // the burst ran, or none has been made; Inputs.StationsFailed counts stations that failed one by one
-	GIROUnavailable                    // GIRO refused (a 429) or stopped answering - three stations failed in a row before any answered, three asks ran out in a row, or the burst reached the host's deadline after its asks ran out: GIRO is backing off
+	GIROUnavailable                    // GIRO refused (a 429) or stopped answering - three stations failed in a row before any answered, three asks ran out in a row, or two in a row as the update's deadline came: GIRO is backing off
 	GIRODenied                         // GIRO refused this host - a 401 or 403 - and is left alone for a day
 )
 
@@ -178,7 +179,7 @@ const (
 	GIROPaused                 // GIRO is backing off, or left alone after a denial: Inputs.GIRO says which
 	Offline                    // no NOAA file came back and GIRO was not due: built from what is held; with ErrNoField, there is nothing yet to build from
 	StationsNext               // NOAA's fields, GIRO due: update again at once for the stations
-	Unfinished                 // the update stopped before every file arrived - its deadline passed, or the host cancelled it - so it is built from what is held; NOAA may be asked again at once
+	Unfinished                 // the update stopped before every file arrived - the host cancelled it, or its deadline left no room for any ask (ErrNoRoom) - so it is built from what is held; NOAA may be asked again at once
 	Partial                    // some of NOAA's files did not come back - Inputs.Unread names each - and what is held, or the climatology, stands in for them; the rest is new
 )
 
@@ -221,9 +222,8 @@ type DayScale struct {
 
 // Offset is the stations' foF2 against GloTEC's:
 // the live offset, this update's, when measured; the typical offset and its
-// spread (one standard deviation), seeded from a week of GIRO's readings in
-// late September 2026 and learned from
-// this library's own updates; whether the no-readings correction moved
+// spread (one standard deviation), seeded from GIRO's readings over the
+// week of 2026-09-29 to 10-05 and learned from this library's own updates; whether the no-readings correction moved
 // GloTEC's foF2 by the typical offset; and where the seed was measured.
 type Offset struct {
 	LiveMHz, TypicalMHz, SpreadMHz float32

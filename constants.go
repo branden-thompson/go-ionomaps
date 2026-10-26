@@ -35,9 +35,9 @@ const constantMaxAge = 365 * 24 * time.Hour
 // a host to say.
 var constants = []constant{
 	{"the foF2 kernel", fmt.Sprintf("%g km, noise %g", assimilate.FoF2Kernel.LengthKm, assimilate.FoF2Kernel.Noise),
-		"tuned against GIRO's stations over a week in early October 2026", "week.py section \"kernel tuned\" (A-29; D-61, readings of unknown score taken)", planWeekEnd},
+		"tuned against GIRO's stations over the week of 2026-09-29 to 10-05", "week.py section \"kernel tuned\" (A-29; D-61, readings of unknown score taken)", planWeekEnd},
 	{"the M(3000)F2 kernel", fmt.Sprintf("%g km, noise %g", assimilate.M3000Kernel.LengthKm, assimilate.M3000Kernel.Noise),
-		"tuned against GIRO's stations over a week in early October 2026", "week.py section \"kernel tuned\" (A-29; D-61)", planWeekEnd},
+		"tuned against GIRO's stations over the week of 2026-09-29 to 10-05", "week.py section \"kernel tuned\" (A-29; D-61)", planWeekEnd},
 	{"the typical offset's seed and spread", fmt.Sprintf("%g MHz, SD %g", seedOffsetMHz, seedSpreadMHz), offsetBasis, offsetSource, planWeekEnd},
 	{"the hours ahead's typical error", fmt.Sprint(typicalError().Bands), typicalError().Basis, typicalError().Source, planWeekEnd},
 	{"the plausibility bounds", fmt.Sprintf("foF2 %g MHz or a fold of %g either way, M(3000)F2 %g", assimilate.FoF2Bound, assimilate.FoF2Fold, assimilate.M3000Bound),

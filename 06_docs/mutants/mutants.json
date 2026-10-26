@@ -24,8 +24,8 @@
     "row": "R-5.4",
     "what": "a grid is fetched with no F10.7 mean to build a field on",
     "file": "update.go",
-    "old": "\tif !endsRound && fieldable {          // a 429, or an ask run out, stops the round (D-39, watchpost D-285); a failed file does not (watchpost D-270)",
-    "new": "\tif !endsRound {          // a 429, or an ask run out, stops the round (D-39, watchpost D-285); a failed file does not (watchpost D-270)",
+    "old": "\tif !endsRound && fieldable {          // a 429, an ask run out, or no room for the next, stops the round (D-39, watchpost D-285, D-298); a failed file does not (watchpost D-270)",
+    "new": "\tif !endsRound {          // a 429, an ask run out, or no room for the next, stops the round (D-39, watchpost D-285, D-298); a failed file does not (watchpost D-270)",
     "package": ".",
     "test": "TestNoMeanAsksNoGrid"
   },
@@ -164,8 +164,8 @@
     "row": "R-5.3",
     "what": "stations failing in a row never stop the burst",
     "file": "internal/giro/asker.go",
-    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered) || timeouts >= failuresInARow:",
-    "new": "\tcase res == refused || timeouts >= failuresInARow:",
+    "old": "\tcase res == refused || (t.inARow >= failuresInARow && !t.anyAnswered) || t.timeouts >= failuresInARow:",
+    "new": "\tcase res == refused || t.timeouts >= failuresInARow:",
     "package": "./internal/giro",
     "test": "TestFailuresInARowStopTheBurst"
   },
@@ -294,8 +294,8 @@
     "row": "watchpost D-271",
     "what": "failures in a row after a station has answered stop the burst as GIRO down",
     "file": "internal/giro/asker.go",
-    "old": "\tcase res == refused || (inARow >= failuresInARow && !anyAnswered) || timeouts >= failuresInARow:",
-    "new": "\tcase res == refused || inARow >= failuresInARow || timeouts >= failuresInARow:",
+    "old": "\tcase res == refused || (t.inARow >= failuresInARow && !t.anyAnswered) || t.timeouts >= failuresInARow:",
+    "new": "\tcase res == refused || t.inARow >= failuresInARow || t.timeouts >= failuresInARow:",
     "package": "./internal/giro",
     "test": "TestFailuresAfterAnAnswerAreTheStations"
   },
@@ -314,8 +314,8 @@
     "row": "watchpost D-275",
     "what": "GIRO's asks take longer than three can in a host's update",
     "file": "internal/giro/asker.go",
-    "old": "var askTimeout = 15 * time.Second",
-    "new": "var askTimeout = 30 * time.Second",
+    "old": "var askTimeout, askMargin, askFloor = 15 * time.Second, time.Second, 2 * time.Second",
+    "new": "var askTimeout, askMargin, askFloor = 30 * time.Second, time.Second, 2 * time.Second",
     "package": "./internal/giro",
     "test": "TestAHungGIROIsCalledDown"
   },
@@ -664,8 +664,8 @@
     "row": "watchpost D-286",
     "what": "asks running out in a row after an answer leave GIRO asked to the end",
     "file": "internal/giro/asker.go",
-    "old": "(inARow >= failuresInARow && !anyAnswered) || timeouts >= failuresInARow:",
-    "new": "(inARow >= failuresInARow && !anyAnswered) || timeouts >= 1<<30:",
+    "old": "(t.inARow >= failuresInARow && !t.anyAnswered) || t.timeouts >= failuresInARow:",
+    "new": "(t.inARow >= failuresInARow && !t.anyAnswered) || t.timeouts >= 1<<30:",
     "package": "./internal/giro",
     "test": "TestAGIROHangingAfterAnAnswerIsCalledDown"
   },
@@ -674,8 +674,8 @@
     "row": "watchpost D-286",
     "what": "an ask that ran out is taken as a station's own failure",
     "file": "internal/giro/asker.go",
-    "old": "\tif err != nil && (askCtx.Err() == context.DeadlineExceeded || isTimeout(err)) {\n",
-    "new": "\tif false && err != nil && (askCtx.Err() == context.DeadlineExceeded || isTimeout(err)) {\n",
+    "old": "\tranOut := err != nil && (askCtx.Err() == context.DeadlineExceeded || IsTimeout(err))\n",
+    "new": "\tranOut := false && err != nil && (askCtx.Err() == context.DeadlineExceeded || IsTimeout(err))\n",
     "package": "./internal/giro",
     "test": "TestAGIROHangingAfterAnAnswerIsCalledDown"
   },
@@ -721,31 +721,31 @@
   },
   {
     "id": "m073",
-    "row": "watchpost D-291",
-    "what": "a burst reads no deadline and runs into the host's",
+    "row": "watchpost D-291, D-295",
+    "what": "an ask past the room for a full one keeps the full askTimeout and runs into the host's deadline",
     "file": "internal/giro/asker.go",
-    "old": "\treturn time.Until(deadline) >= askTimeout\n",
-    "new": "\treturn time.Until(deadline) >= -time.Hour\n",
+    "old": "\tif left >= askTimeout {\n\t\treturn askTimeout, true\n",
+    "new": "\tif left >= -time.Hour {\n\t\treturn askTimeout, true\n",
     "package": "./internal/giro",
     "test": "TestABurstEndsBeforeTheHostsDeadline"
   },
   {
     "id": "m074",
-    "row": "watchpost D-291",
-    "what": "a burst ended at the deadline after a timeout leaves GIRO asked as before",
+    "row": "watchpost D-296",
+    "what": "full asks run out in a row as the update ends leave GIRO asked as before",
     "file": "internal/giro/asker.go",
-    "old": "\tif last != timedOut && timedOutAll < failuresInARow {\n",
-    "new": "\tif true {\n",
+    "old": "\tif ctx.Err() == nil && t.timeouts >= timeoutsAtTheEnd {\n",
+    "new": "\tif false && ctx.Err() == nil && t.timeouts >= timeoutsAtTheEnd {\n",
     "package": "./internal/giro",
     "test": "TestABurstEndsBeforeTheHostsDeadline"
   },
   {
     "id": "m075",
-    "row": "watchpost D-291",
-    "what": "a burst cut short by slow answers calls GIRO down",
+    "row": "watchpost D-296",
+    "what": "a burst cut short while GIRO answers calls GIRO down",
     "file": "internal/giro/asker.go",
-    "old": "\tif last != timedOut && timedOutAll < failuresInARow {\n\t\treturn \"\" // GIRO was answering",
-    "new": "\tif false && last != timedOut && timedOutAll < failuresInARow {\n\t\treturn \"\" // GIRO was answering",
+    "old": "\tif ctx.Err() == nil && t.timeouts >= timeoutsAtTheEnd {\n",
+    "new": "\tif ctx.Err() == nil && t.timeouts >= 0 {\n",
     "package": "./internal/giro",
     "test": "TestABurstEndsBeforeTheHostsDeadline"
   },
@@ -764,8 +764,8 @@
     "row": "watchpost D-271, D-286",
     "what": "an ask that ran out is not counted as its station's failure",
     "file": "internal/giro/asker.go",
-    "old": "\tif res != failed && res != timedOut {\n\t\treturn 0\n\t}\n\ta.Failed++",
-    "new": "\tif res != failed {\n\t\treturn 0\n\t}\n\ta.Failed++",
+    "old": "\tif res != failed && res != timedOut {\n\t\tt.inARow = 0\n",
+    "new": "\tif res != failed {\n\t\tt.inARow = 0\n",
     "package": "./internal/giro",
     "test": "TestTimeoutsAreFailuresAndARunOfThem"
   },
@@ -774,28 +774,28 @@
     "row": "watchpost D-286",
     "what": "asks run out with answers between them count as a run",
     "file": "internal/giro/asker.go",
-    "old": "\tif res != timedOut {\n\t\treturn 0\n\t}\n\treturn timeouts + 1",
-    "new": "\tif res != timedOut {\n\t\treturn timeouts\n\t}\n\treturn timeouts + 1",
+    "old": "\tif res != timedOut {\n\t\tt.timeouts = 0 // the run of asks run out ends\n",
+    "new": "\tif false {\n\t\tt.timeouts = 0 // the run of asks run out ends\n",
     "package": "./internal/giro",
     "test": "TestTimeoutsAreFailuresAndARunOfThem"
   },
   {
     "id": "m079",
-    "row": "watchpost D-285 (R4L-1)",
+    "row": "watchpost D-285, D-298",
     "what": "a NOAA ask starts with no room left in the host's update",
     "file": "update.go",
-    "old": "\tif deadline, set := ctx.Deadline(); set && time.Until(deadline) < noaaAskTimeout {\n",
-    "new": "\tif deadline, set := ctx.Deadline(); set && time.Until(deadline) < -time.Hour {\n",
+    "old": "\tif left, set := giro.TimeLeft(ctx); set && left < noaaAskTimeout {\n",
+    "new": "\tif left, set := giro.TimeLeft(ctx); set && left < -time.Hour {\n",
     "package": ".",
-    "test": "TestNOAAsRoundEndsInsideTheHostsDeadline"
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
   },
   {
     "id": "m080",
     "row": "watchpost R4L-3",
     "what": "the host's client giving up on a NOAA ask is taken as a failure that stops nothing",
-    "file": "update.go",
-    "old": "\tvar t interface{ Timeout() bool }\n\treturn errors.As(err, &t) && t.Timeout()\n",
-    "new": "\tvar t interface{ Timeout() bool }\n\treturn errors.As(err, &t) && t.Timeout() && false\n",
+    "file": "internal/giro/asker.go",
+    "old": "\treturn errors.As(err, &t) && t.Timeout()\n",
+    "new": "\treturn errors.As(err, &t) && t.Timeout() && false\n",
     "package": ".",
     "test": "TestNOAAsRoundEndsInsideTheHostsDeadline"
   },
@@ -804,7 +804,7 @@
     "row": "watchpost D-285 (R4L-3)",
     "what": "a NOAA ask outlasts a host's client, so the client's error is no timeout",
     "file": "update.go",
-    "old": "var noaaAskTimeout = 20 * time.Second\n",
+    "old": "var noaaAskTimeout = MinDeadline\n",
     "new": "var noaaAskTimeout = 45 * time.Second\n",
     "package": ".",
     "test": "TestNOAAsRoundEndsInsideTheHostsDeadline"
@@ -828,5 +828,95 @@
     "new": "\tif res != failed {\n\t\treturn \"\"\n\t}\n\treturn code\n",
     "package": "./internal/giro",
     "test": "TestStationsTimingOutGoBehindTheRest"
+  },
+  {
+    "id": "m084",
+    "row": "watchpost D-295",
+    "what": "a shortened ask that runs out counts as a full timeout, its station's failure",
+    "file": "internal/giro/asker.go",
+    "old": "\tif ranOut && !full {\n",
+    "new": "\tif false && ranOut && !full {\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsBeforeTheHostsDeadline"
+  },
+  {
+    "id": "m085",
+    "row": "watchpost D-295",
+    "what": "an ask starts with less than askFloor to give it",
+    "file": "internal/giro/asker.go",
+    "old": "\tif left < askFloor {\n",
+    "new": "\tif left < 0 {\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsBeforeTheHostsDeadline"
+  },
+  {
+    "id": "m086",
+    "row": "watchpost D-298",
+    "what": "a burst with no room for its first ask spends the hour",
+    "file": "internal/giro/asker.go",
+    "old": "\t\ta.thr, a.NoRoom = before, ctx.Err() == nil // nothing asked: GIRO saw no burst\n",
+    "new": "\t\ta.NoRoom = ctx.Err() == nil // nothing asked: GIRO saw no burst\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsBeforeTheHostsDeadline"
+  },
+  {
+    "id": "m087",
+    "row": "watchpost D-296",
+    "what": "one full ask run out as the update ends calls GIRO down",
+    "file": "internal/giro/asker.go",
+    "old": "const timeoutsAtTheEnd = 2\n",
+    "new": "const timeoutsAtTheEnd = 1\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsBeforeTheHostsDeadline"
+  },
+  {
+    "id": "m088",
+    "row": "watchpost D-297",
+    "what": "a burst cut short counts no stations not reached",
+    "file": "internal/giro/asker.go",
+    "old": "\ta.NotReached = len(rest)\n",
+    "new": "\ta.NotReached = 0\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsBeforeTheHostsDeadline"
+  },
+  {
+    "id": "m089",
+    "row": "watchpost D-298",
+    "what": "an update with no room for any ask is answered as NOAA not read",
+    "file": "update.go",
+    "old": "\tif l.noRoom && !l.asked {\n",
+    "new": "\tif false && l.noRoom && !l.asked {\n",
+    "package": ".",
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
+  },
+  {
+    "id": "m090",
+    "row": "watchpost D-298",
+    "what": "a NOAA round with no room left backs NOAA off",
+    "file": "update.go",
+    "old": "\t\tl.noRoom = true\n",
+    "new": "\t\tl.noRoom, l.trouble = true, true\n",
+    "package": ".",
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
+  },
+  {
+    "id": "m091",
+    "row": "watchpost D-298",
+    "what": "a burst with no room for its first ask is taken as made",
+    "file": "update.go",
+    "old": "\t\tif l.giro.NoRoom {\n",
+    "new": "\t\tif false {\n",
+    "package": ".",
+    "test": "TestABurstWithNoRoomIsStillToMake"
+  },
+  {
+    "id": "m092",
+    "row": "watchpost D-297",
+    "what": "the snapshot drops the burst's count of stations not reached",
+    "file": "update.go",
+    "old": "StationsNotReached: l.giro.NotReached,",
+    "new": "StationsNotReached: 0,",
+    "package": ".",
+    "test": "TestACutShortBurstIsCounted"
   }
 ]

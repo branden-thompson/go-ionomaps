@@ -308,47 +308,95 @@ func TestAPlacedStationKeepsItsPlace(t *testing.T) {
 	}
 }
 
-// TestABurstEndsBeforeTheHostsDeadline is watchpost D-291: before each ask
-// the burst reads the time left on the host's update and ends while one
-// more ask's askTimeout would not fit - GIRO called down if its last ask ran
-// out or three did, otherwise the stations not reached first next hour -
-// so it never runs into the host's deadline. Times are scaled: askTimeout
-// 200 ms, the host's deadline 700 ms, an answer 10 ms or 40 ms.
+// scaledAsks sets a burst's limits to a hundredth of their own - an ask
+// 150 ms, its margin 10 ms, its floor 20 ms - for a test of the end of the
+// host's update, whose deadline the test scales alike: 600 ms for 60 s.
+func scaledAsks(t *testing.T) {
+	t.Helper()
+	full, margin, floor := askTimeout, askMargin, askFloor
+	askTimeout, askMargin, askFloor = 150*time.Millisecond, 10*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { askTimeout, askMargin, askFloor = full, margin, floor })
+}
+
+// answerIn answers after d, a reply with no rows.
+func answerIn(d time.Duration) (int, string, []byte, error) {
+	time.Sleep(d)
+	return 200, "", nil, nil
+}
+
+// burstUnder is one burst under a host's update of 600 ms, as a hundredth
+// of watchpost's 60 s: the stations asked, in order, and whether the burst
+// ended before the update's deadline. answer is given each ask's number
+// from 1, its station, its context and the update's end.
+func burstUnder(t *testing.T, a *Asker, at time.Time, answer func(n int, code string, ctx context.Context, end time.Time) (int, string, []byte, error)) (asked []string, beat bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	defer cancel()
+	end, _ := ctx.Deadline()
+	a.Burst(ctx, at, func(ctx context.Context, u string) (int, string, []byte, error) {
+		code := codeOf(t, u)
+		asked = append(asked, code)
+		return answer(len(asked), code, ctx, end)
+	})
+	return asked, ctx.Err() == nil
+}
+
+// TestABurstEndsBeforeTheHostsDeadline is watchpost D-291, D-295 and D-296:
+// before each ask the burst reads the time left on the host's update - a
+// full ask while there is room for one, then the time left, then none - so
+// it never runs into the deadline; at the end GIRO is called down only when
+// its last two full asks ran out, one hanging station being that station's
+// own failure wherever the rotation puts it; the stations not reached are
+// counted and asked first next hour. Times are a hundredth of their own, an
+// answer 9 ms as PLAN's 0.92 s.
 func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
-	was := askTimeout
-	askTimeout = 200 * time.Millisecond
-	defer func() { askTimeout = was }()
-	type answerFunc func(n int, code string, ctx context.Context) (int, string, []byte, error)
-	run := func(t *testing.T, a *Asker, at time.Time, answer answerFunc) (asked []string, beat bool) {
-		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
-		defer cancel()
-		a.Burst(ctx, at, func(ctx context.Context, u string) (int, string, []byte, error) {
-			code := codeOf(t, u)
-			asked = append(asked, code)
-			return answer(len(asked), code, ctx)
-		})
-		return asked, ctx.Err() == nil
-	}
-	answerIn := func(d time.Duration) (int, string, []byte, error) {
-		time.Sleep(d)
-		return 200, "", nil, nil
-	}
+	scaledAsks(t)
 	t.Run("a hang after 20 answers", func(t *testing.T) {
 		var a Asker
-		asked, beat := run(t, &a, now, func(n int, _ string, ctx context.Context) (int, string, []byte, error) {
+		asked, beat := burstUnder(t, &a, now, func(n int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
 			if n <= 20 {
-				return answerIn(10 * time.Millisecond)
+				return answerIn(9 * time.Millisecond)
 			}
 			return hang(ctx)
 		})
 		if !beat || a.Outcome != Unavailable || !a.Paused(now) || len(asked) > 23 {
-			t.Errorf("%d asked, before the deadline %v, %v, paused %v; want GIRO called down before the host's deadline", len(asked), beat, a.Outcome, a.Paused(now))
+			t.Errorf("%d asked, before the deadline %v, %v, paused %v; want GIRO called down on two full asks run out, inside the update", len(asked), beat, a.Outcome, a.Paused(now))
+		}
+	})
+	t.Run("one station hanging late, every hour", func(t *testing.T) {
+		var a Asker
+		var hanging string
+		for hour := range 8 {
+			at := now.Add(time.Duration(hour) * time.Hour)
+			asked, beat := burstUnder(t, &a, at, func(n int, code string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+				if hour == 0 && n == 36 {
+					hanging = code
+				}
+				if code == hanging {
+					return hang(ctx)
+				}
+				return answerIn(9 * time.Millisecond)
+			})
+			if !beat || a.Outcome != Answered || a.Paused(at) || a.Failed > 1 || !slices.Contains(asked, hanging) {
+				t.Errorf("hour %d: %d asked, before the deadline %v, %v, %d failed, paused %v; want one station's own failure, GIRO answering (R5L-1)", hour, len(asked), beat, a.Outcome, a.Failed, a.Paused(at))
+			}
+		}
+	})
+	t.Run("one station hanging early, the rest all asked", func(t *testing.T) {
+		var a Asker
+		asked, beat := burstUnder(t, &a, now, func(n int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+			if n == 5 {
+				return hang(ctx)
+			}
+			return answerIn(9 * time.Millisecond)
+		})
+		if !beat || a.Outcome != Answered || a.NotReached != 0 || len(asked) < throttle.MaxBurst-1 {
+			t.Errorf("%d asked, %d not reached, before the deadline %v, %v; want every station asked, the last asks given the time left (R5C-1)", len(asked), a.NotReached, beat, a.Outcome)
 		}
 	})
 	t.Run("hangs alternating with a server error", func(t *testing.T) {
 		var a Asker
-		_, beat := run(t, &a, now, func(n int, _ string, ctx context.Context) (int, string, []byte, error) {
+		_, beat := burstUnder(t, &a, now, func(n int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
 			switch {
 			case n == 1:
 				return 200, "", nil, nil
@@ -357,43 +405,71 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 			}
 			return 500, "", nil, nil
 		})
-		if !beat || a.Outcome != Unavailable || !a.Paused(now) {
-			t.Errorf("before the deadline %v, %v, paused %v; want GIRO called down, though never three hangs in a row", beat, a.Outcome, a.Paused(now))
+		if !beat || a.Outcome != Answered || a.Paused(now) || a.NotReached == 0 {
+			t.Errorf("before the deadline %v, %v, paused %v, %d not reached; want the burst cut short and never two full asks run out in a row: GIRO not called down", beat, a.Outcome, a.Paused(now), a.NotReached)
+		}
+	})
+	t.Run("one hang as the update ends", func(t *testing.T) {
+		var a Asker
+		hung := false
+		_, beat := burstUnder(t, &a, now, func(_ int, _ string, ctx context.Context, end time.Time) (int, string, []byte, error) {
+			if !hung && time.Until(end) < 180*time.Millisecond {
+				hung = true
+				return hang(ctx) // a full ask, its station's own: the update ends after it
+			}
+			return answerIn(15 * time.Millisecond)
+		})
+		if !hung || !beat || a.Outcome != Answered || a.Paused(now) {
+			t.Errorf("hung %v, before the deadline %v, %v, paused %v; want one full ask run out as the update ends taken as its station's failure", hung, beat, a.Outcome, a.Paused(now))
 		}
 	})
 	t.Run("slow answers, no hang", func(t *testing.T) {
 		var a Asker
-		asked, beat := run(t, &a, now, func(int, string, context.Context) (int, string, []byte, error) {
-			return answerIn(40 * time.Millisecond)
+		asked, beat := burstUnder(t, &a, now, func(int, string, context.Context, time.Time) (int, string, []byte, error) {
+			return answerIn(30 * time.Millisecond)
 		})
-		if !beat || a.Outcome != Answered || a.Paused(now) || len(asked) >= 30 {
-			t.Fatalf("%d asked, before the deadline %v, %v, paused %v; want the burst cut short, Answered, nothing paused", len(asked), beat, a.Outcome, a.Paused(now))
+		if !beat || a.Outcome != Answered || a.Paused(now) || a.NotReached == 0 || a.Failed != 0 {
+			t.Fatalf("%d asked, %d not reached, %d failed, before the deadline %v, %v, paused %v; want the burst cut short, its stations not reached counted, nothing failed or paused", len(asked), a.NotReached, a.Failed, beat, a.Outcome, a.Paused(now))
 		}
-		next, _ := run(t, &a, now.Add(time.Hour), func(int, string, context.Context) (int, string, []byte, error) { return 200, "", nil, nil })
-		if len(next) == 0 || slices.Contains(asked, next[0]) {
-			t.Errorf("the next burst began at %v, a station already asked; want one not reached", next[:min(1, len(next))])
+		next, _ := burstUnder(t, &a, now.Add(time.Hour), func(int, string, context.Context, time.Time) (int, string, []byte, error) { return 200, "", nil, nil })
+		if len(next) == 0 || slices.Contains(asked[:len(asked)-1], next[0]) {
+			t.Errorf("the next burst began at %v, a station already answered; want one not reached", next[:min(1, len(next))])
 		}
 	})
 	t.Run("three hanging stations", func(t *testing.T) {
-		// Three station hosts that hang look like GIRO hanging, whichever
-		// way the rotation orders them: GIRO is called down each hour, the
-		// other stations still asked first (D-291's counter-argument).
 		var a Asker
 		var trio []string
-		for hour := range 3 {
+		for hour := range 4 {
 			at := now.Add(time.Duration(hour) * time.Hour)
-			asked, beat := run(t, &a, at, func(_ int, code string, ctx context.Context) (int, string, []byte, error) {
+			asked, beat := burstUnder(t, &a, at, func(_ int, code string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
 				if hour == 0 && len(trio) < failuresInARow {
 					trio = append(trio, code)
 				}
 				if slices.Contains(trio, code) {
 					return hang(ctx)
 				}
-				return 200, "", nil, nil
+				return answerIn(9 * time.Millisecond)
 			})
-			if !beat || a.Outcome != Unavailable || (hour > 0 && len(asked) <= failuresInARow) {
-				t.Errorf("hour %d: %d asked, before the deadline %v, %v; want the others asked and GIRO called down, inside the deadline", hour, len(asked), beat, a.Outcome)
+			want := Answered
+			if hour == 0 {
+				want = Unavailable // three in a row before any answer (D-286)
 			}
+			if !beat || a.Outcome != want || (hour > 0 && len(asked) <= failuresInARow) {
+				t.Errorf("hour %d: %d asked, before the deadline %v, %v; want %v, the others asked, inside the update", hour, len(asked), beat, a.Outcome, want)
+			}
+		}
+	})
+	t.Run("no room for the first ask", func(t *testing.T) {
+		var a Asker
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+		defer cancel()
+		n := 0
+		a.Burst(ctx, now, func(context.Context, string) (int, string, []byte, error) {
+			n++
+			return 200, "", nil, nil
+		})
+		if n != 0 || !a.NoRoom || !a.BurstDue(now) {
+			t.Errorf("25 ms left: %d asked, no room %v, due %v; want nothing asked and the hour not spent (D-298)", n, a.NoRoom, a.BurstDue(now))
 		}
 	})
 }

@@ -30,6 +30,7 @@ type giroSide struct {
 	reformat bool                   // every reply a page that is no reply
 	status   map[string]int         // a station's status in place of its reply, when set
 	all      int                    // every station's status in place of its reply, when set
+	delay    time.Duration          // how long each station takes to answer: a slow GIRO
 	fo       map[string]string      // a station's foF2 reading, 7.500 when unset
 }
 
@@ -38,6 +39,7 @@ type giroSide struct {
 func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, error) {
 	g := &n.giro
 	g.asks = append(g.asks, raw)
+	time.Sleep(g.delay)
 	if g.refuse == len(g.asks) {
 		if g.cancel != nil {
 			g.cancel()
@@ -509,5 +511,27 @@ func TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked(t *testing.T) {
 		if a := n.take(); len(a) == 0 {
 			t.Fatalf("stall %d: NOAA not asked again after %v", i+1, wait)
 		}
+	}
+}
+
+// TestACutShortBurstIsCounted is watchpost D-297: a burst its update's
+// deadline cuts short while GIRO answers - each station slow, the last asks
+// given the time left - is no stop of GIRO's: the snapshot says GIRO
+// answered, and counts the stations not reached, which the next burst asks
+// first. A 4 s deadline leaves the burst a few shortened asks.
+func TestACutShortBurstIsCounted(t *testing.T) {
+	l, n, _ := library(t)
+	n.list(t, start.Add(-30*time.Minute), 7)
+	n.giro.speak = true
+	if s := update(t, l); s.Reason != ionomaps.StationsNext {
+		t.Fatalf("the first update: %v; want StationsNext", s.Reason)
+	}
+	n.giro.delay = 300 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	s, err := l.Update(ctx, ionomaps.UpdateOptions{})
+	asked := len(n.giro.asks)
+	if err != nil || s.Reason == ionomaps.Unfinished || s.Inputs.GIRO != ionomaps.GIROAnswered || asked == 0 || s.Inputs.StationsNotReached == 0 || s.Inputs.StationsFailed != 0 {
+		t.Errorf("the burst cut short: %v, %v, GIRO %v, %d asked, %d not reached, %d failed; want GIRO answered and the stations not reached counted, none failed", s.Reason, err, s.Inputs.GIRO, asked, s.Inputs.StationsNotReached, s.Inputs.StationsFailed)
 	}
 }

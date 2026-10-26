@@ -32,8 +32,9 @@ type ReachField struct {
 // the origin and interpolated between its nodes, within the measured
 // share of cells of each cell's own circuit; and the skip zone inside it.
 //
-// Source: ITU-R P.533-14 §3.5 and §5 to §7 (06_docs/02_features/go-ionomaps/02-analysis/evidence/
-// p533-equations.md and p533-field-strength.md).
+// Source: ITU-R P.533-14 §3.5 and §5 to §7; this library's reading of them
+// is p533-equations.md and p533-field-strength.md, in
+// 06_docs/02_features/go-ionomaps/02-analysis/evidence.
 func (s Snapshot) Reach(origin LatLon, mhz float64) (ReachField, error) {
 	return s.reach(origin, mhz, true)
 }

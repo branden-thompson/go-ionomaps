@@ -55,6 +55,7 @@ type noaa struct {
 	down      map[string]bool
 	stall     map[string]bool // asks held until their context ends: a host that accepts and never answers
 	gaveUp    map[string]bool // asks the host's client gives up on at once, its own timeout error
+	delay     time.Duration   // how long each of NOAA's asks takes to answer: a slow host
 	giro      giroSide
 
 	drap           []byte // D-RAP's table; none served when nil, as a test of its absence sets it
@@ -83,6 +84,7 @@ func (n *noaa) Fetch(ctx context.Context, url string, v ionomaps.Validators) (io
 	if strings.Contains(url, "lgdc.uml.edu") {
 		return n.giroAnswer(ctx, url)
 	}
+	time.Sleep(n.delay)
 	if url == drapURL {
 		return n.drapAnswer(ctx, v)
 	}
@@ -595,8 +597,8 @@ func (clientTimeout) Timeout() bool { return true }
 // next update backed off - so the update never runs into the host's
 // deadline.
 func TestNOAAsRoundEndsInsideTheHostsDeadline(t *testing.T) {
-	if got := ionomaps.NOAAAskTimeout(); got != 20*time.Second || 3*got > 60*time.Second {
-		t.Errorf("a NOAA ask has %v; D-285 gives it 20 s, a round's stop and its asks inside a host's 60 s", got)
+	if got := ionomaps.NOAAAskTimeout(); got != ionomaps.MinDeadline || ionomaps.MinDeadline != 20*time.Second || 3*got > 60*time.Second {
+		t.Errorf("a NOAA ask has %v, the least deadline %v; D-285 gives it 20 s, a round's stop and its asks inside a host's 60 s", got, ionomaps.MinDeadline)
 	}
 	l, n, _ := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
@@ -605,18 +607,64 @@ func TestNOAAsRoundEndsInsideTheHostsDeadline(t *testing.T) {
 	if len(n.drapAsks) != 0 || n.scalesAsks != 0 {
 		t.Errorf("the host's client gave up on the index, and the round went on: %d D-RAP asks, %d scales asks", len(n.drapAsks), n.scalesAsks)
 	}
-	defer ionomaps.SetNOAAAskTimeout(time.Second)()
-	fresh, m, mc := library(t)
-	m.list(t, start.Add(-30*time.Minute), 7)
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	fresh.Update(ctx, ionomaps.UpdateOptions{})
-	if a := m.take(); len(a) != 0 || len(m.drapAsks) != 0 {
-		t.Errorf("an update with 300 ms left and asks of a second each asked %v and %d D-RAP; want none started", a, len(m.drapAsks))
+}
+
+// TestADeadlineWithNoRoomBacksNothingOff is watchpost D-298: a NOAA round
+// whose update has no room left for its next ask ends there, the files not
+// asked named unread and the snapshot said Partial, and nothing is backed
+// off - two such rounds running, the third is asked ten minutes after the
+// second, not 15; an update with room for no ask asks nothing, says
+// ErrNoRoom with the time it had, and the next update, with room, asks at
+// once. NOAA's asks are scaled to 200 ms, each answered in 60 ms, under a
+// 290 ms deadline: room for two asks, and 170 ms to spare after them.
+func TestADeadlineWithNoRoomBacksNothingOff(t *testing.T) {
+	defer ionomaps.SetNOAAAskTimeout(200 * time.Millisecond)()
+	l, n, c := library(t)
+	n.list(t, start.Add(-30*time.Minute), 7)
+	n.delay = 60 * time.Millisecond
+	within := func() (ionomaps.Snapshot, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 290*time.Millisecond)
+		defer cancel()
+		return l.Update(ctx, ionomaps.UpdateOptions{NoStations: true})
 	}
-	mc.Add(10*time.Minute - time.Second)
-	fresh.Update(context.Background(), ionomaps.UpdateOptions{})
-	if a := m.take(); len(a) != 0 {
-		t.Errorf("an update left no room, and NOAA was asked again within ten minutes: %v", a)
+	for round := range 2 {
+		s, err := within()
+		if err != nil || s.Reason != ionomaps.Partial || !slices.Contains(s.Inputs.Unread, ionomaps.UnreadScales) || len(n.take()) == 0 {
+			t.Fatalf("round %d with room for two asks: %v, %v, unread %v; want Partial, the files not asked named", round, s.Reason, err, s.Inputs.Unread)
+		}
+		c.Add(10 * time.Minute)
+	}
+	if s, _ := within(); s.Reason == ionomaps.TooSoon || len(n.take()) == 0 {
+		t.Errorf("ten minutes after two rounds the deadline cut short: %v, nothing asked; want NOAA asked, nothing backed off", s.Reason)
+	}
+	c.Add(10 * time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	s, err := l.Update(ctx, ionomaps.UpdateOptions{NoStations: true})
+	if a := n.take(); len(a) != 0 || !errors.Is(err, ionomaps.ErrNoRoom) || !strings.Contains(fmt.Sprint(err), "20s") || s.Reason != ionomaps.Unfinished {
+		t.Errorf("50 ms left: asked %v, %v, %v; want nothing asked, ErrNoRoom naming the least deadline, Unfinished", a, s.Reason, err)
+	}
+	n.delay = 0
+	if s, err := l.Update(context.Background(), ionomaps.UpdateOptions{NoStations: true}); err != nil || s.Reason == ionomaps.TooSoon || len(n.take()) == 0 {
+		t.Errorf("the next update, with room: %v, %v; want NOAA asked at once, nothing spent", s.Reason, err)
+	}
+}
+
+// TestABurstWithNoRoomIsStillToMake is watchpost D-298 for GIRO: the burst's
+// update with no room for its first ask asks GIRO nothing, says ErrNoRoom,
+// and spends no hour - the next update, with room, makes the burst.
+func TestABurstWithNoRoomIsStillToMake(t *testing.T) {
+	l, n, _ := library(t)
+	n.list(t, start.Add(-30*time.Minute), 7)
+	if s := update(t, l); s.Reason != ionomaps.StationsNext {
+		t.Fatalf("the first update: %v; want StationsNext", s.Reason)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	if _, err := l.Update(ctx, ionomaps.UpdateOptions{}); !errors.Is(err, ionomaps.ErrNoRoom) || len(n.giro.asks) != 0 {
+		t.Fatalf("the burst with 1 ms left: %v, %d GIRO asks; want ErrNoRoom, none", err, len(n.giro.asks))
+	}
+	if s := update(t, l); len(n.giro.asks) == 0 || s.Reason == ionomaps.StationsNext {
+		t.Errorf("the next update: %v, %d GIRO asks; want the burst made", s.Reason, len(n.giro.asks))
 	}
 }

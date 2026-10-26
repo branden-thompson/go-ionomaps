@@ -61,6 +61,6 @@ func typicalError() TypicalError {
 		{UpToKm: 1000, FoF2MHz: 0.87, MUF3000MHz: 3.25},
 		{UpToKm: 2000, FoF2MHz: 1.22, MUF3000MHz: 4.33},
 		{UpToKm: 0, FoF2MHz: 1.37, MUF3000MHz: 4.73},
-	}, Basis: "measured against GIRO's stations over a week in early October 2026",
+	}, Basis: "measured against GIRO's stations over the week of 2026-09-29 to 10-05",
 		Source: "the climatology against GIRO's stations over PLAN's week, readings of unknown score taken (watchpost D-134, D-181; go-ionomaps 02-analysis/evidence/week.py section 11, WEEK_TAKE_UNKNOWN=1)"}
 }

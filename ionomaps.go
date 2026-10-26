@@ -80,6 +80,8 @@ type Library struct {
 	unread  []string       // NOAA's files the last update asked for and did not read: unanswered, refused or unreadable (L-F5, watchpost D-239)
 	heard   bool           // whether any NOAA file the last update asked for came back (watchpost D-239)
 	trouble bool           // whether any NOAA ask the last update made was refused, failed on NOAA's side or not answered: the next update backs off (watchpost D-260)
+	asked   bool           // whether the last update asked NOAA anything
+	noRoom  bool           // whether the last update's deadline left no room for one of NOAA's asks: its round ended there, nothing backed off (watchpost D-298)
 	typical *typicalDays   // the typical days the snapshots share, the answers' and the hours ahead's (P-4, R-8.1, watchpost D-222)
 	bg      lastBackground // the last background, built on again when its inputs are the same (R-8.1)
 

@@ -15,7 +15,7 @@ const (
 	seedSpreadMHz = 0.225
 	seedUpdates   = 56
 	liveReadings  = 5
-	offsetBasis   = "GIRO's stations against GloTEC over a week in early October 2026"
+	offsetBasis   = "GIRO's stations against GloTEC over the week of 2026-09-29 to 10-05"
 	offsetSource  = "the live offset over PLAN's week, 56 updates, mean -0.51 MHz, SD 0.23 (watchpost D-105; go-ionomaps 02-analysis/evidence/offset.py)"
 )
 

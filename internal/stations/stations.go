@@ -174,10 +174,11 @@ func (l *List) Plan(now time.Time, budget int) (poll []string, probe string) {
 // next, ahead of those left out by the budget, so a burst that stops at the
 // same station each hour still moves on (watchpost D-247); a code the list
 // does not poll now (the probe) is passed over. When a run of failures
-// stopped it, the rotation's head moves past past - the station whose
-// failure ended the run - so stations dead at the head cannot stop a burst
-// again while the rest still answer (watchpost D-287); a burst GIRO refused
-// or denied, or the host cancelled, names none and moves nothing.
+// stopped it, the rotation's head moves past the station named past - the
+// one whose failure ended the run - so stations dead at the head cannot stop
+// a burst again while the rest still answer (watchpost D-287); a burst GIRO
+// refused or denied, the host cancelled, or the update's end cut short
+// names none and moves nothing.
 //
 // Source: watchpost D-247, D-287.
 func (l *List) Unasked(codes []string, past string, now time.Time) {
