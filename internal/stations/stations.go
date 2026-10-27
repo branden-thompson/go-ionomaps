@@ -153,23 +153,32 @@ func (l *List) isLive(s Station, now time.Time) bool {
 }
 
 // Plan is an update's asks within a budget (D-87): the live stations to
-// poll, at most one fewer than the budget, those left out last time first
-// and those whose full ask ran out last (watchpost D-307); and one station
-// that is not live to probe, the next in rotation - or the probe a burst did
-// not reach, which kept its turn, and then first is true: it is asked before
-// the stations polled (watchpost D-303).
+// poll, those left out last time first and those known to hang last
+// (watchpost D-307, D-309); one station that is not live to probe, the next
+// in rotation - or the probe a burst did not reach, which kept its turn,
+// and then first is true: it is asked before the stations polled (watchpost
+// D-303), unless it is known to hang, when it is asked last as this hour's
+// probe; and, when withRetry is set, the retry: the live station known to
+// hang whose last ask ran out longest ago, taken out of the poll and asked
+// before it (watchpost D-314). The probe and the retry count inside the
+// budget. The whole is the update's timing model, section 3.
 //
-// Source: watchpost D-51, D-87, D-303, D-307.
-func (l *List) Plan(now time.Time, budget int) (poll []string, probe string, first bool) {
+// Source: watchpost D-51, D-87, D-303, D-307, D-314.
+func (l *List) Plan(now time.Time, budget int, withRetry bool) (poll []string, probe string, first bool, retry string) {
 	if budget <= 0 {
-		return nil, "", false
+		return nil, "", false, ""
 	}
 	if now.IsZero() {
-		return nil, "", false
+		return nil, "", false, ""
 	}
 	live := l.Live(now)
 	room := budget - 1 // the probe counts inside the burst (D-87)
 	order := l.rotation(live)
+	if i := slices.IndexFunc(l.last, func(c string) bool { return slices.Contains(live, c) }); withRetry && i >= 0 && room > 1 {
+		retry = l.last[i]
+		order = slices.DeleteFunc(order, func(c string) bool { return c == retry })
+		room-- // the retry counts inside the burst too (watchpost D-314)
+	}
 	poll = order[:min(room, len(order))]
 	l.leftOut = order[len(poll):]
 	l.pollAt += len(poll)
@@ -177,17 +186,18 @@ func (l *List) Plan(now time.Time, budget int) (poll []string, probe string, fir
 	l.keep = ""
 	if kept != "" && !l.isLive(l.station(kept), now) {
 		l.probe = kept
-		return poll, kept, true
+		return poll, kept, !l.Hangs(kept), retry // a kept probe known to hang is asked last (watchpost D-314)
 	}
 	l.probe = l.nextProbe(now)
-	return poll, l.probe, false
+	return poll, l.probe, false, retry
 }
 
-// RanOut keeps whether a station's full ask ran out: one that did is known
-// to hang, asked last in the bursts after, behind every station that
-// answered - even when a deadline left it unreached - until an ask of it
-// ends any other way (watchpost D-307, D-309; the update's timing model,
-// section 3).
+// RanOut keeps whether a station's full ask, or its retry, ran out: one that
+// did is known to hang - asked last in the bursts after, behind every
+// station that answered, even when a deadline left it unreached, and
+// retried in turn, behind the others known to hang - until an ask of it
+// ends any other way (watchpost D-307, D-309, D-314; the update's timing
+// model, section 3).
 //
 // Source: watchpost D-307, D-309.
 func (l *List) RanOut(code string, ranOut bool) {
@@ -350,7 +360,7 @@ type State struct {
 	PollAt, ProbeAt int
 	LeftOut         []string
 	Keep            string   `json:",omitempty"` // a probe not reached, asked first next (watchpost D-303)
-	Last            []string `json:",omitempty"` // stations whose full ask ran out, asked last (watchpost D-307)
+	Last            []string `json:",omitempty"` // stations known to hang, in the order they last ran out: the retry's order (watchpost D-307, D-314)
 }
 
 // pollAtMost is the most polls a list reaches: a century of hourly bursts

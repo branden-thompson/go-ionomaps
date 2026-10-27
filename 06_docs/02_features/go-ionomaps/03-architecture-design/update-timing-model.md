@@ -3,7 +3,7 @@ title: "go-ionomaps - the update's timing and GIRO's burst: the settled model"
 date: 2026-10-27
 phase: REVIEW
 authority: HUM LEAD (watchpost D-311)
-status: "APPROVED by the HUM LEAD 2026-10-27 (watchpost D-312). The one statement of these rules: each red-team round's findings in this area are judged against it, and a change to it is presented whole, with every section it touches."
+status: "APPROVED by the HUM LEAD 2026-10-27 (watchpost D-312); changed whole 2026-10-27 (watchpost D-314: M1 to M4, after round 8). The one statement of these rules: each red-team round's findings in this area are judged against it, and a change to it is presented whole, with every section it touches."
 ---
 
 # The update's timing and GIRO's burst: the settled model
@@ -17,15 +17,15 @@ Rounds 3 to 7 of watchpost 0.19.0's REVIEW red team ruled the update's timing an
 - D-307's tail collided with D-302's head (D-309).
 - That collision manufactured D-286's runs (D-310).
 
-The HUM LEAD's direction (watchpost D-311): pick one model, write it in the docs, and judge each later round against it, so no round reverses another in isolation. This page is that model. The rulings stand as the record of how it was reached; where this page and a ruling's wording differ, this page is the model and the ruling is history.
+The HUM LEAD's direction (watchpost D-311): pick one model, write it in the docs, and judge each later round against it, so no round reverses another in isolation. This page is that model. Round 8 found it wrong in one place, whole: "known to hang" was assigned from the timeouts that call a dead GIRO down, so a long outage went unsaid, and kept so long that a station could starve. The HUM LEAD changed it whole (watchpost D-314): M1 to M4 below. The rulings stand as the record of how it was reached; where this page and a ruling's wording differ, this page is the model and the ruling is history.
 
 ## The four principles, in order
 
 Where two principles meet, the earlier one wins.
 
 1. **Bounded.** An update never runs into its deadline: every ask starts only when the update has room for it and a margin after (watchpost D-291, D-295, D-298, D-301).
-2. **Truthful about GIRO.** GIRO is called down only on evidence that GIRO itself stopped answering - never because of the host's deadline, the host's cancel, or a station already known to hang (D-247, D-286, D-296, D-305, D-310).
-3. **Every answering station read.** A burst asks the stations that answer before the stations known not to, and no station is starved (D-287, D-303, D-307, D-309).
+2. **Truthful about GIRO.** GIRO is called down only on evidence that GIRO itself stopped answering - never because of the host's deadline, the host's cancel, or, once a station has answered in the burst, a station already known to hang - and is called down when nothing answers (D-247, D-286, D-296, D-305, D-310, D-314).
+3. **Every answering station read.** A burst asks the stations that answer before the stations known not to, and no station is starved: each station known to hang is retried within as many hours as there are of them (D-287, D-303, D-307, D-309, D-314).
 4. **Said as it is.** What the host is told - and watchpost says - names what happened: a refusal, GIRO unavailable, a station's own failure, a burst the deadline cut short. Nothing is said that did not happen (D-239, D-297, D-302).
 
 ## 1. The time budget
@@ -37,6 +37,7 @@ Where two principles meet, the earlier one wins.
 | A NOAA ask | 20 s, all or none: none starts without 20 s and the margin left | D-285, D-298 |
 | A GIRO ask, full | 15 s, while 16 s are left | D-275, D-295 |
 | A GIRO ask, shortened | the time left less the margin, down to a 2 s floor; under it, the burst ends | D-295 |
+| The retry of a station known to hang | 2 s, the floor, made only while 35 s are left: its own ask and margin, and two full asks with theirs | D-314 |
 | An ask that runs out | in real time, or by the host's client giving up first | D-285, R4L-3 |
 
 - **No room for any ask:** nothing is asked, nothing is backed off, no GIRO hour is spent, and `Update`'s error wraps `ErrNoRoom`, naming the time it had (D-298).
@@ -53,8 +54,10 @@ Each ask ends one way. What that end is evidence of:
 | A 429 | GIRO refusing | stops the burst; GIRO backed off at once (D-39) |
 | A 401 or 403 | GIRO refusing this host | stops the burst; GIRO left alone a day (D-247) |
 | A 5xx, 404, 410, a status not named, an error | the station's own failure | before any answer, the failures-in-a-row run; after one, nothing (D-271, D-272) |
-| A full ask run out, the station not known to hang | the station's failure, and evidence against GIRO | the timeouts run (D-286, D-296) |
-| A full ask run out, the station already known to hang | the station's own failure only | nothing; like any end but a counted timeout, it breaks the timeouts run (D-305, D-310) |
+| A full ask run out, the station not known to hang | the station's failure, and evidence against GIRO | the timeouts run; before any answer, the failures-in-a-row run too (D-271, D-286, D-296) |
+| A full ask run out, the station already known to hang, before any station in the burst answered | as one not known to hang: nothing has shown GIRO answering | as the row above (D-314, M1) |
+| A full ask run out, the station already known to hang, after a station answered | the station's own failure only | nothing; like any end but a counted timeout, it breaks both runs (D-305, D-310) |
+| The retry's 2 s ask run out | the station's own failure only | nothing, before an answer or after; it breaks both runs (D-314, M2) |
 | A shortened ask run out | the update's end, not the station's | nothing (D-295) |
 | The host's cancel | the host's | nothing (D-302) |
 
@@ -70,13 +73,16 @@ Each ask ends one way. What that end is evidence of:
 
 A burst asks, in this order:
 
-1. the probe a burst before it did not reach, which kept its turn (D-303);
-2. the stations a burst before it did not reach (D-302), but not those known to hang;
-3. the rotation, from its head (D-287);
-4. the stations known to hang, in the order they ran out (D-307, D-309);
-5. this hour's probe, one station not live, so a dark station can return (D-51, R-5.5).
+1. the probe a burst before it did not reach, which kept its turn (D-303) - unless it is known to hang: then it is this hour's probe, item 6 (D-314, M3);
+2. **the retry:** one live station known to hang, the one whose last ask ran out longest ago, with a 2 s ask, while 35 s are left (D-314, M2);
+3. the stations a burst before it did not reach (D-302), but not those known to hang;
+4. the rotation, from its head (D-287);
+5. the stations known to hang, in the order they ran out (D-307, D-309), the retry apart;
+6. this hour's probe, one station not live, so a dark station can return (D-51, R-5.5).
 
-A station is **known to hang** from the burst in which a full ask of it runs out, until an ask of it ends any other way: an answer, its own failure, or a refusal (D-307). It stays known to hang even when a deadline leaves it unreached (D-309).
+Every ask counts within D-87's budget of 40: the retry takes one place, the probe one, the rest the others.
+
+A station is **known to hang** from the burst in which a full ask of it runs out, until an ask of it ends any other way: an answer, its own failure, or a refusal (D-307). It stays known to hang even when a deadline leaves it unreached (D-309). The retry's ask running out keeps it known, and puts it behind the others, so each is retried in turn: with k stations known to hang, each within k hours (D-314).
 
 **The rotation's head** moves past a run's last station only when that station's own ask failed (D-287). A station that ran out goes last whatever the head.
 
@@ -87,6 +93,7 @@ A station is **known to hang** from the burst in which a full ask of it runs out
 | End | GIRO | The hour | Stations not reached (`NotReached`) | Next hour |
 |---|---|---|---|---|
 | Every station asked | as section 2 | spent | none | the rotation |
+| A run of failures or timeouts (section 2's call-down) | called down, backed off | spent | none | they go first; the rotation's head past the station whose own ask failed, if one did (D-271, D-286, D-287) |
 | The update's deadline | as section 2 | spent | the live stations it left, not the probe or those known to hang (D-302, D-303, D-309) | they go first |
 | The host's cancel | untouched | spent once anything was asked | none (D-302) | they go first |
 | A 429, 401 or 403 | refused, backed off | spent | none (D-302) | they go first |
@@ -110,7 +117,7 @@ The host keeps the library's state. It holds:
 - the rotation's head;
 - the stations left out;
 - the kept probe;
-- the stations known to hang.
+- the stations known to hang, in the order they last ran out - the retry's order.
 
 It never holds a GIRO reading. A code the seed no longer names is dropped; the rest is taken part by part (D-213, D-288, D-302, D-307).
 
@@ -126,9 +133,10 @@ Each one is the counter-argument its ruling weighed. Each is to be listed in VAL
 
 - **GIRO dying late in a burst is called down the next hour**, not that one (D-296).
 - **A struggling GIRO** that alternates hangs with server errors is never called down. Each ask fails visibly as a station's own (D-305).
-- **In the hour before a station is known to hang**, two hanging stations side by side at the update's end can call GIRO down once. From the next hour they are known, and count nothing (D-305, D-310).
-- **GIRO dying just as a burst reaches the stations known to hang** is not called down by their timeouts. The other stations' timeouts, or the next hour, catch it (D-310).
-- **A station known to hang that recovers mid-hour** is read later in its hour (D-309).
+- **In the hour stations first hang**, before they are known to: three side by side anywhere in a burst call GIRO down at once (D-286), and two side by side at the update's end call it down (D-296). From the next hour they are known, and after a station has answered they count nothing (D-305, D-310).
+- **GIRO dying after a burst's first answer, as the burst reaches the stations known to hang,** is not called down by their timeouts that hour. The other stations' timeouts, or the next hour - where, before any answer, they count (M1) - catch it (D-310, D-314).
+- **A station known to hang that recovers** is read within as many hours as there are stations known to hang, by the retry; sooner when the hour has room for the tail. One that answers slower than the retry's 2 s waits for the tail (D-309, D-314).
+- **A dark probe the deadline left, not yet known to hang,** opens the next hour with a full ask. With GIRO at about 1.05 s an ask or slower, that can leave 2 to 5 live stations to the hour after. Once it has run out it is known to hang, and is asked last (D-303, D-314).
 
 ## 9. How this model changes
 

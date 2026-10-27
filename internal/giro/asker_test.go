@@ -467,8 +467,11 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 	})
 	t.Run("a hung GIRO at the least deadline", func(t *testing.T) {
 		// MinDeadline is room for two full asks and their margins: a GIRO
-		// hung on every ask is called down within it (D-296, D-301; R7C-7).
+		// hung on every ask is called down within it, a station known to
+		// hang left unretried (D-296, D-301, D-314; R7C-7).
 		var a Asker
+		a.list, _ = stations.Seed(now)
+		a.list.RanOut(a.list.Live(now)[0], true)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*(askTimeout+deadline.Margin)+5*time.Millisecond)
 		defer cancel()
 		a.Burst(ctx, now, func(ctx context.Context, _ string) (int, string, []byte, error) { return hang(ctx) })
@@ -566,13 +569,13 @@ func TestAHostClientsTimeoutIsATimeout(t *testing.T) {
 
 // TestStationsTimingOutGoBehindTheRest is watchpost D-287 for asks that run
 // out: three stations hanging after an answer stop the burst (D-286), and
-// every later burst begins past them, the rest asked first - once the
-// stations not reached are spent, the rotation's head is what keeps them
-// behind.
+// every later burst begins past them, the rest asked first - but for the
+// one of them retried short at its head (D-314) - and the rotation's head
+// is not moved by a run of timeouts (the update's timing model, section 3).
 func TestStationsTimingOutGoBehindTheRest(t *testing.T) {
-	was := askTimeout
-	askTimeout = 20 * time.Millisecond
-	defer func() { askTimeout = was }()
+	was, wasFloor := askTimeout, askFloor
+	askTimeout, askFloor = 20*time.Millisecond, 5*time.Millisecond
+	defer func() { askTimeout, askFloor = was, wasFloor }()
 	var a Asker
 	var trio []string
 	for hour := range 4 {
@@ -591,8 +594,15 @@ func TestStationsTimingOutGoBehindTheRest(t *testing.T) {
 		if hour == 0 && (a.Outcome != Unavailable || len(asked) != 1+failuresInARow) {
 			t.Fatalf("an answer, then three hangs: %d asked, %v; want the burst stopped at the third", len(asked), a.Outcome)
 		}
-		if hour > 0 && (len(asked) <= 1+failuresInARow || slices.Contains(trio, asked[0])) {
-			t.Errorf("hour %d asked %d, first %s; want it begun past the stations that hung %v", hour, len(asked), asked[0], trio)
+		if hour == 0 && a.list.Record().PollAt != throttle.MaxBurst-1 {
+			t.Errorf("a run of timeouts moved the rotation's head to %d; want it where the plan left it, %d", a.list.Record().PollAt, throttle.MaxBurst-1)
+		}
+		if hour == 0 {
+			continue
+		}
+		opening := slices.DeleteFunc(slices.Clone(asked[:3]), func(c string) bool { return !slices.Contains(trio, c) }) // the kept probe, the retry, the rest
+		if len(asked) <= 1+failuresInARow || len(opening) != 1 || slices.Contains(trio, asked[2]) {
+			t.Errorf("hour %d asked %d, opening %v; want one of the stations that hung retried, the rest begun past them %v", hour, len(asked), asked[:3], trio)
 		}
 	}
 }
@@ -626,7 +636,7 @@ func TestOnlyTheUpdatesEndCountsStationsNotReached(t *testing.T) {
 		kept := a.list.Record().Keep // the probe not reached goes first of all (D-303)
 		var next []string
 		a.Burst(context.Background(), now.Add(time.Hour), func(_ context.Context, u string) (int, string, []byte, error) {
-			if code := codeOf(t, u); code != kept {
+			if code := codeOf(t, u); code != kept && code != asked[1] && code != asked[2] { // the two that hung: one retried, one last (D-314)
 				next = append(next, code)
 			}
 			return 200, "", nil, nil
@@ -701,49 +711,62 @@ func TestAProbeNotReachedIsAskedFirst(t *testing.T) {
 	}
 }
 
-// TestAStationThatRanOutIsAskedLast is watchpost D-307: a station whose full
-// ask ran out is asked last in the bursts after - behind every station that
-// answered, the probe apart - and back in its place once it answers.
-func TestAStationThatRanOutIsAskedLast(t *testing.T) {
-	was := askTimeout
-	askTimeout = 20 * time.Millisecond
-	defer func() { askTimeout = was }()
+// TestAStationThatRanOutIsRetriedInTurn is watchpost D-307 with D-314's
+// retry (the update's timing model, section 3): stations whose full ask ran
+// out are known to hang - one retried at the head of each burst with a
+// short ask, the one whose ask ran out longest ago, the rest asked last in
+// the order they ran out - and a station that answers leaves them for its
+// place; a station's own server error is no run out, and keeps its place.
+func TestAStationThatRanOutIsRetriedInTurn(t *testing.T) {
+	was, wasFloor := askTimeout, askFloor
+	askTimeout, askFloor = 20*time.Millisecond, 5*time.Millisecond
+	defer func() { askTimeout, askFloor = was, wasFloor }()
+	type asked struct {
+		code  string
+		short bool
+	}
 	var a Asker
-	var hanging string
-	answering := false
-	burst := func(hour int) []string {
-		var asked []string
+	var hanging []string
+	answering := map[string]bool{}
+	burst := func(hour int) []asked {
+		var out []asked
 		a.Burst(context.Background(), now.Add(time.Duration(hour)*time.Hour), func(ctx context.Context, u string) (int, string, []byte, error) {
 			code := codeOf(t, u)
-			asked = append(asked, code)
-			if hour == 0 && len(asked) == 5 {
-				hanging = code
+			end, _ := ctx.Deadline()
+			out = append(out, asked{code, time.Until(end) <= askFloor})
+			if hour == 0 && (len(out) == 5 || len(out) == 7) {
+				hanging = append(hanging, code)
 			}
-			if code == hanging && !answering {
+			if slices.Contains(hanging, code) && !answering[code] {
 				return hang(ctx)
 			}
 			return 200, "", nil, nil
 		})
-		return asked
+		return out[:len(out)-1] // the probe, the last ask, apart
+	}
+	count := func(as []asked, code string) int {
+		return len(slices.DeleteFunc(slices.Clone(as), func(x asked) bool { return x.code != code }))
 	}
 	burst(0)
-	polled := func(asked []string) []string { return asked[:len(asked)-1] } // the probe is the last ask
-	if p := polled(burst(1)); len(p) == 0 || p[len(p)-1] != hanging {
-		t.Fatalf("the hour after: polled ending %v; want the station that ran out, %s, last", p[max(len(p)-2, 0):], hanging)
+	for hour := 1; hour <= 2; hour++ { // the tail reached each hour: the first to run out is still the one whose ask ran out longest ago
+		as := burst(hour)
+		if as[0] != (asked{hanging[0], true}) || as[len(as)-1].code != hanging[1] || count(as, hanging[0]) != 1 {
+			t.Fatalf("hour %d: opened %v, ended %v; want %s retried short first and once, %s last", hour, as[0], as[len(as)-1], hanging[0], hanging[1])
+		}
 	}
-	answering = true
-	burst(2) // it answers, last
-	if p := polled(burst(3)); len(p) == 0 || p[len(p)-1] == hanging {
-		t.Errorf("after it answered: it is still polled last; want it back in its place")
+	answering[hanging[1]] = true
+	burst(3) // it answers at the tail, and leaves the stations known to hang
+	if as := burst(4); as[0] != (asked{hanging[0], true}) || as[len(as)-1].code == hanging[1] || count(as, hanging[1]) != 1 {
+		t.Errorf("after %s answered: opened %v, ended %v; want %s retried and %s back in its place", hanging[1], as[0], as[len(as)-1], hanging[0], hanging[1])
 	}
-	var failing string // a station's own server error is no run out: it keeps its place (R7L-2)
+	var failing string
 	var b Asker
 	for hour := range 2 {
-		var asked []string
+		var p []string
 		b.Burst(context.Background(), now.Add(time.Duration(hour)*time.Hour), func(_ context.Context, u string) (int, string, []byte, error) {
 			code := codeOf(t, u)
-			asked = append(asked, code)
-			if hour == 0 && len(asked) == 5 {
+			p = append(p, code)
+			if hour == 0 && len(p) == 5 {
 				failing = code
 			}
 			if code == failing {
@@ -751,25 +774,27 @@ func TestAStationThatRanOutIsAskedLast(t *testing.T) {
 			}
 			return 200, "", nil, nil
 		})
-		if p := polled(asked); hour == 1 && (len(p) == 0 || p[len(p)-1] == failing) {
-			t.Errorf("a station that answered a server error is polled last; want only a run out to put it there")
+		if hour == 1 && (p[0] == failing || p[len(p)-2] == failing) {
+			t.Errorf("a station that answered a server error is retried or polled last; want only a run out to make it known to hang")
 		}
 	}
 }
 
-// TestHangingStationsNeverCallAHealthyGIRODown is watchpost D-309 and D-310,
-// the update's timing model's sections 2 and 3, over ten hours under a
-// deadline: stations that hang are known to after the first hour, asked
-// last however a deadline cut them, and their running out again counts
-// toward no run - so with two, three or four of them, a dark probe that
-// hangs too, or GIRO answering fast, every station that answers is read
-// each hour and GIRO is never called down after the first. Times are a
-// hundredth of their own, an answer 9 ms as PLAN's 0.92 s.
+// TestHangingStationsNeverCallAHealthyGIRODown is the update's timing
+// model's sections 2 and 3 (watchpost D-309, D-310, D-314) over ten hours
+// under a deadline: live stations known to hang from the start - two, three
+// side by side, or four, beside a dark probe that hangs too, GIRO fast or
+// slower - are retried one at a burst's head and asked last, and once a
+// station has answered their running out counts toward no run; so GIRO is
+// never called down, and every live station that answers is read each
+// hour, or, where the deadline cut the burst, counted not reached and read
+// the next (section 4). Times are a hundredth of their own, an answer 9 ms
+// as PLAN's 0.92 s.
 func TestHangingStationsNeverCallAHealthyGIRODown(t *testing.T) {
 	scaledAsks(t)
 	for _, c := range []struct {
 		name      string
-		hang      []int // the asks of the first hour, from 1, whose stations hang
+		hang      []int // places in the live list
 		pace      time.Duration
 		darkHangs bool // every station not live hangs too, so the probe does
 	}{
@@ -783,53 +808,130 @@ func TestHangingStationsNeverCallAHealthyGIRODown(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var a Asker
-			hanging := map[string]bool{}
-			healthy := map[string]bool{}
+			a.list, _ = stations.Seed(now)
+			live := a.list.Live(now)
+			var hanging []string
+			for _, i := range c.hang {
+				hanging = append(hanging, live[i])
+				a.list.RanOut(live[i], true) // known to hang from an earlier run
+			}
+			var unreadBefore []string
 			for hour := range 10 {
 				at := now.Add(time.Duration(hour) * time.Hour)
 				read := map[string]bool{}
-				var opened []string
-				_, beat := burstUnder(t, &a, at, func(n int, code string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
-					if hour == 0 && slices.Contains(c.hang, n) {
-						hanging[code] = true
+				hungFirst := 0
+				_, beat := burstUnder(t, &a, at, func(_ int, code string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+					if slices.Contains(hanging, code) && len(read) == 0 {
+						hungFirst++
 					}
-					if len(opened) < 3 {
-						opened = append(opened, code)
-					}
-					if hanging[code] || c.darkHangs && !slices.Contains(a.list.Live(at), code) {
-						return hang(ctx) // a station that hangs, or a dark probe that does
+					if slices.Contains(hanging, code) || c.darkHangs && !slices.Contains(live, code) {
+						return hang(ctx) // a station known to hang, or a dark probe that hangs
 					}
 					read[code] = true
 					return answerIn(ctx, c.pace)
 				})
-				if !beat {
-					t.Fatalf("hour %d ran into its deadline", hour)
+				missed := slices.DeleteFunc(slices.Clone(live), func(code string) bool { return read[code] || slices.Contains(hanging, code) })
+				twice := slices.DeleteFunc(slices.Clone(missed), func(code string) bool { return !slices.Contains(unreadBefore, code) })
+				if !beat || a.Outcome != Answered || a.Paused(at) || a.NotReached != len(missed) {
+					t.Errorf("hour %d: %v, paused %v, %d counted not reached of %v unread, before the deadline %v; want GIRO answering, every unread station counted", hour, a.Outcome, a.Paused(at), a.NotReached, missed, beat)
 				}
-				if hour == 0 {
-					continue
+				if len(twice) != 0 || hungFirst > 1 {
+					t.Errorf("hour %d: unread two hours running %v, %d stations known to hang asked before the first answer; want each answering station read within the hour after, and only the retry before it", hour, twice, hungFirst)
 				}
-				liveRead := 0
-				for code := range read {
-					if slices.Contains(a.list.Live(at), code) {
-						healthy[code] = true
-						liveRead++
-					}
-				}
-				if a.Outcome != Answered || a.Paused(at) {
-					t.Errorf("hour %d: %v, paused %v, the burst opening %v; want GIRO answering, never called down by stations known to hang", hour, a.Outcome, a.Paused(at), opened)
-				}
-				for _, code := range opened {
-					if hanging[code] && hour > 1 {
-						t.Errorf("hour %d opened with %s, a station known to hang; want it last", hour, code)
-					}
-				}
-				if hour > 1 && liveRead < len(healthy) {
-					t.Errorf("hour %d read %d of the %d stations that answer; want every one", hour, liveRead, len(healthy))
-				}
-				if hour > 1 && a.NotReached != 0 {
-					t.Errorf("hour %d counted %d stations not reached, every answering one read; want the stations known to hang and the probe uncounted", hour, a.NotReached)
-				}
+				unreadBefore = missed
 			}
 		})
+	}
+}
+
+// TestADeadGIROIsCalledDownEveryHour is the update's timing model's section
+// 2 (watchpost D-314, M1) over a day under a deadline: a GIRO hanging on
+// every ask makes its stations known to hang hour by hour, and once every
+// live station is, their running out before any station has answered still
+// calls GIRO down - every hour, never said to be answering.
+func TestADeadGIROIsCalledDownEveryHour(t *testing.T) {
+	scaledAsks(t)
+	var a Asker
+	for hour := range 24 {
+		at := now.Add(time.Duration(hour) * time.Hour)
+		_, beat := burstUnder(t, &a, at, func(_ int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+			return hang(ctx)
+		})
+		if !beat || a.Outcome != Unavailable || !a.Paused(at) {
+			t.Fatalf("hour %d: %v, paused %v, before the deadline %v; want a dead GIRO called down every hour", hour, a.Outcome, a.Paused(at), beat)
+		}
+	}
+	live, known := a.list.Live(now), a.list.Record().Last
+	if missing := slices.DeleteFunc(slices.Clone(live), func(c string) bool { return slices.Contains(known, c) }); len(missing) != 0 {
+		t.Errorf("control: after a day, %v of the live stations not known to hang; want every one", missing)
+	}
+}
+
+// TestEveryStationKnownToHangIsRetriedInTurn is the update's timing model's
+// section 3 (watchpost D-314, M2) with GIRO slow enough that the deadline
+// never reaches the tail: three stations known to hang, recovered, are each
+// read within three hours by the retry, and GIRO is not called down. Times
+// are a hundredth of their own, an answer 16 ms as a GIRO at 1.6 s.
+func TestEveryStationKnownToHangIsRetriedInTurn(t *testing.T) {
+	scaledAsks(t)
+	var a Asker
+	a.list, _ = stations.Seed(now)
+	live := a.list.Live(now)
+	known := []string{live[3], live[13], live[23]}
+	for _, c := range known {
+		a.list.RanOut(c, true)
+	}
+	readAt := map[string]int{}
+	for hour := range len(known) {
+		at := now.Add(time.Duration(hour) * time.Hour)
+		burstUnder(t, &a, at, func(_ int, code string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+			if _, seen := readAt[code]; !seen && slices.Contains(known, code) {
+				readAt[code] = hour
+			}
+			return answerIn(ctx, 16*time.Millisecond)
+		})
+		if a.Outcome != Answered || a.Paused(at) {
+			t.Errorf("hour %d: %v, paused %v; want a slow GIRO answering", hour, a.Outcome, a.Paused(at))
+		}
+	}
+	for i, c := range known {
+		if h, seen := readAt[c]; !seen || h != i {
+			t.Errorf("%s, known to hang and recovered: read in hour %d (%v); want hour %d, retried in turn", c, h, seen, i)
+		}
+	}
+}
+
+// TestAStationKnownToHangBreaksARun is the update's timing model's section 2
+// (watchpost D-305, D-310, D-314): a station known to hang running out again
+// - after a station answered, or as the retry - is its own failure, counted
+// in Failed, and breaks both runs like any end but a counted timeout: the
+// retry, then two server errors, then answers, is no run of three failures;
+// two new hangs at the rotation's end, then one known to hang, then a
+// hanging probe, is no run of three timeouts.
+func TestAStationKnownToHangBreaksARun(t *testing.T) {
+	was, wasFloor := askTimeout, askFloor
+	askTimeout, askFloor = 20*time.Millisecond, 5*time.Millisecond
+	defer func() { askTimeout, askFloor = was, wasFloor }()
+	var a Asker
+	a.list, _ = stations.Seed(now)
+	live := a.list.Live(now)
+	retried, tail := live[0], live[1]
+	a.list.RanOut(retried, true)
+	a.list.RanOut(tail, true)
+	newHangs := live[len(live)-2:]
+	var asked []string
+	a.Burst(context.Background(), now, func(ctx context.Context, u string) (int, string, []byte, error) {
+		code := codeOf(t, u)
+		asked = append(asked, code)
+		switch {
+		case code == retried || code == tail || slices.Contains(newHangs, code) || !slices.Contains(live, code):
+			return hang(ctx)
+		case len(asked) <= 3:
+			return 500, "", nil, nil // the retry, then two server errors
+		}
+		return 200, "", nil, nil
+	})
+	if asked[0] != retried || asked[len(asked)-2] != tail || a.Outcome != Answered || a.Paused(now) || a.Failed != 7 {
+		t.Errorf("asked %v ... %v: %v, paused %v, %d failed; want %s retried, %s last, GIRO answering, 7 failures counted", asked[:3], asked[len(asked)-4:], a.Outcome, a.Paused(now), a.Failed, retried, tail)
 	}
 }

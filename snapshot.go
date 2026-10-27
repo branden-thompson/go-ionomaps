@@ -141,7 +141,7 @@ type Inputs struct {
 	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
 	GIRO               GIROOutcome   // how the last burst ended, carried until the next
 	StationsFailed     int           // stations whose own ask failed in the last burst - a server error, a 404, no answer - the burst going on
-	StationsNotReached int           // live stations the last burst left because the update's deadline came - not asked, or asked with too little time to answer - asked first next hour, the probe and stations known to hang apart; a burst the host cancelled, or GIRO refused with a 429 or a denial, counts none
+	StationsNotReached int           // live stations the last burst left because the update's deadline came - not asked, or asked with too little time to answer - asked first next hour, the probe and stations known to hang apart; a burst the host cancelled, GIRO refused with a 429 or a denial, or a run of failures or timeouts called down, counts none
 	Unread             []string      // NOAA's inputs the snapshot lacks, by the Unread names: a file this update asked for and could not read - unanswered, refused or unreadable - one not asked, as no grid, D-RAP or scales is fetched without a usable F10.7 mean, or one held past its age; the one held used instead where one is usable, its age saying so; Background says what foF2 was drawn from
 }
 

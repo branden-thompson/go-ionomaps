@@ -964,8 +964,8 @@
     "row": "watchpost D-303",
     "what": "a probe kept from a cut burst is asked last again",
     "file": "internal/giro/asker.go",
-    "old": "\t\tasks = append([]string{probe}, poll...) // a probe not reached last time first (watchpost D-303)\n",
-    "new": "\t\tasks = append(poll, probe) // a probe not reached last time first (watchpost D-303)\n",
+    "old": "\t\tasks = append([]string{probe}, asks...) // a probe not reached last time first (watchpost D-303)\n",
+    "new": "\t\tasks = append(asks, probe) // a probe not reached last time first (watchpost D-303)\n",
     "package": "./internal/giro",
     "test": "TestAProbeNotReachedIsAskedFirst"
   },
@@ -987,7 +987,7 @@
     "old": "\tfor _, c := range l.last { // known to hang: behind every station that answered, in the order they ran out\n",
     "new": "\tfor _, c := range l.last[:0] { // known to hang: behind every station that answered, in the order they ran out\n",
     "package": "./internal/giro",
-    "test": "TestAStationThatRanOutIsAskedLast"
+    "test": "TestAStationThatRanOutIsRetriedInTurn"
   },
   {
     "id": "m101",
@@ -997,7 +997,7 @@
     "old": "\tl.last = slices.DeleteFunc(l.last, func(c string) bool { return c == code })\n",
     "new": "\tl.last = slices.DeleteFunc(l.last, func(c string) bool { return false })\n",
     "package": "./internal/giro",
-    "test": "TestAStationThatRanOutIsAskedLast"
+    "test": "TestAStationThatRanOutIsRetriedInTurn"
   },
   {
     "id": "m102",
@@ -1064,10 +1064,10 @@
     "row": "watchpost D-310",
     "what": "a station known to hang running out again counts toward GIRO's runs",
     "file": "internal/giro/asker.go",
-    "old": "\t\t\tres = hungAgain // its own failure again, and no evidence against GIRO (watchpost D-310)\n",
-    "new": "\t\t\t_ = hungAgain // its own failure again, and no evidence against GIRO (watchpost D-310)\n",
+    "old": "\t\t\tres = hungAgain // its own failure again: no evidence against GIRO once a station answered, nor ever from the retry (watchpost D-310, D-314)\n",
+    "new": "\t\t\t_ = hungAgain // its own failure again: no evidence against GIRO once a station answered, nor ever from the retry (watchpost D-310, D-314)\n",
     "package": "./internal/giro",
-    "test": "TestHangingStationsNeverCallAHealthyGIRODown"
+    "test": "TestAStationKnownToHangBreaksARun"
   },
   {
     "id": "m109",
@@ -1097,7 +1097,7 @@
     "old": "\t\ta.list.RanOut(code, res == timedOut) // last next hour while it runs out (watchpost D-307)\n",
     "new": "\t\ta.list.RanOut(code, res == timedOut || res == failed) // last next hour while it runs out (watchpost D-307)\n",
     "package": "./internal/giro",
-    "test": "TestAStationThatRanOutIsAskedLast"
+    "test": "TestAStationThatRanOutIsRetriedInTurn"
   },
   {
     "id": "m112",
@@ -1158,5 +1158,135 @@
     "new": "\tif kept != \"\" {\n",
     "package": "./internal/stations",
     "test": "TestAKeptProbeNowLiveIsAskedOnce"
+  },
+  {
+    "id": "m118",
+    "row": "watchpost D-314 (M1; R8C-1, R8T-1, R8L-1)",
+    "what": "a station known to hang counts toward no run even before any answer, so a dead GIRO is never called down",
+    "file": "internal/giro/asker.go",
+    "old": "if res == timedOut && known && (t.anyAnswered || code == retry) {",
+    "new": "if res == timedOut && known {",
+    "package": "./internal/giro",
+    "test": "TestADeadGIROIsCalledDownEveryHour"
+  },
+  {
+    "id": "m119",
+    "row": "watchpost D-314 (M2)",
+    "what": "the retry's running out counts before an answer, as a full ask's",
+    "file": "internal/giro/asker.go",
+    "old": "(t.anyAnswered || code == retry)",
+    "new": "t.anyAnswered",
+    "package": "./internal/giro",
+    "test": "TestAStationKnownToHangBreaksARun"
+  },
+  {
+    "id": "m120",
+    "row": "watchpost D-314 (M2; R8D-1, R8L-3, R8T-2)",
+    "what": "no station known to hang is retried",
+    "file": "internal/stations/stations.go",
+    "old": "withRetry && i >= 0 && room > 1",
+    "new": "false && i >= 0 && room > 1",
+    "package": "./internal/giro",
+    "test": "TestEveryStationKnownToHangIsRetriedInTurn"
+  },
+  {
+    "id": "m121",
+    "row": "watchpost D-314 (M2)",
+    "what": "the retry gets a full ask, not its short one",
+    "file": "internal/giro/asker.go",
+    "old": "\t\t\tlimit, full = deadline.Room(ctx, askFloor, askFloor) // the retry's own short ask, whole or none\n",
+    "new": "\t\t\t_ = askFloor // the retry's own short ask, whole or none\n",
+    "package": "./internal/giro",
+    "test": "TestAStationThatRanOutIsRetriedInTurn"
+  },
+  {
+    "id": "m122",
+    "row": "watchpost D-314, D-301 (M2)",
+    "what": "the retry is made with no room for two full asks after it",
+    "file": "internal/giro/asker.go",
+    "old": "\treturn !set || left >= askFloor+2*askTimeout+3*deadline.Margin\n",
+    "new": "\treturn !set || left >= 0\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsBeforeTheHostsDeadline"
+  },
+  {
+    "id": "m123",
+    "row": "watchpost D-314 (M3; R8L-5)",
+    "what": "a kept probe known to hang is asked first",
+    "file": "internal/stations/stations.go",
+    "old": "return poll, kept, !l.Hangs(kept), retry",
+    "new": "return poll, kept, true, retry",
+    "package": "./internal/stations",
+    "test": "TestAKeptProbeKnownToHangIsAskedLast"
+  },
+  {
+    "id": "m124",
+    "row": "watchpost D-305, D-310 (R8T-4 X2)",
+    "what": "a station known to hang running out again does not break the run of timeouts",
+    "file": "internal/giro/asker.go",
+    "old": "\t} else {\n\t\tt.timeouts = 0 // any other end breaks the run (watchpost D-305)\n",
+    "new": "\t} else if res != hungAgain {\n\t\tt.timeouts = 0 // any other end breaks the run (watchpost D-305)\n",
+    "package": "./internal/giro",
+    "test": "TestAStationKnownToHangBreaksARun"
+  },
+  {
+    "id": "m125",
+    "row": "watchpost D-310 (R8T-4 X3, R8L-2 N2, R8C-2 zK)",
+    "what": "a station known to hang running out again is not counted a failure",
+    "file": "internal/giro/asker.go",
+    "old": "\t\tt.inARow = 0 // its own failure, no evidence against GIRO (watchpost D-310)\n\t\treturn true\n",
+    "new": "\t\tt.inARow = 0 // its own failure, no evidence against GIRO (watchpost D-310)\n\t\treturn false\n",
+    "package": "./internal/giro",
+    "test": "TestAStationKnownToHangBreaksARun"
+  },
+  {
+    "id": "m126",
+    "row": "watchpost D-310, D-314 (R8T-4 X1, R8L-2 N1)",
+    "what": "a station known to hang running out again counts toward the failures run",
+    "file": "internal/giro/asker.go",
+    "old": "\t\tt.inARow = 0 // its own failure, no evidence against GIRO (watchpost D-310)\n",
+    "new": "\t\tt.inARow++ // its own failure, no evidence against GIRO (watchpost D-310)\n",
+    "package": "./internal/giro",
+    "test": "TestAStationKnownToHangBreaksARun"
+  },
+  {
+    "id": "m127",
+    "row": "watchpost D-307 (R8T-4 X5, R8L-2 N3)",
+    "what": "the stations known to hang are asked last in reverse",
+    "file": "internal/stations/stations.go",
+    "old": "\tfor _, c := range l.last { // known to hang: behind every station that answered, in the order they ran out\n",
+    "new": "\tfor _, c := range slices.Backward(l.last) { // known to hang: behind every station that answered, in the order they ran out\n",
+    "package": "./internal/stations",
+    "test": "TestTheRetryTakesTheStationsKnownToHangInTurn"
+  },
+  {
+    "id": "m128",
+    "row": "watchpost D-314 (R8T-4 X6)",
+    "what": "a station known to hang that runs out again keeps its place, not behind the rest",
+    "file": "internal/stations/stations.go",
+    "old": "\tl.last = slices.DeleteFunc(l.last, func(c string) bool { return c == code })\n",
+    "new": "\tl.last = slices.DeleteFunc(l.last, func(c string) bool { return c == code && !ranOut })\n",
+    "package": "./internal/stations",
+    "test": "TestTheRetryTakesTheStationsKnownToHangInTurn"
+  },
+  {
+    "id": "m129",
+    "row": "watchpost D-287 (R8T-4 X9)",
+    "what": "a run of timeouts moves the rotation's head",
+    "file": "internal/giro/asker.go",
+    "old": "\tif res != failed {\n\t\treturn \"\"\n",
+    "new": "\tif res != failed && res != timedOut {\n\t\treturn \"\"\n",
+    "package": "./internal/giro",
+    "test": "TestStationsTimingOutGoBehindTheRest"
+  },
+  {
+    "id": "m130",
+    "row": "R-5.5 (R8C-2 zF)",
+    "what": "a dark station known to hang is polled as live",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tif slices.Contains(live, c) && !slices.Contains(out, c) {\n",
+    "new": "\t\tif !slices.Contains(out, c) {\n",
+    "package": "./internal/stations",
+    "test": "TestTheRetryTakesTheStationsKnownToHangInTurn"
   }
 ]

@@ -174,11 +174,15 @@ func (a *Asker) BurstDue(now time.Time) bool { return a.thr.Due(now) }
 // for its first ask, or whose context ended before it, asks nothing, spends
 // no hour and leaves the last burst's counts (watchpost D-298, D-302). A
 // probe not reached keeps its turn and is asked first next hour (watchpost
-// D-303); a station whose full ask ran out is known to hang, asked last in
-// the bursts after, a deadline's cut moving it no further forward, until an
-// ask of it ends any other way, and its running out again is its own
-// failure, counting toward no run (watchpost D-307, D-309, D-310). The
-// whole is the update's timing model. A run of failures that
+// D-303), unless it is known to hang, when it is asked last. A station whose
+// full ask ran out is known to hang, asked last in the bursts after, a
+// deadline's cut moving it no further forward, until an ask of it ends any
+// other way; one of them, the one whose ask ran out longest ago, is retried
+// at the burst's head with a short ask while the update leaves room for it
+// and two full asks. Its running out again, once a station has answered or
+// as the retry, is its own failure, counting toward no run; before any
+// answer it counts as any full ask run out (watchpost D-307, D-309, D-310,
+// D-314). The whole is the update's timing model. A run of failures that
 // stops it moves the rotation's head past the station that ended it
 // (watchpost D-287). Each station's latest reading is held.
 //
@@ -198,10 +202,13 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 		}
 		a.list = list
 	}
-	poll, probe, probeFirst := a.list.Plan(now, throttle.MaxBurst)
+	poll, probe, probeFirst, retry := a.list.Plan(now, throttle.MaxBurst, roomToRetry(ctx))
 	asks := poll
+	if retry != "" {
+		asks = append([]string{retry}, asks...) // one station known to hang retried, short (watchpost D-314)
+	}
 	if probe != "" && probeFirst {
-		asks = append([]string{probe}, poll...) // a probe not reached last time first (watchpost D-303)
+		asks = append([]string{probe}, asks...) // a probe not reached last time first (watchpost D-303)
 	} else if probe != "" {
 		asks = append(asks, probe)
 	}
@@ -213,6 +220,9 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 	var t tally
 	for i, code := range asks[:granted] {
 		limit, full := deadline.Room(ctx, askTimeout, askFloor)
+		if code == retry {
+			limit, full = deadline.Room(ctx, askFloor, askFloor) // the retry's own short ask, whole or none
+		}
 		if ctx.Err() != nil || limit == 0 { // the host's cancel, or no room left in its update
 			a.endEarly(ctx, restore{before, counts, i == 0}, t, asks[i:granted], probe, now)
 			return
@@ -224,8 +234,8 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 		}
 		known := a.list.Hangs(code)
 		a.list.RanOut(code, res == timedOut) // last next hour while it runs out (watchpost D-307)
-		if res == timedOut && known {
-			res = hungAgain // its own failure again, and no evidence against GIRO (watchpost D-310)
+		if res == timedOut && known && (t.anyAnswered || code == retry) {
+			res = hungAgain // its own failure again: no evidence against GIRO once a station answered, nor ever from the retry (watchpost D-310, D-314)
 		}
 		if t.add(res) {
 			a.Failed++
@@ -235,6 +245,14 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 			return
 		}
 	}
+}
+
+// roomToRetry is whether a burst has room to retry a station known to hang:
+// the retry's ask and margin, and two full asks with theirs, so a hung GIRO
+// is still called down within MinDeadline (watchpost D-314, D-301).
+func roomToRetry(ctx context.Context) bool {
+	left, set := deadline.Left(ctx)
+	return !set || left >= askFloor+2*askTimeout+3*deadline.Margin
 }
 
 // burstCounts is what a burst says of itself, kept across a burst that asks
@@ -258,11 +276,12 @@ type restore struct {
 }
 
 // tally is how a burst's asks have ended so far (watchpost D-271, D-286,
-// D-296, D-305, D-310; the update's timing model, section 2): the stations
-// failed one after another, the full asks run out one after another, nothing
-// between them, and whether any station answered. A station known to hang
-// that runs out again is its own failure and counts toward neither run, and
-// like any other end it breaks them.
+// D-296, D-305, D-310, D-314; the update's timing model, section 2): the
+// stations failed one after another, the full asks run out one after
+// another, nothing between them, and whether any station answered. A
+// station known to hang that runs out again after a station answered, or
+// as the retry, is its own failure and counts toward neither run, and like
+// any other end it breaks them.
 type tally struct {
 	inARow, timeouts int
 	anyAnswered      bool

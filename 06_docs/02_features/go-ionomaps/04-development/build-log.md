@@ -323,3 +323,13 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **Mutants:** m077, m088, m099, m100, m105 and m106 re-pointed; m107 to m117 new, each killed.
 - **The README's known limits**, the model's section 8 (R7D-6).
 
+## REVIEW's red team, round 8: the model changed whole and built (watchpost D-314; D-120, A-38)
+
+- **The model** (D-120): `update-timing-model.md` changed whole - principles 2 and 3, sections 1 to 4, 6 and 8.
+- **M1:** before a burst's first answer, a station known to hang that runs out counts as any full ask run out, so a dead GIRO is called down every hour (`TestADeadGIROIsCalledDownEveryHour`, 24 hours; m118).
+- **M2:** one station known to hang retried at each burst's head with a 2 s ask while 35 s are left, in turn (`TestEveryStationKnownToHangIsRetriedInTurn` with GIRO at 1.6 s an ask; `TestTheRetryTakesTheStationsKnownToHangInTurn` with 45 live stations; m119 to m122, m128).
+- **M3:** a kept probe known to hang asked last (`TestAKeptProbeKnownToHangIsAskedLast`; m123).
+- **Tests:** the ten-hour test's hanging stations chosen from the live list and known from the start, every answering station read every hour (R8C-3, R8D-2); `TestAStationKnownToHangBreaksARun` (R8T-4 X1 to X3, R8L-2 N1, N2; m124 to m126, m108 re-pointed); the tail's order and a dark station never polled (X5, zF; m127, m130); a run of timeouts leaving the head (X9; m129).
+- **Docs:** the README's call-down words and known limits, R-5.3, `Inputs.StationsNotReached` (R8D-3), `State.Last`, `RanOut`, `Burst` and `tally`; the stations ledger row's veto wording (R8D-6).
+- **Mutants:** m098 and m108 re-pointed, m100, m101 and m111 to the renamed test; m118 to m130 new, each killed.
+
