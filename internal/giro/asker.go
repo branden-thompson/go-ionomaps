@@ -66,6 +66,7 @@ const (
 	failed                   // the station's own: a server error, a 404, an error that is no timeout
 	timedOut                 // no answer within the full askTimeout: the station's failure, and GIRO down when it runs on
 	notReached               // no answer within a shortened ask, the host's update ending: asked first next hour, no failure (watchpost D-295)
+	hungAgain                // a station known to hang ran out again: its own failure, no evidence against GIRO (watchpost D-310)
 	refused                  // GIRO's 429
 	denied                   // GIRO refused this host: a 401 or 403
 	cancelled                // the host's cancel
@@ -95,7 +96,7 @@ type Asker struct {
 	held       map[string]Held
 	Rejected   int     // the last burst's rows refused by range checks
 	Failed     int     // the last burst's stations whose own ask failed, the burst going on (watchpost D-247)
-	NotReached int     // the last burst's stations not asked, or not answered within a shortened ask: asked first next hour (watchpost D-297)
+	NotReached int     // the live stations the last burst left because the update's deadline came, the probe and stations known to hang apart; none for a cancel or GIRO's refusal (watchpost D-297, D-302, D-309)
 	NoRoom     bool    // the last burst found no room for its first ask: nothing asked, no hour spent (watchpost D-298)
 	Outcome    Outcome // how the last burst ended, carried until the next
 }
@@ -173,8 +174,11 @@ func (a *Asker) BurstDue(now time.Time) bool { return a.thr.Due(now) }
 // for its first ask, or whose context ended before it, asks nothing, spends
 // no hour and leaves the last burst's counts (watchpost D-298, D-302). A
 // probe not reached keeps its turn and is asked first next hour (watchpost
-// D-303); a station whose full ask ran out is asked last in the bursts
-// after, until it is answered (watchpost D-307). A run of failures that
+// D-303); a station whose full ask ran out is known to hang, asked last in
+// the bursts after, a deadline's cut moving it no further forward, until an
+// ask of it ends any other way, and its running out again is its own
+// failure, counting toward no run (watchpost D-307, D-309, D-310). The
+// whole is the update's timing model. A run of failures that
 // stops it moves the rotation's head past the station that ended it
 // (watchpost D-287). Each station's latest reading is held.
 //
@@ -210,15 +214,19 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 	for i, code := range asks[:granted] {
 		limit, full := deadline.Room(ctx, askTimeout, askFloor)
 		if ctx.Err() != nil || limit == 0 { // the host's cancel, or no room left in its update
-			a.endEarly(ctx, endOf{before, counts, i == 0}, t, asks[i:granted], probe, now)
+			a.endEarly(ctx, restore{before, counts, i == 0}, t, asks[i:granted], probe, now)
 			return
 		}
 		res, retryAfter := a.ask(ctx, code, now, fetch, limit, full)
 		if res == notReached || res == cancelled { // the update's end or the host's cancel: the station asked first next hour (watchpost D-295, D-302)
-			a.endEarly(ctx, endOf{before, counts, false}, t, asks[i:granted], probe, now)
+			a.endEarly(ctx, restore{before, counts, false}, t, asks[i:granted], probe, now)
 			return
 		}
+		known := a.list.Hangs(code)
 		a.list.RanOut(code, res == timedOut) // last next hour while it runs out (watchpost D-307)
+		if res == timedOut && known {
+			res = hungAgain // its own failure again, and no evidence against GIRO (watchpost D-310)
+		}
 		if t.add(res) {
 			a.Failed++
 		}
@@ -241,18 +249,20 @@ func (a *Asker) counts() burstCounts {
 	return burstCounts{a.Rejected, a.Failed, a.NotReached, a.Outcome}
 }
 
-// endOf is what a burst ended early puts back when it asked nothing: GIRO's
+// restore is what a burst ended early puts back when it asked nothing: GIRO's
 // throttle and the last burst's counts.
-type endOf struct {
+type restore struct {
 	thr          throttle.GIRO
 	counts       burstCounts
 	nothingAsked bool
 }
 
 // tally is how a burst's asks have ended so far (watchpost D-271, D-286,
-// D-296, D-305): the stations failed one after another, the full asks run
-// out one after another, nothing between them, and whether any station
-// answered.
+// D-296, D-305, D-310; the update's timing model, section 2): the stations
+// failed one after another, the full asks run out one after another, nothing
+// between them, and whether any station answered. A station known to hang
+// that runs out again is its own failure and counts toward neither run, and
+// like any other end it breaks them.
 type tally struct {
 	inARow, timeouts int
 	anyAnswered      bool
@@ -266,31 +276,35 @@ func (t *tally) add(res result) bool {
 	} else {
 		t.timeouts = 0 // any other end breaks the run (watchpost D-305)
 	}
-	if res != failed && res != timedOut {
-		t.inARow = 0
-		return false
+	switch res {
+	case failed, timedOut:
+		t.inARow++
+		return true
+	case hungAgain:
+		t.inARow = 0 // its own failure, no evidence against GIRO (watchpost D-310)
+		return true
 	}
-	t.inARow++
-	return true
+	t.inARow = 0
+	return false
 }
 
 // endEarly ends a burst before its last ask: the host's cancel, or the end
 // of its update. With nothing asked, GIRO saw no burst: the hour is not
 // spent and the last burst's counts stand (watchpost D-298, D-302). At the
-// update's end the live stations not reached are counted - the probe apart
-// - and GIRO is called down when its last timeoutsAtTheEnd full asks ran
-// out; otherwise nothing is backed off (watchpost D-296, D-302, D-303). A
-// cancel counts none. Either way the stations not reached are asked first
-// next hour, and the rotation's head stays: the stations that ran out were
-// the burst's last already.
-func (a *Asker) endEarly(ctx context.Context, e endOf, t tally, rest []string, probe string, now time.Time) {
+// update's end the live stations not reached are counted - the probe and
+// the stations known to hang apart - and GIRO is called down when its last
+// timeoutsAtTheEnd counted asks ran out; otherwise nothing is backed off
+// (watchpost D-296, D-302, D-303, D-309). A cancel counts none. Either way
+// the stations not reached are asked first next hour, those known to hang
+// last, and the rotation's head stays.
+func (a *Asker) endEarly(ctx context.Context, e restore, t tally, rest []string, probe string, now time.Time) {
 	cancelled := ctx.Err() != nil
 	if e.nothingAsked {
 		a.thr, a.NoRoom = e.thr, !cancelled // nothing asked: GIRO saw no burst
 		a.Rejected, a.Failed, a.NotReached, a.Outcome = e.counts.rejected, e.counts.failed, e.counts.notReached, e.counts.outcome
 	}
 	if !cancelled && !e.nothingAsked {
-		a.NotReached = len(slices.DeleteFunc(slices.Clone(rest), func(c string) bool { return c == probe }))
+		a.NotReached = len(slices.DeleteFunc(slices.Clone(rest), func(c string) bool { return c == probe || a.list.Hangs(c) }))
 	}
 	if !cancelled && t.timeouts >= timeoutsAtTheEnd {
 		a.thr.Refused(now, "")

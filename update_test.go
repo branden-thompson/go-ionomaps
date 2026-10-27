@@ -650,7 +650,7 @@ func TestADeadlineWithNoRoomBacksNothingOff(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	s, err := l.Update(ctx, ionomaps.UpdateOptions{NoStations: true})
-	if a := n.take(); len(a) != 0 || !errors.Is(err, ionomaps.ErrNoRoom) || !strings.Contains(fmt.Sprint(err), ionomaps.MinDeadline.String()) || s.Reason != ionomaps.Unfinished {
+	if a := n.take(); len(a) != 0 || !errors.Is(err, ionomaps.ErrNoRoom) || !strings.Contains(fmt.Sprint(err), ionomaps.MinDeadline.String()) || strings.Contains(fmt.Sprint(err), "left 50ms") || s.Reason != ionomaps.Unfinished {
 		t.Errorf("50 ms left: asked %v, %v, %v; want nothing asked, ErrNoRoom naming the least deadline, Unfinished", a, s.Reason, err)
 	}
 	n.delay = 0
@@ -682,9 +682,9 @@ func TestABurstWithNoRoomIsStillToMake(t *testing.T) {
 // whose update has no room left names the file whose ask found no room, and
 // any input the snapshot lacks; a file it did not ask, held and young,
 // stands in silently, as D-239's Unread has always worked. A full round
-// first holds every file; the next, with room for one ask, reads the solar
-// file's index and leaves the grid, D-RAP and scales unasked - GloTEC's
-// grid is named, the young D-RAP and scales are not.
+// first holds every file; the next, its solar file not yet due, has room
+// for two asks: GloTEC's index and its new grid are read, D-RAP finds no
+// room and is named, and the scales, not asked and held young, are not.
 func TestARoundWithNoRoomNamesWhatItLacks(t *testing.T) {
 	defer ionomaps.SetNOAAAskTimeout(200 * time.Millisecond)()
 	defer ionomaps.SetDeadlineMargin(20 * time.Millisecond)()
@@ -699,10 +699,7 @@ func TestARoundWithNoRoomNamesWhatItLacks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 290*time.Millisecond)
 	defer cancel()
 	s, err := l.Update(ctx, ionomaps.UpdateOptions{NoStations: true})
-	if err != nil || s.Reason != ionomaps.Partial || !slices.Contains(s.Inputs.Unread, ionomaps.UnreadGloTEC) && !slices.Contains(s.Inputs.Unread, ionomaps.UnreadDRAP) {
-		t.Fatalf("a round with room for two asks: %v, %v, unread %v; want Partial, the file that found no room named", s.Reason, err, s.Inputs.Unread)
-	}
-	if slices.Contains(s.Inputs.Unread, ionomaps.UnreadScales) {
-		t.Errorf("unread %v: the young scales file held stood in, and is named as not read", s.Inputs.Unread)
+	if err != nil || s.Reason != ionomaps.Partial || !slices.Equal(s.Inputs.Unread, []string{ionomaps.UnreadDRAP}) {
+		t.Errorf("a round with room for two asks: %v, %v, unread %v; want Partial and D-RAP alone named - the young scales standing in", s.Reason, err, s.Inputs.Unread)
 	}
 }

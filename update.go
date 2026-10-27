@@ -101,8 +101,9 @@ type UpdateOptions struct {
 // whatever Options.Clock says, and every ask leaves a 1 s margin after it.
 // A NOAA ask that runs out, or that the host's client gives up on first,
 // stops that round and backs NOAA off; a GIRO ask that runs out is its
-// station's failure, and two or three in a row, one after another, call
-// GIRO down. No NOAA ask starts without its 20 s and the margin left: the
+// station's failure, and GIRO is called down by three in a row whatever
+// answered, or two in a row as the deadline comes - a station already known
+// to hang counting toward neither. No NOAA ask starts without its 20 s and the margin left: the
 // round ends there, nothing backed off, and Inputs.Unread names that file
 // and any input the snapshot lacks - a young file held stands in. GIRO's
 // last asks get the time the deadline leaves, and the live stations a burst

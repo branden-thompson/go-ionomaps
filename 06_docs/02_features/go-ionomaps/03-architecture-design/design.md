@@ -11,7 +11,9 @@ status: "APPROVED at the PLAN gate (watchpost D-139). No code: signatures, shape
 
 The public shape is the package's own documentation (`go doc github.com/branden-thompson/go-ionomaps`) and
 its review, [`api-review.md`](api-review.md); watchpost's architecture says only what watchpost relies on, by
-role ("go-ionomaps, as watchpost uses it", watchpost D-F4). This page holds the library's inside: its packages, its update, and **where every algorithm comes
+role ("go-ionomaps, as watchpost uses it", watchpost D-F4). The update's timing and GIRO's burst - the time budget, what each
+ask's end is evidence of, a burst's order, how a burst ends - are one model of their own:
+[`update-timing-model.md`](update-timing-model.md) (watchpost D-312). This page holds the library's inside: its packages, its update, and **where every algorithm comes
 from** (watchpost D-53).
 
 ## Packages

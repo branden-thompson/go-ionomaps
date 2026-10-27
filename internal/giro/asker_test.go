@@ -465,6 +465,17 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a hung GIRO at the least deadline", func(t *testing.T) {
+		// MinDeadline is room for two full asks and their margins: a GIRO
+		// hung on every ask is called down within it (D-296, D-301; R7C-7).
+		var a Asker
+		ctx, cancel := context.WithTimeout(context.Background(), 2*(askTimeout+deadline.Margin)+5*time.Millisecond)
+		defer cancel()
+		a.Burst(ctx, now, func(ctx context.Context, _ string) (int, string, []byte, error) { return hang(ctx) })
+		if a.Outcome != Unavailable || !a.Paused(now) || ctx.Err() != nil {
+			t.Errorf("%v, paused %v, before the deadline %v; want a hung GIRO called down at the least deadline", a.Outcome, a.Paused(now), ctx.Err() == nil)
+		}
+	})
 	t.Run("just under a full ask's room", func(t *testing.T) {
 		// With the full ask and the margin not quite left, the ask is a
 		// shortened one, and its running out is the update's end, never the
@@ -724,5 +735,101 @@ func TestAStationThatRanOutIsAskedLast(t *testing.T) {
 	burst(2) // it answers, last
 	if p := polled(burst(3)); len(p) == 0 || p[len(p)-1] == hanging {
 		t.Errorf("after it answered: it is still polled last; want it back in its place")
+	}
+	var failing string // a station's own server error is no run out: it keeps its place (R7L-2)
+	var b Asker
+	for hour := range 2 {
+		var asked []string
+		b.Burst(context.Background(), now.Add(time.Duration(hour)*time.Hour), func(_ context.Context, u string) (int, string, []byte, error) {
+			code := codeOf(t, u)
+			asked = append(asked, code)
+			if hour == 0 && len(asked) == 5 {
+				failing = code
+			}
+			if code == failing {
+				return 500, "", nil, nil
+			}
+			return 200, "", nil, nil
+		})
+		if p := polled(asked); hour == 1 && (len(p) == 0 || p[len(p)-1] == failing) {
+			t.Errorf("a station that answered a server error is polled last; want only a run out to put it there")
+		}
+	}
+}
+
+// TestHangingStationsNeverCallAHealthyGIRODown is watchpost D-309 and D-310,
+// the update's timing model's sections 2 and 3, over ten hours under a
+// deadline: stations that hang are known to after the first hour, asked
+// last however a deadline cut them, and their running out again counts
+// toward no run - so with two, three or four of them, a dark probe that
+// hangs too, or GIRO answering fast, every station that answers is read
+// each hour and GIRO is never called down after the first. Times are a
+// hundredth of their own, an answer 9 ms as PLAN's 0.92 s.
+func TestHangingStationsNeverCallAHealthyGIRODown(t *testing.T) {
+	scaledAsks(t)
+	for _, c := range []struct {
+		name      string
+		hang      []int // the asks of the first hour, from 1, whose stations hang
+		pace      time.Duration
+		darkHangs bool // every station not live hangs too, so the probe does
+	}{
+		{"two hanging stations", []int{10, 20}, 9 * time.Millisecond, false},
+		{"three side by side", []int{2, 3, 4}, 9 * time.Millisecond, false},
+		{"four hanging stations", []int{5, 15, 25, 35}, 9 * time.Millisecond, false},
+		{"two and a hanging probe", []int{10, 20}, 9 * time.Millisecond, true},
+		{"two, GIRO answering fast", []int{10, 20}, 3 * time.Millisecond, false},
+		{"two and a hanging probe, GIRO fast", []int{10, 20}, 3 * time.Millisecond, true},
+		{"two, GIRO slower", []int{10, 20}, 11 * time.Millisecond, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var a Asker
+			hanging := map[string]bool{}
+			healthy := map[string]bool{}
+			for hour := range 10 {
+				at := now.Add(time.Duration(hour) * time.Hour)
+				read := map[string]bool{}
+				var opened []string
+				_, beat := burstUnder(t, &a, at, func(n int, code string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+					if hour == 0 && slices.Contains(c.hang, n) {
+						hanging[code] = true
+					}
+					if len(opened) < 3 {
+						opened = append(opened, code)
+					}
+					if hanging[code] || c.darkHangs && !slices.Contains(a.list.Live(at), code) {
+						return hang(ctx) // a station that hangs, or a dark probe that does
+					}
+					read[code] = true
+					return answerIn(ctx, c.pace)
+				})
+				if !beat {
+					t.Fatalf("hour %d ran into its deadline", hour)
+				}
+				if hour == 0 {
+					continue
+				}
+				liveRead := 0
+				for code := range read {
+					if slices.Contains(a.list.Live(at), code) {
+						healthy[code] = true
+						liveRead++
+					}
+				}
+				if a.Outcome != Answered || a.Paused(at) {
+					t.Errorf("hour %d: %v, paused %v, the burst opening %v; want GIRO answering, never called down by stations known to hang", hour, a.Outcome, a.Paused(at), opened)
+				}
+				for _, code := range opened {
+					if hanging[code] && hour > 1 {
+						t.Errorf("hour %d opened with %s, a station known to hang; want it last", hour, code)
+					}
+				}
+				if hour > 1 && liveRead < len(healthy) {
+					t.Errorf("hour %d read %d of the %d stations that answer; want every one", hour, liveRead, len(healthy))
+				}
+				if hour > 1 && a.NotReached != 0 {
+					t.Errorf("hour %d counted %d stations not reached, every answering one read; want the stations known to hang and the probe uncounted", hour, a.NotReached)
+				}
+			}
+		})
 	}
 }

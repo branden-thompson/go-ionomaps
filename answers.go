@@ -405,7 +405,7 @@ const sunStepDrift = 1e-3
 // zero in are passed over, and the first step above it is the one a step at
 // a time finds.
 func (t *sunTrack) sunAt(lat, lon float64) (decl, chi, sinceSunset float64) {
-	if math.IsNaN(lat) || math.IsNaN(lon) {
+	if math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0) {
 		return t.decl, math.NaN(), math.NaN() // no place: no sun to find, and no step to take (P10-02)
 	}
 	r := math.Pi / 180

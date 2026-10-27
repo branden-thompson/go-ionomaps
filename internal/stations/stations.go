@@ -56,7 +56,7 @@ type List struct {
 	leftOut []string
 	probe   string   // the last burst's probe, as Plan chose it
 	keep    string   // a probe a burst did not reach: it keeps its turn, asked first next (watchpost D-303)
-	last    []string // stations whose full ask ran out: asked last in the bursts after, until one is answered (watchpost D-307)
+	last    []string // stations known to hang - a full ask ran out - asked last in the bursts after, until an ask of one ends any other way (watchpost D-307, D-309)
 }
 
 var (
@@ -183,11 +183,13 @@ func (l *List) Plan(now time.Time, budget int) (poll []string, probe string, fir
 	return poll, l.probe, false
 }
 
-// RanOut keeps whether a station's full ask ran out: one that did is asked
-// last in the bursts after, behind every station that answered, until an ask
-// of it ends any other way (watchpost D-307).
+// RanOut keeps whether a station's full ask ran out: one that did is known
+// to hang, asked last in the bursts after, behind every station that
+// answered - even when a deadline left it unreached - until an ask of it
+// ends any other way (watchpost D-307, D-309; the update's timing model,
+// section 3).
 //
-// Source: watchpost D-307.
+// Source: watchpost D-307, D-309.
 func (l *List) RanOut(code string, ranOut bool) {
 	if code == "" {
 		return // no station named: nothing to keep
@@ -198,18 +200,26 @@ func (l *List) RanOut(code string, ranOut bool) {
 	}
 }
 
+// Hangs is whether a station is known to hang: its last full ask ran out
+// and no ask of it has ended another way since (watchpost D-307, D-310).
+//
+// Source: watchpost D-307, D-310.
+func (l *List) Hangs(code string) bool { return slices.Contains(l.last, code) }
+
 // Unasked puts the stations a stopped burst did not reach first for the
 // next, ahead of those left out by the budget, so a burst that stops at the
 // same station each hour still moves on (watchpost D-247); a code the list
 // does not poll now is passed over, but the burst's probe among the codes
-// keeps its turn and is asked first next (watchpost D-303). When a run of failures
+// keeps its turn and is asked first next (watchpost D-303); a station known
+// to hang among them stays last, as rotation places it (watchpost D-309).
+// When a run of failures
 // stopped it, the rotation's head moves past the station named past - the
 // one whose failure ended the run - so stations dead at the head cannot stop
 // a burst again while the rest still answer (watchpost D-287); a burst GIRO
 // refused or denied, the host cancelled, or the update's end cut short
 // names none and moves nothing.
 //
-// Source: watchpost D-247, D-287, D-303.
+// Source: watchpost D-247, D-287, D-303, D-309.
 func (l *List) Unasked(codes []string, past string, now time.Time) {
 	if l.probe != "" && slices.Contains(codes, l.probe) {
 		l.keep = l.probe // the probe not reached keeps its turn (watchpost D-303)
@@ -232,8 +242,9 @@ func (l *List) Unasked(codes []string, past string, now time.Time) {
 }
 
 // rotation is the live stations in the order they are polled: those left
-// out last time first, then the rest from where the rotation stands, those
-// whose full ask ran out last of all (watchpost D-307).
+// out last time first, then the rest from where the rotation stands, and
+// those known to hang last of all, in the order they ran out (watchpost
+// D-307, D-309; the update's timing model, section 3).
 func (l *List) rotation(live []string) []string {
 	n := len(live)
 	if n == 0 {
@@ -241,22 +252,22 @@ func (l *List) rotation(live []string) []string {
 	}
 	out := make([]string, 0, n)
 	for _, s := range l.leftOut {
-		if slices.Contains(live, s) {
+		if slices.Contains(live, s) && !l.Hangs(s) { // known to hang: last, whatever left it out (watchpost D-309)
 			out = append(out, s)
 		}
 	}
-	var tail []string
 	for i := range n {
 		c := live[(l.pollAt%n+i)%n]
-		switch {
-		case slices.Contains(out, c):
-		case slices.Contains(l.last, c):
-			tail = append(tail, c) // ran out: behind every station that answered
-		default:
+		if !slices.Contains(out, c) && !l.Hangs(c) { // each once; those known to hang come after
 			out = append(out, c)
 		}
 	}
-	return append(out, tail...)
+	for _, c := range l.last { // known to hang: behind every station that answered, in the order they ran out
+		if slices.Contains(live, c) && !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // nextProbe is the next station that is not live, in the seed's order from

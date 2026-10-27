@@ -24,7 +24,9 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
   Each NOAA ask has 20 s and each GIRO ask 15 s, in real time. A NOAA ask that runs out, or that the
   host's client gives up on first, stops that round and backs NOAA off. A GIRO ask that runs out is
   that station's failure; three in a row, or two one after another as the update's deadline comes,
-  call GIRO down. Every ask leaves the update a 1 s margin after it.
+  call GIRO down - a station already known to hang, asked last, counting toward neither. Every ask
+  leaves the update a 1 s margin after it. The whole is one model:
+  [the update's timing and GIRO's burst](06_docs/02_features/go-ionomaps/03-architecture-design/update-timing-model.md).
 - **An update ends inside its deadline**, which is to leave it at least `MinDeadline` (32 s); give
   each `Update` its own. No NOAA ask starts without its 20 s and the margin left: the round ends
   there, nothing backed off, and `Inputs.Unread` names that file and any the snapshot lacks - a young
@@ -32,6 +34,15 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
   before the deadline are counted (`Inputs.StationsNotReached`) and asked first next hour. With no
   room for any ask, nothing is asked and the error wraps `ErrNoRoom`. The host's `Fetch` is to return
   once its context ends; the limits rest on it.
+
+## Known limits
+
+The update's timing model accepts these (its section 8):
+- **GIRO dying late in a burst** is called down the next hour, not that one.
+- **A struggling GIRO** that alternates hangs with server errors is never called down; each ask fails visibly as a station's own.
+- **In the hour before a station is known to hang**, two hanging stations side by side at the update's end can call GIRO down once.
+- **GIRO dying just as a burst reaches the stations known to hang** is not called down by their timeouts; the other stations' timeouts, or the next hour, catch it.
+- **A station known to hang that recovers mid-hour** is read later in its hour.
 
 ## Using it
 

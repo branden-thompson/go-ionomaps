@@ -82,10 +82,14 @@ func PenetrationFractions(D float64, n int, delta float64) []float64 {
 	dh := D / float64(n)
 	out := make([]float64, 0, 2*n)
 	for i := range n {
-		up, down := (float64(i)*dh+in)/D, (float64(i+1)*dh-in)/D
-		out = append(out, math.Min(1, math.Max(0, up)), math.Min(1, math.Max(0, down))) // held to the path
+		out = append(out, onPath((float64(i)*dh+in)/D), onPath((float64(i+1)*dh-in)/D))
 	}
 	return out
+}
+
+// onPath is a fraction of a path held to it, from 0 to 1.
+func onPath(frac float64) float64 {
+	return math.Min(1, math.Max(0, frac))
 }
 
 // MirrorHeight is an F2 mode's mirror-reflection height, km, for the

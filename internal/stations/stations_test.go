@@ -237,3 +237,66 @@ func TestAListStateIsCheckedOnApply(t *testing.T) {
 		t.Errorf("times a minute ahead, a clock stepped back: %v, seeded %v, heard %v; want taken as now", err, ahead.seeded, ahead.heard[live[0]])
 	}
 }
+
+// TestTheKeptProbeAndTheStationsThatHangSurviveARestart is the update's
+// timing model's section 6 (watchpost D-303, D-307, R7C-2): the probe a
+// burst did not reach and the stations known to hang are kept in the state
+// and taken back by a list made anew; a code the seed no longer names is
+// dropped from either, and more stations known to hang than the seed names
+// is a state the list never reaches.
+func TestTheKeptProbeAndTheStationsThatHangSurviveARestart(t *testing.T) {
+	l, err := Seed(t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll, probe, _ := l.Plan(t0, 40)
+	if probe == "" || len(poll) == 0 {
+		t.Fatalf("control: a plan of %d polls and probe %q", len(poll), probe)
+	}
+	l.RanOut(poll[0], true)
+	l.Unasked([]string{probe}, "", t0) // the probe not reached keeps its turn
+	kept := l.Record()
+	if kept.Keep != probe || !slices.Equal(kept.Last, []string{poll[0]}) {
+		t.Fatalf("recorded probe %q and known to hang %v; want %q and [%s]", kept.Keep, kept.Last, probe, poll[0])
+	}
+	back, _ := Seed(t0)
+	if err := back.Apply(kept, t0); err != nil {
+		t.Fatal(err)
+	}
+	if r := back.Record(); r.Keep != probe || !slices.Equal(r.Last, kept.Last) || !back.Hangs(poll[0]) {
+		t.Errorf("after a restart: probe %q, known to hang %v; want %q and %v", r.Keep, r.Last, probe, kept.Last)
+	}
+	retired := kept
+	retired.Keep, retired.Last = "ZZ999", []string{"ZZ999", poll[0]}
+	again, _ := Seed(t0)
+	if err := again.Apply(retired, t0); err != nil {
+		t.Fatal(err)
+	}
+	if r := again.Record(); r.Keep != "" || !slices.Equal(r.Last, []string{poll[0]}) {
+		t.Errorf("a code the seed no longer names: probe %q, known to hang %v; want it dropped from both", r.Keep, r.Last)
+	}
+	tooMany := kept
+	tooMany.Last = make([]string, len(again.known)+1)
+	if err := again.Apply(tooMany, t0); err == nil {
+		t.Error("more stations known to hang than the seed names was taken")
+	}
+}
+
+// TestAKeptProbeNowLiveIsAskedOnce is watchpost D-303 with R-5.5 (R7L-2's
+// MC): a probe kept from a burst that did not reach it, live by the next
+// hour, is asked once, in the rotation - never as the probe besides.
+func TestAKeptProbeNowLiveIsAskedOnce(t *testing.T) {
+	l, err := Seed(t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := l.Record()
+	state.Keep = l.Live(t0)[0]
+	if err := l.Apply(state, t0); err != nil {
+		t.Fatal(err)
+	}
+	poll, probe, first := l.Plan(t0, 40)
+	if n := len(slices.DeleteFunc(append(slices.Clone(poll), probe), func(c string) bool { return c != state.Keep })); n != 1 || probe == state.Keep || first {
+		t.Errorf("a kept probe now live: asked %d times, the probe %q, first %v; want it once, in the rotation, and this hour's own probe", n, probe, first)
+	}
+}

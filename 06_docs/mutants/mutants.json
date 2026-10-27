@@ -764,8 +764,8 @@
     "row": "watchpost D-271, D-286",
     "what": "an ask that ran out is not counted as its station's failure",
     "file": "internal/giro/asker.go",
-    "old": "\tif res != failed && res != timedOut {\n\t\tt.inARow = 0\n",
-    "new": "\tif res != failed {\n\t\tt.inARow = 0\n",
+    "old": "\tcase failed, timedOut:\n\t\tt.inARow++\n\t\treturn true\n",
+    "new": "\tcase failed:\n\t\tt.inARow++\n\t\treturn true\n",
     "package": "./internal/giro",
     "test": "TestTimeoutsAreFailuresAndARunOfThem"
   },
@@ -864,7 +864,7 @@
     "row": "watchpost D-297",
     "what": "a burst cut short counts no stations not reached",
     "file": "internal/giro/asker.go",
-    "old": "\t\ta.NotReached = len(slices.DeleteFunc(slices.Clone(rest), func(c string) bool { return c == probe }))\n",
+    "old": "\t\ta.NotReached = len(slices.DeleteFunc(slices.Clone(rest), func(c string) bool { return c == probe || a.list.Hangs(c) }))\n",
     "new": "\t\ta.NotReached = 0\n",
     "package": "./internal/giro",
     "test": "TestABurstEndsBeforeTheHostsDeadline"
@@ -974,8 +974,8 @@
     "row": "watchpost D-303",
     "what": "the probe not reached is counted among the live stations asked first next hour",
     "file": "internal/giro/asker.go",
-    "old": "func(c string) bool { return c == probe }",
-    "new": "func(c string) bool { return false }",
+    "old": "func(c string) bool { return c == probe || a.list.Hangs(c) }",
+    "new": "func(c string) bool { return a.list.Hangs(c) }",
     "package": "./internal/giro",
     "test": "TestAProbeNotReachedIsAskedFirst"
   },
@@ -984,8 +984,8 @@
     "row": "watchpost D-307",
     "what": "a station whose full ask ran out keeps its place in the rotation",
     "file": "internal/stations/stations.go",
-    "old": "\t\t\ttail = append(tail, c) // ran out: behind every station that answered\n",
-    "new": "\t\t\tout = append(out, c) // ran out: behind every station that answered\n",
+    "old": "\tfor _, c := range l.last { // known to hang: behind every station that answered, in the order they ran out\n",
+    "new": "\tfor _, c := range l.last[:0] { // known to hang: behind every station that answered, in the order they ran out\n",
     "package": "./internal/giro",
     "test": "TestAStationThatRanOutIsAskedLast"
   },
@@ -1034,8 +1034,8 @@
     "row": "R-3.3 (hosted fuzz, amd64)",
     "what": "a short path's crossings lie far past its ends, where no place is",
     "file": "internal/limits/budget.go",
-    "old": "\t\tout = append(out, math.Min(1, math.Max(0, up)), math.Min(1, math.Max(0, down))) // held to the path\n",
-    "new": "\t\tout = append(out, up, down) // held to the path\n",
+    "old": "\treturn math.Min(1, math.Max(0, frac))\n",
+    "new": "\treturn frac\n",
     "package": "./internal/limits",
     "test": "TestPenetrationsStayOnThePath"
   },
@@ -1044,9 +1044,119 @@
     "row": "R-3.3, P10-02 (hosted fuzz, amd64)",
     "what": "the sun track steps on a place that is no number",
     "file": "answers.go",
-    "old": "\tif math.IsNaN(lat) || math.IsNaN(lon) {\n\t\treturn t.decl, math.NaN(), math.NaN() // no place",
-    "new": "\tif false && math.IsNaN(lat) || math.IsNaN(lon) && false {\n\t\treturn t.decl, math.NaN(), math.NaN() // no place",
+    "old": "\tif math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0) {\n",
+    "new": "\tif false {\n",
     "package": ".",
     "test": "TestAPathOfNoLengthIsFinite"
+  },
+  {
+    "id": "m107",
+    "row": "watchpost D-309",
+    "what": "a station known to hang that a deadline cut is asked first, not last",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tif slices.Contains(live, s) && !l.Hangs(s) { // known to hang: last, whatever left it out (watchpost D-309)\n",
+    "new": "\t\tif slices.Contains(live, s) { // known to hang: last, whatever left it out (watchpost D-309)\n",
+    "package": "./internal/giro",
+    "test": "TestHangingStationsNeverCallAHealthyGIRODown"
+  },
+  {
+    "id": "m108",
+    "row": "watchpost D-310",
+    "what": "a station known to hang running out again counts toward GIRO's runs",
+    "file": "internal/giro/asker.go",
+    "old": "\t\t\tres = hungAgain // its own failure again, and no evidence against GIRO (watchpost D-310)\n",
+    "new": "\t\t\t_ = hungAgain // its own failure again, and no evidence against GIRO (watchpost D-310)\n",
+    "package": "./internal/giro",
+    "test": "TestHangingStationsNeverCallAHealthyGIRODown"
+  },
+  {
+    "id": "m109",
+    "row": "watchpost D-309",
+    "what": "the stations known to hang are counted among those asked first next hour",
+    "file": "internal/giro/asker.go",
+    "old": "return c == probe || a.list.Hangs(c) }",
+    "new": "return c == probe }",
+    "package": "./internal/giro",
+    "test": "TestHangingStationsNeverCallAHealthyGIRODown"
+  },
+  {
+    "id": "m110",
+    "row": "R-3.3, P10-02 (R7C-3)",
+    "what": "the sun track steps on a place at infinity",
+    "file": "answers.go",
+    "old": "math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0)",
+    "new": "math.IsNaN(lat) || math.IsNaN(lon)",
+    "package": ".",
+    "test": "TestAPathOfNoLengthIsFinite"
+  },
+  {
+    "id": "m111",
+    "row": "watchpost D-307 (R7L-2 MI)",
+    "what": "a station's own server error puts it last, as a run out does",
+    "file": "internal/giro/asker.go",
+    "old": "\t\ta.list.RanOut(code, res == timedOut) // last next hour while it runs out (watchpost D-307)\n",
+    "new": "\t\ta.list.RanOut(code, res == timedOut || res == failed) // last next hour while it runs out (watchpost D-307)\n",
+    "package": "./internal/giro",
+    "test": "TestAStationThatRanOutIsAskedLast"
+  },
+  {
+    "id": "m112",
+    "row": "watchpost D-303, D-307 (R7C-2)",
+    "what": "a restart forgets the probe kept",
+    "file": "internal/stations/stations.go",
+    "old": "leftOut, s.Keep, last",
+    "new": "leftOut, \"\", last",
+    "package": "./internal/stations",
+    "test": "TestTheKeptProbeAndTheStationsThatHangSurviveARestart"
+  },
+  {
+    "id": "m113",
+    "row": "watchpost D-307 (R7C-2)",
+    "what": "the record forgets the stations known to hang",
+    "file": "internal/stations/stations.go",
+    "old": "Keep: l.keep, Last: slices.Clone(l.last)}",
+    "new": "Keep: l.keep}",
+    "package": "./internal/stations",
+    "test": "TestTheKeptProbeAndTheStationsThatHangSurviveARestart"
+  },
+  {
+    "id": "m114",
+    "row": "R2L-4 (R7C-2)",
+    "what": "a probe the seed no longer names is kept across a restart",
+    "file": "internal/stations/stations.go",
+    "old": "\t\ts.Keep = \"\" // a probe the seed no longer names is dropped (R2L-4)\n",
+    "new": "\t\t_ = s.Keep // a probe the seed no longer names is dropped (R2L-4)\n",
+    "package": "./internal/stations",
+    "test": "TestTheKeptProbeAndTheStationsThatHangSurviveARestart"
+  },
+  {
+    "id": "m115",
+    "row": "R-3.3 (R7C-2)",
+    "what": "more stations known to hang than the seed names is taken",
+    "file": "internal/stations/stations.go",
+    "old": "|| len(s.Last) > len(l.known) {",
+    "new": "{",
+    "package": "./internal/stations",
+    "test": "TestTheKeptProbeAndTheStationsThatHangSurviveARestart"
+  },
+  {
+    "id": "m116",
+    "row": "watchpost D-298 (R7L-2 MG)",
+    "what": "the no-room error rounds the time left up toward the minimum",
+    "file": "update.go",
+    "old": "max(left, 0).Truncate(time.Millisecond)",
+    "new": "max(left, 0).Round(time.Millisecond)",
+    "package": ".",
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
+  },
+  {
+    "id": "m117",
+    "row": "watchpost D-303, R-5.5 (R7L-2 MC)",
+    "what": "a kept probe now live is asked twice, in the rotation and as the probe",
+    "file": "internal/stations/stations.go",
+    "old": "\tif kept != \"\" && !l.isLive(l.station(kept), now) {\n",
+    "new": "\tif kept != \"\" {\n",
+    "package": "./internal/stations",
+    "test": "TestAKeptProbeNowLiveIsAskedOnce"
   }
 ]

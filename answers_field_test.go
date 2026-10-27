@@ -112,6 +112,8 @@ func FuzzAnswersNeverReturnNaN(f *testing.F) {
 		check("Bands", as, err)
 		as, err = s.Path(LatLon{Lat: 40, Lon: -100}, []LatLon{p})
 		check("Path", as, err)
+		as, err = s.Path(p, []LatLon{{Lat: 40, Lon: -100}}) // the place as the origin too (R7L)
+		check("Path from", as, err)
 	})
 }
 
@@ -160,8 +162,8 @@ func TestAPlaceThatIsNoNumberFallsInNoCell(t *testing.T) {
 
 // TestAPathOfNoLengthIsFinite is the hosted gate's fuzz find on amd64: a
 // path from a place to itself - -460 wrapping onto -100, or a hair apart -
-// is answered finite, and a sun track asked of a place that is no number
-// answers no number and takes no step, never an index out of range.
+// is answered finite, and a sun track asked of a place that is not finite
+// answers no number and takes no step, never an index out of range (R7C-3).
 func TestAPathOfNoLengthIsFinite(t *testing.T) {
 	s := slopedSnapshot(noonUTC)
 	for _, to := range []LatLon{{Lat: 40, Lon: -460}, {Lat: 40, Lon: -100}, {Lat: 40, Lon: 260}, {Lat: 40, Lon: -100.0000000001}} {
@@ -177,8 +179,10 @@ func TestAPathOfNoLengthIsFinite(t *testing.T) {
 			}
 		}
 	}
-	decl, chi, since := newSunTrack(noonUTC).sunAt(math.NaN(), math.NaN())
-	if math.IsNaN(decl) || !math.IsNaN(chi) || !math.IsNaN(since) {
-		t.Errorf("the sun at no place: %v, %v, %v; want the declination, and no number for the zenith and the hours", decl, chi, since)
+	for _, place := range [][2]float64{{math.NaN(), math.NaN()}, {math.Inf(1), 0}, {0, math.Inf(-1)}} {
+		decl, chi, since := newSunTrack(noonUTC).sunAt(place[0], place[1])
+		if math.IsNaN(decl) || !math.IsNaN(chi) || !math.IsNaN(since) {
+			t.Errorf("the sun at %v, no place: %v, %v, %v; want the declination, and no number for the zenith and the hours", place, decl, chi, since)
+		}
 	}
 }
