@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/branden-thompson/go-ionomaps/internal/deadline"
 	"github.com/branden-thompson/go-ionomaps/internal/stations"
 	"github.com/branden-thompson/go-ionomaps/internal/throttle"
 )
@@ -313,15 +314,20 @@ func TestAPlacedStationKeepsItsPlace(t *testing.T) {
 // host's update, whose deadline the test scales alike: 600 ms for 60 s.
 func scaledAsks(t *testing.T) {
 	t.Helper()
-	full, margin, floor := askTimeout, askMargin, askFloor
-	askTimeout, askMargin, askFloor = 150*time.Millisecond, 10*time.Millisecond, 20*time.Millisecond
-	t.Cleanup(func() { askTimeout, askMargin, askFloor = full, margin, floor })
+	full, margin, floor := askTimeout, deadline.Margin, askFloor
+	askTimeout, deadline.Margin, askFloor = 150*time.Millisecond, 10*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { askTimeout, deadline.Margin, askFloor = full, margin, floor })
 }
 
-// answerIn answers after d, a reply with no rows.
-func answerIn(d time.Duration) (int, string, []byte, error) {
-	time.Sleep(d)
-	return 200, "", nil, nil
+// answerIn answers after d, a reply with no rows - or gives up when the
+// ask's context ends first, as a real client does.
+func answerIn(ctx context.Context, d time.Duration) (int, string, []byte, error) {
+	select {
+	case <-time.After(d):
+		return 200, "", nil, nil
+	case <-ctx.Done():
+		return 0, "", nil, ctx.Err()
+	}
 }
 
 // burstUnder is one burst under a host's update of 600 ms, as a hundredth
@@ -355,7 +361,7 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 		var a Asker
 		asked, beat := burstUnder(t, &a, now, func(n int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
 			if n <= 20 {
-				return answerIn(9 * time.Millisecond)
+				return answerIn(ctx, 9*time.Millisecond)
 			}
 			return hang(ctx)
 		})
@@ -375,7 +381,7 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 				if code == hanging {
 					return hang(ctx)
 				}
-				return answerIn(9 * time.Millisecond)
+				return answerIn(ctx, 9*time.Millisecond)
 			})
 			if !beat || a.Outcome != Answered || a.Paused(at) || a.Failed > 1 || !slices.Contains(asked, hanging) {
 				t.Errorf("hour %d: %d asked, before the deadline %v, %v, %d failed, paused %v; want one station's own failure, GIRO answering (R5L-1)", hour, len(asked), beat, a.Outcome, a.Failed, a.Paused(at))
@@ -388,7 +394,7 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 			if n == 5 {
 				return hang(ctx)
 			}
-			return answerIn(9 * time.Millisecond)
+			return answerIn(ctx, 9*time.Millisecond)
 		})
 		if !beat || a.Outcome != Answered || a.NotReached != 0 || len(asked) < throttle.MaxBurst-1 {
 			t.Errorf("%d asked, %d not reached, before the deadline %v, %v; want every station asked, the last asks given the time left (R5C-1)", len(asked), a.NotReached, beat, a.Outcome)
@@ -417,16 +423,16 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 				hung = true
 				return hang(ctx) // a full ask, its station's own: the update ends after it
 			}
-			return answerIn(15 * time.Millisecond)
+			return answerIn(ctx, 15*time.Millisecond)
 		})
-		if !hung || !beat || a.Outcome != Answered || a.Paused(now) {
-			t.Errorf("hung %v, before the deadline %v, %v, paused %v; want one full ask run out as the update ends taken as its station's failure", hung, beat, a.Outcome, a.Paused(now))
+		if !hung || !beat || a.Outcome != Answered || a.Paused(now) || a.Failed != 1 {
+			t.Errorf("hung %v, before the deadline %v, %v, paused %v, %d failed; want one full ask run out as the update ends taken as its station's failure", hung, beat, a.Outcome, a.Paused(now), a.Failed)
 		}
 	})
 	t.Run("slow answers, no hang", func(t *testing.T) {
 		var a Asker
-		asked, beat := burstUnder(t, &a, now, func(int, string, context.Context, time.Time) (int, string, []byte, error) {
-			return answerIn(30 * time.Millisecond)
+		asked, beat := burstUnder(t, &a, now, func(_ int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+			return answerIn(ctx, 30*time.Millisecond)
 		})
 		if !beat || a.Outcome != Answered || a.Paused(now) || a.NotReached == 0 || a.Failed != 0 {
 			t.Fatalf("%d asked, %d not reached, %d failed, before the deadline %v, %v, paused %v; want the burst cut short, its stations not reached counted, nothing failed or paused", len(asked), a.NotReached, a.Failed, beat, a.Outcome, a.Paused(now))
@@ -448,7 +454,7 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 				if slices.Contains(trio, code) {
 					return hang(ctx)
 				}
-				return answerIn(9 * time.Millisecond)
+				return answerIn(ctx, 9*time.Millisecond)
 			})
 			want := Answered
 			if hour == 0 {
@@ -457,6 +463,18 @@ func TestABurstEndsBeforeTheHostsDeadline(t *testing.T) {
 			if !beat || a.Outcome != want || (hour > 0 && len(asked) <= failuresInARow) {
 				t.Errorf("hour %d: %d asked, before the deadline %v, %v; want %v, the others asked, inside the update", hour, len(asked), beat, a.Outcome, want)
 			}
+		}
+	})
+	t.Run("just under a full ask's room", func(t *testing.T) {
+		// With the full ask and the margin not quite left, the ask is a
+		// shortened one, and its running out is the update's end, never the
+		// station's failure (D-295, D-301).
+		var a Asker
+		ctx, cancel := context.WithTimeout(context.Background(), askTimeout+deadline.Margin-5*time.Millisecond)
+		defer cancel()
+		a.Burst(ctx, now, func(ctx context.Context, _ string) (int, string, []byte, error) { return hang(ctx) })
+		if a.Failed != 0 || a.NotReached == 0 || a.Outcome != Answered {
+			t.Errorf("%d failed, %d not reached, %v; want the shortened ask not reached, no failure", a.Failed, a.NotReached, a.Outcome)
 		}
 	})
 	t.Run("no room for the first ask", func(t *testing.T) {
@@ -565,5 +583,146 @@ func TestStationsTimingOutGoBehindTheRest(t *testing.T) {
 		if hour > 0 && (len(asked) <= 1+failuresInARow || slices.Contains(trio, asked[0])) {
 			t.Errorf("hour %d asked %d, first %s; want it begun past the stations that hung %v", hour, len(asked), asked[0], trio)
 		}
+	}
+}
+
+// TestOnlyTheUpdatesEndCountsStationsNotReached is watchpost D-302: the
+// count of stations not reached holds only those the update's end left - a
+// cancel or GIRO's refusal counts none, though the stations still go first
+// next hour, the one a cancel interrupted among them, and no cancel is a
+// station's failure or calls GIRO down; a burst that asked nothing leaves
+// the last burst's counts as they were. Times are a hundredth of their own.
+func TestOnlyTheUpdatesEndCountsStationsNotReached(t *testing.T) {
+	scaledAsks(t)
+	t.Run("a cancel", func(t *testing.T) {
+		var a Asker
+		ctx, cancel := context.WithCancel(context.Background())
+		var asked []string
+		a.Burst(ctx, now, func(ctx context.Context, u string) (int, string, []byte, error) {
+			asked = append(asked, codeOf(t, u))
+			switch len(asked) {
+			case 1:
+				return 200, "", nil, nil
+			case 2, 3:
+				return hang(ctx) // two full asks run out
+			}
+			cancel() // the host leaves during the fourth ask
+			return 0, "", nil, ctx.Err()
+		})
+		if a.NotReached != 0 || a.Outcome != Answered || a.Paused(now) || a.Failed != 2 {
+			t.Fatalf("cancelled during ask 4 after two hangs: %d not reached, %v, paused %v, %d failed; want none counted, GIRO not called down, the cancel no failure", a.NotReached, a.Outcome, a.Paused(now), a.Failed)
+		}
+		kept := a.list.Record().Keep // the probe not reached goes first of all (D-303)
+		var next []string
+		a.Burst(context.Background(), now.Add(time.Hour), func(_ context.Context, u string) (int, string, []byte, error) {
+			if code := codeOf(t, u); code != kept {
+				next = append(next, code)
+			}
+			return 200, "", nil, nil
+		})
+		if len(next) == 0 || next[0] != asked[3] {
+			t.Errorf("the next burst's first live station was %v; want the one the cancel interrupted, %s", next[:min(1, len(next))], asked[3])
+		}
+	})
+	t.Run("GIRO's refusal", func(t *testing.T) {
+		var a Asker
+		n := 0
+		a.Burst(context.Background(), now, func(context.Context, string) (int, string, []byte, error) {
+			n++
+			if n == 3 {
+				return 429, "", nil, nil
+			}
+			return 200, "", nil, nil
+		})
+		if a.NotReached != 0 || a.Outcome != Unavailable {
+			t.Errorf("a 429 at ask 3: %d not reached, %v; want none counted, GIRO unavailable", a.NotReached, a.Outcome)
+		}
+	})
+	t.Run("a burst that asked nothing", func(t *testing.T) {
+		var a Asker
+		burstUnder(t, &a, now, func(_ int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+			return answerIn(ctx, 30*time.Millisecond)
+		})
+		cut := a.NotReached
+		if cut == 0 {
+			t.Fatal("control: the slow burst was not cut short")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		defer cancel()
+		later := now.Add(time.Hour)
+		a.Burst(ctx, later, func(context.Context, string) (int, string, []byte, error) { return 200, "", nil, nil })
+		if a.NotReached != cut || !a.NoRoom || !a.BurstDue(later) {
+			t.Errorf("no room the hour after: %d not reached, no room %v, due %v; want the last burst's %d kept, the hour not spent", a.NotReached, a.NoRoom, a.BurstDue(later), cut)
+		}
+		a.Burst(context.Background(), later, nil)
+		if a.NoRoom {
+			t.Error("a burst with nothing to ask with kept the last burst's no room (R6L-6)")
+		}
+	})
+}
+
+// TestAProbeNotReachedIsAskedFirst is watchpost D-303: a burst cut short
+// before its probe - the one station not live it asks, last - leaves the
+// probe its turn, asked first next hour, and counts only the live stations
+// not reached - those never asked, and the one whose shortened ask ran out
+// (D-295).
+func TestAProbeNotReachedIsAskedFirst(t *testing.T) {
+	scaledAsks(t)
+	var a Asker
+	asked, _ := burstUnder(t, &a, now, func(_ int, _ string, ctx context.Context, _ time.Time) (int, string, []byte, error) {
+		return answerIn(ctx, 30*time.Millisecond)
+	})
+	state := a.list.Record()
+	kept, want := state.Keep, throttle.MaxBurst-1-len(asked) // the probe apart
+	if slices.Contains(state.LeftOut, asked[len(asked)-1]) {
+		want++ // the last ask ran out of its shortened limit: not reached (D-295)
+	}
+	if kept == "" || slices.Contains(asked, kept) || a.NotReached != want {
+		t.Fatalf("cut short at %d asked: probe kept %q, %d not reached; want the probe kept and only the live stations counted, %d", len(asked), kept, a.NotReached, want)
+	}
+	var next []string
+	a.Burst(context.Background(), now.Add(time.Hour), func(_ context.Context, u string) (int, string, []byte, error) {
+		next = append(next, codeOf(t, u))
+		return 200, "", nil, nil
+	})
+	if len(next) == 0 || next[0] != kept {
+		t.Errorf("the next burst began at %v; want the probe not reached, %s", next[:min(1, len(next))], kept)
+	}
+}
+
+// TestAStationThatRanOutIsAskedLast is watchpost D-307: a station whose full
+// ask ran out is asked last in the bursts after - behind every station that
+// answered, the probe apart - and back in its place once it answers.
+func TestAStationThatRanOutIsAskedLast(t *testing.T) {
+	was := askTimeout
+	askTimeout = 20 * time.Millisecond
+	defer func() { askTimeout = was }()
+	var a Asker
+	var hanging string
+	answering := false
+	burst := func(hour int) []string {
+		var asked []string
+		a.Burst(context.Background(), now.Add(time.Duration(hour)*time.Hour), func(ctx context.Context, u string) (int, string, []byte, error) {
+			code := codeOf(t, u)
+			asked = append(asked, code)
+			if hour == 0 && len(asked) == 5 {
+				hanging = code
+			}
+			if code == hanging && !answering {
+				return hang(ctx)
+			}
+			return 200, "", nil, nil
+		})
+		return asked
+	}
+	burst(0)
+	polled := func(asked []string) []string { return asked[:len(asked)-1] } // the probe is the last ask
+	if p := polled(burst(1)); len(p) == 0 || p[len(p)-1] != hanging {
+		t.Fatalf("the hour after: polled ending %v; want the station that ran out, %s, last", p[max(len(p)-2, 0):], hanging)
+	}
+	answering = true
+	burst(2) // it answers, last
+	if p := polled(burst(3)); len(p) == 0 || p[len(p)-1] == hanging {
+		t.Errorf("after it answered: it is still polled last; want it back in its place")
 	}
 }

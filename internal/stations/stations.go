@@ -54,6 +54,9 @@ type List struct {
 	pollAt  int
 	probeAt int
 	leftOut []string
+	probe   string   // the last burst's probe, as Plan chose it
+	keep    string   // a probe a burst did not reach: it keeps its turn, asked first next (watchpost D-303)
+	last    []string // stations whose full ask ran out: asked last in the bursts after, until one is answered (watchpost D-307)
 }
 
 var (
@@ -150,16 +153,19 @@ func (l *List) isLive(s Station, now time.Time) bool {
 }
 
 // Plan is an update's asks within a budget (D-87): the live stations to
-// poll, at most one fewer than the budget, those left out last time first;
-// and one station that is not live to probe, the next in rotation.
+// poll, at most one fewer than the budget, those left out last time first
+// and those whose full ask ran out last (watchpost D-307); and one station
+// that is not live to probe, the next in rotation - or the probe a burst did
+// not reach, which kept its turn, and then first is true: it is asked before
+// the stations polled (watchpost D-303).
 //
-// Source: watchpost D-51, D-87.
-func (l *List) Plan(now time.Time, budget int) (poll []string, probe string) {
+// Source: watchpost D-51, D-87, D-303, D-307.
+func (l *List) Plan(now time.Time, budget int) (poll []string, probe string, first bool) {
 	if budget <= 0 {
-		return nil, ""
+		return nil, "", false
 	}
 	if now.IsZero() {
-		return nil, ""
+		return nil, "", false
 	}
 	live := l.Live(now)
 	room := budget - 1 // the probe counts inside the burst (D-87)
@@ -167,21 +173,47 @@ func (l *List) Plan(now time.Time, budget int) (poll []string, probe string) {
 	poll = order[:min(room, len(order))]
 	l.leftOut = order[len(poll):]
 	l.pollAt += len(poll)
-	return poll, l.nextProbe(now)
+	kept := l.keep
+	l.keep = ""
+	if kept != "" && !l.isLive(l.station(kept), now) {
+		l.probe = kept
+		return poll, kept, true
+	}
+	l.probe = l.nextProbe(now)
+	return poll, l.probe, false
+}
+
+// RanOut keeps whether a station's full ask ran out: one that did is asked
+// last in the bursts after, behind every station that answered, until an ask
+// of it ends any other way (watchpost D-307).
+//
+// Source: watchpost D-307.
+func (l *List) RanOut(code string, ranOut bool) {
+	if code == "" {
+		return // no station named: nothing to keep
+	}
+	l.last = slices.DeleteFunc(l.last, func(c string) bool { return c == code })
+	if ranOut {
+		l.last = append(l.last, code)
+	}
 }
 
 // Unasked puts the stations a stopped burst did not reach first for the
 // next, ahead of those left out by the budget, so a burst that stops at the
 // same station each hour still moves on (watchpost D-247); a code the list
-// does not poll now (the probe) is passed over. When a run of failures
+// does not poll now is passed over, but the burst's probe among the codes
+// keeps its turn and is asked first next (watchpost D-303). When a run of failures
 // stopped it, the rotation's head moves past the station named past - the
 // one whose failure ended the run - so stations dead at the head cannot stop
 // a burst again while the rest still answer (watchpost D-287); a burst GIRO
 // refused or denied, the host cancelled, or the update's end cut short
 // names none and moves nothing.
 //
-// Source: watchpost D-247, D-287.
+// Source: watchpost D-247, D-287, D-303.
 func (l *List) Unasked(codes []string, past string, now time.Time) {
+	if l.probe != "" && slices.Contains(codes, l.probe) {
+		l.keep = l.probe // the probe not reached keeps its turn (watchpost D-303)
+	}
 	live := l.Live(now)
 	if len(live) == 0 {
 		return // none live: none to put first, and no head to move
@@ -200,7 +232,8 @@ func (l *List) Unasked(codes []string, past string, now time.Time) {
 }
 
 // rotation is the live stations in the order they are polled: those left
-// out last time first, then the rest from where the rotation stands.
+// out last time first, then the rest from where the rotation stands, those
+// whose full ask ran out last of all (watchpost D-307).
 func (l *List) rotation(live []string) []string {
 	n := len(live)
 	if n == 0 {
@@ -208,24 +241,22 @@ func (l *List) rotation(live []string) []string {
 	}
 	out := make([]string, 0, n)
 	for _, s := range l.leftOut {
-		for _, c := range live {
-			if c == s {
-				out = append(out, s)
-				break
-			}
+		if slices.Contains(live, s) {
+			out = append(out, s)
 		}
 	}
+	var tail []string
 	for i := range n {
 		c := live[(l.pollAt%n+i)%n]
-		taken := false
-		for _, s := range out {
-			taken = taken || s == c
-		}
-		if !taken {
+		switch {
+		case slices.Contains(out, c):
+		case slices.Contains(l.last, c):
+			tail = append(tail, c) // ran out: behind every station that answered
+		default:
 			out = append(out, c)
 		}
 	}
-	return out
+	return append(out, tail...)
 }
 
 // nextProbe is the next station that is not live, in the seed's order from
@@ -307,6 +338,8 @@ type State struct {
 	Heard           map[string]time.Time
 	PollAt, ProbeAt int
 	LeftOut         []string
+	Keep            string   `json:",omitempty"` // a probe not reached, asked first next (watchpost D-303)
+	Last            []string `json:",omitempty"` // stations whose full ask ran out, asked last (watchpost D-307)
 }
 
 // pollAtMost is the most polls a list reaches: a century of hourly bursts
@@ -331,7 +364,7 @@ var errBadState = errors.New("stations: the state is not one the list reaches")
 //
 // Source: watchpost D-213.
 func (l *List) Record() State {
-	return State{Seeded: l.seeded, Heard: maps.Clone(l.heard), PollAt: l.pollAt, ProbeAt: l.probeAt, LeftOut: slices.Clone(l.leftOut)}
+	return State{Seeded: l.seeded, Heard: maps.Clone(l.heard), PollAt: l.pollAt, ProbeAt: l.probeAt, LeftOut: slices.Clone(l.leftOut), Keep: l.keep, Last: slices.Clone(l.last)}
 }
 
 // Apply puts a state kept onto a seeded list, checked against now: every
@@ -349,7 +382,7 @@ func (l *List) Apply(s State, now time.Time) error {
 	if s.PollAt > pollAtMost {
 		return errBadState // more polls than a century of bursts
 	}
-	if len(s.Heard) > len(l.known) || len(s.LeftOut) > len(l.known) {
+	if len(s.Heard) > len(l.known) || len(s.LeftOut) > len(l.known) || len(s.Last) > len(l.known) {
 		return errBadState // more stations than the seed names
 	}
 	// A code the seed no longer names - a station retired in a later release
@@ -374,7 +407,11 @@ func (l *List) Apply(s State, now time.Time) error {
 			leftOut = append(leftOut, code)
 		}
 	}
-	l.seeded, l.heard, l.pollAt, l.probeAt, l.leftOut = notAfter(s.Seeded, now), heard, s.PollAt, s.ProbeAt, leftOut
+	if _, known := l.index[s.Keep]; s.Keep != "" && !known {
+		s.Keep = "" // a probe the seed no longer names is dropped (R2L-4)
+	}
+	last := slices.DeleteFunc(slices.Clone(s.Last), func(code string) bool { _, known := l.index[code]; return !known })
+	l.seeded, l.heard, l.pollAt, l.probeAt, l.leftOut, l.keep, l.last = notAfter(s.Seeded, now), heard, s.PollAt, s.ProbeAt, leftOut, s.Keep, last
 	return nil
 }
 

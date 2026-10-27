@@ -597,8 +597,15 @@ func (clientTimeout) Timeout() bool { return true }
 // next update backed off - so the update never runs into the host's
 // deadline.
 func TestNOAAsRoundEndsInsideTheHostsDeadline(t *testing.T) {
-	if got := ionomaps.NOAAAskTimeout(); got != ionomaps.MinDeadline || ionomaps.MinDeadline != 20*time.Second || 3*got > 60*time.Second {
-		t.Errorf("a NOAA ask has %v, the least deadline %v; D-285 gives it 20 s, a round's stop and its asks inside a host's 60 s", got, ionomaps.MinDeadline)
+	if got := ionomaps.NOAAAskTimeout(); got != 20*time.Second || ionomaps.MinDeadline != 32*time.Second || 3*got > 60*time.Second {
+		t.Errorf("a NOAA ask has %v, the least deadline %v; D-285 gives an ask 20 s, D-301 the least deadline 32 s", got, ionomaps.MinDeadline)
+	}
+	at, n0, _ := library(t) // an update given exactly the least deadline asks (D-301)
+	n0.list(t, start.Add(-30*time.Minute), 7)
+	least, cancelLeast := context.WithTimeout(context.Background(), ionomaps.MinDeadline)
+	defer cancelLeast()
+	if _, err := at.Update(least, ionomaps.UpdateOptions{NoStations: true}); errors.Is(err, ionomaps.ErrNoRoom) || len(n0.take()) == 0 {
+		t.Errorf("an update given exactly MinDeadline: %v, nothing asked; want NOAA asked", err)
 	}
 	l, n, _ := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
@@ -615,10 +622,12 @@ func TestNOAAsRoundEndsInsideTheHostsDeadline(t *testing.T) {
 // off - two such rounds running, the third is asked ten minutes after the
 // second, not 15; an update with room for no ask asks nothing, says
 // ErrNoRoom with the time it had, and the next update, with room, asks at
-// once. NOAA's asks are scaled to 200 ms, each answered in 60 ms, under a
-// 290 ms deadline: room for two asks, and 170 ms to spare after them.
+// once. NOAA's asks are scaled to 200 ms and the margin to 20 ms, each ask
+// answered in 60 ms, under a 290 ms deadline: room for two asks, and 170 ms
+// to spare after them.
 func TestADeadlineWithNoRoomBacksNothingOff(t *testing.T) {
 	defer ionomaps.SetNOAAAskTimeout(200 * time.Millisecond)()
+	defer ionomaps.SetDeadlineMargin(20 * time.Millisecond)()
 	l, n, c := library(t)
 	n.list(t, start.Add(-30*time.Minute), 7)
 	n.delay = 60 * time.Millisecond
@@ -641,7 +650,7 @@ func TestADeadlineWithNoRoomBacksNothingOff(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	s, err := l.Update(ctx, ionomaps.UpdateOptions{NoStations: true})
-	if a := n.take(); len(a) != 0 || !errors.Is(err, ionomaps.ErrNoRoom) || !strings.Contains(fmt.Sprint(err), "20s") || s.Reason != ionomaps.Unfinished {
+	if a := n.take(); len(a) != 0 || !errors.Is(err, ionomaps.ErrNoRoom) || !strings.Contains(fmt.Sprint(err), ionomaps.MinDeadline.String()) || s.Reason != ionomaps.Unfinished {
 		t.Errorf("50 ms left: asked %v, %v, %v; want nothing asked, ErrNoRoom naming the least deadline, Unfinished", a, s.Reason, err)
 	}
 	n.delay = 0
@@ -666,5 +675,34 @@ func TestABurstWithNoRoomIsStillToMake(t *testing.T) {
 	}
 	if s := update(t, l); len(n.giro.asks) == 0 || s.Reason == ionomaps.StationsNext {
 		t.Errorf("the next update: %v, %d GIRO asks; want the burst made", s.Reason, len(n.giro.asks))
+	}
+}
+
+// TestARoundWithNoRoomNamesWhatItLacks is watchpost D-304: a NOAA round
+// whose update has no room left names the file whose ask found no room, and
+// any input the snapshot lacks; a file it did not ask, held and young,
+// stands in silently, as D-239's Unread has always worked. A full round
+// first holds every file; the next, with room for one ask, reads the solar
+// file's index and leaves the grid, D-RAP and scales unasked - GloTEC's
+// grid is named, the young D-RAP and scales are not.
+func TestARoundWithNoRoomNamesWhatItLacks(t *testing.T) {
+	defer ionomaps.SetNOAAAskTimeout(200 * time.Millisecond)()
+	defer ionomaps.SetDeadlineMargin(20 * time.Millisecond)()
+	l, n, c := library(t)
+	n.list(t, start.Add(-30*time.Minute), 7)
+	if s, err := l.Update(context.Background(), ionomaps.UpdateOptions{NoStations: true}); err != nil || len(s.Inputs.Unread) != 0 {
+		t.Fatalf("control: a full round: %v, unread %v; want every file held", err, s.Inputs.Unread)
+	}
+	c.Add(10 * time.Minute)
+	n.list(t, start.Add(-10*time.Minute), 8) // a new grid listed, not held
+	n.delay = 60 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 290*time.Millisecond)
+	defer cancel()
+	s, err := l.Update(ctx, ionomaps.UpdateOptions{NoStations: true})
+	if err != nil || s.Reason != ionomaps.Partial || !slices.Contains(s.Inputs.Unread, ionomaps.UnreadGloTEC) && !slices.Contains(s.Inputs.Unread, ionomaps.UnreadDRAP) {
+		t.Fatalf("a round with room for two asks: %v, %v, unread %v; want Partial, the file that found no room named", s.Reason, err, s.Inputs.Unread)
+	}
+	if slices.Contains(s.Inputs.Unread, ionomaps.UnreadScales) {
+		t.Errorf("unread %v: the young scales file held stood in, and is named as not read", s.Inputs.Unread)
 	}
 }

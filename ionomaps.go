@@ -17,7 +17,9 @@ import (
 // Fetcher is the host's network: the library opens no connection of its own.
 // It asks one address, with the validators of the last answer, and
 // hands back the status, the rate headers and the body. It must not retry a
-// 429: the library alone decides a back-off.
+// 429: the library alone decides a back-off. It must return once ctx ends:
+// the library's limits on each ask, and its promise to end an update inside
+// its deadline, rest on it.
 type Fetcher interface {
 	Fetch(ctx context.Context, url string, validators Validators) (Response, error)
 }

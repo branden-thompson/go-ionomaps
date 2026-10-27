@@ -297,3 +297,15 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **Docs:** `Update`'s doc, `Unfinished`, `GIROUnavailable`, `Unavailable`, the README's network and deadline paragraphs - real time, GIRO's timeouts its stations' own, the minimum deadline, each update its own deadline in the example (R5C-5, R5D-2, R5L-2); the seed week dated alike everywhere (R5D-3); `reach.go`'s evidence path, `Unasked`'s doc and the round's comment (R5D nits); the ID scan widened (R5D-7).
 - **Mutants:** m084 to m092; m017, m030, m032, m067, m068 and m073 to m081 re-pointed, m076 and m080 now both on `giro.IsTimeout`, the one each.
 
+## REVIEW's red team, round 6: the library's remediation (watchpost D-301 to D-307; D-109 to D-115, A-35)
+
+- **The least deadline** (D-109): `internal/deadline` holds the one room rule, a 1 s margin for every ask, NOAA's and GIRO's; `MinDeadline` is 32 s, and `TestNOAAsRoundEndsInsideTheHostsDeadline` asks NOAA at exactly it (m093). The error names the time left truncated, not rounded up to the minimum.
+- **The count of stations not reached** (D-110): only the live stations the update's end left; a cancel or GIRO's refusal counts none, its stations first, the one a cancel interrupted among them; a burst that asked nothing leaves the last burst's counts (`TestOnlyTheUpdatesEndCountsStationsNotReached`; m094 to m096, m102 to m104). `NoRoom` is reset at the top of every burst (R6L-6).
+- **The probe** (D-111): a probe not reached keeps its turn, asked first next hour, uncounted (`TestAProbeNotReachedIsAskedFirst`; m097 to m099).
+- **A station that ran out** (D-115): asked last in the bursts after, until it answers (`TestAStationThatRanOutIsAskedLast`; m100, m101). The head moves past a run's last station only when it failed; m083 is retired, unobservable under D-115.
+- **Unread** (D-112): `TestARoundWithNoRoomNamesWhatItLacks` holds a young scales file that stands in; the docs reworded. **The run** (D-113): D-106's words read "one after another".
+- **`internal/deadline`** (D-114), its P10 row ratified (D-306) and the mirror regenerated.
+- **Tests:** the scaled fixture honours its context (R6L-3, R6D-5) - forty runs under race, the machine doubly loaded, green; the end-of-update hang asserted full (R6C-8); just under a full ask's room, the ask is shortened (R6T-6's g13).
+- **Docs:** `Update`, `MinDeadline`, `StationsNotReached`, `Burst`, the README's network and deadline paragraphs and R-5.3; the `Fetcher` doc's duty to return once its context ends (R6T-5); `roomless`'s redundant branch removed (R6C-6).
+- **Mutants:** m093 to m104; m032, m068, m073 to m076, m078 to m081, m085, m086 and m088 re-pointed; m083 retired.
+

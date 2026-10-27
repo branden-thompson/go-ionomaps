@@ -41,7 +41,7 @@ func TestTheSeedIsGIROsList(t *testing.T) {
 // probes.
 func TestAColdStartUsesTheSeedWithoutABurst(t *testing.T) {
 	l, _ := Seed(t0)
-	poll, probe := l.Plan(t0, 40)
+	poll, probe, _ := l.Plan(t0, 40)
 	if len(poll) != 39 || probe == "" || slices.Contains(poll, probe) {
 		t.Errorf("a cold start polls %d and probes %q; want the 39 live and one other", len(poll), probe)
 	}
@@ -55,14 +55,14 @@ func TestADarkStationIsDroppedAfterThreeDays(t *testing.T) {
 	for _, s := range l.Live(t0)[1:] {
 		l.Heard(s, t0.Add(70*time.Hour), Place{})
 	}
-	if poll, _ := l.Plan(t0.Add(71*time.Hour), 40); !slices.Contains(poll, dark) {
+	if poll, _, _ := l.Plan(t0.Add(71*time.Hour), 40); !slices.Contains(poll, dark) {
 		t.Errorf("%s, silent 71 hours, is no longer polled", dark)
 	}
-	if poll, _ := l.Plan(t0.Add(73*time.Hour), 40); slices.Contains(poll, dark) {
+	if poll, _, _ := l.Plan(t0.Add(73*time.Hour), 40); slices.Contains(poll, dark) {
 		t.Errorf("%s, silent 73 hours, is still polled", dark)
 	}
 	l.Heard(dark, t0.Add(74*time.Hour), Place{})
-	if poll, _ := l.Plan(t0.Add(74*time.Hour), 40); !slices.Contains(poll, dark) {
+	if poll, _, _ := l.Plan(t0.Add(74*time.Hour), 40); !slices.Contains(poll, dark) {
 		t.Errorf("%s gave data again and is not polled", dark)
 	}
 }
@@ -75,14 +75,14 @@ func TestOneProbePerUpdate(t *testing.T) {
 	seen := map[string]bool{}
 	at := t0
 	for range 79 {
-		_, probe := l.Plan(at, 40)
+		_, probe, _ := l.Plan(at, 40)
 		seen[probe] = true
 		at = at.Add(time.Minute) // well inside three days: the seed's live stay live
 	}
 	if len(seen) != 79 {
 		t.Errorf("79 updates probed %d different stations; the 79 not live, each once", len(seen))
 	}
-	_, probe := l.Plan(at, 40)
+	_, probe, _ := l.Plan(at, 40)
 	l.Heard(probe, at, Place{Lat: 10, Lon: 20, Known: true})
 	if !slices.Contains(l.Live(at), probe) {
 		t.Errorf("%s gave data on its probe and is not live", probe)
@@ -96,13 +96,13 @@ func TestOneProbePerUpdate(t *testing.T) {
 // and probes one - never more than 40 asks.
 func TestTheProbeCountsInsideTheBurst(t *testing.T) {
 	l, _ := Seed(t0)
-	_, probe := l.Plan(t0, 40)
+	_, probe, _ := l.Plan(t0, 40)
 	l.Heard(probe, t0, Place{Lat: 1, Lon: 1, Known: true}) // the 40th live
-	poll, next := l.Plan(t0.Add(time.Hour), 40)
+	poll, next, _ := l.Plan(t0.Add(time.Hour), 40)
 	if len(l.Live(t0.Add(time.Hour))) != 40 || len(poll) != 39 || next == "" {
 		t.Errorf("40 live: %d polled and probe %q; want 39 and one", len(poll), next)
 	}
-	if poll, probe := l.Plan(t0.Add(2*time.Hour), 10); len(poll)+min(len(probe), 1) > 10 {
+	if poll, probe, _ := l.Plan(t0.Add(2*time.Hour), 10); len(poll)+min(len(probe), 1) > 10 {
 		t.Errorf("a budget of 10 made %d asks", len(poll)+1)
 	}
 }
@@ -114,7 +114,7 @@ func TestAboveFortyStationsRotate(t *testing.T) {
 	l, _ := Seed(t0)
 	at := t0
 	for i := range 6 { // six more live: 45
-		_, probe := l.Plan(at, 40)
+		_, probe, _ := l.Plan(at, 40)
 		l.Heard(probe, at, Place{Lat: float64(i), Lon: 1, Known: true})
 		at = at.Add(time.Minute)
 	}
@@ -122,7 +122,7 @@ func TestAboveFortyStationsRotate(t *testing.T) {
 	if len(live) != 45 {
 		t.Fatalf("%d live; want 45", len(live))
 	}
-	first, _ := l.Plan(at, 40)
+	first, _, _ := l.Plan(at, 40)
 	var left []string
 	for _, s := range live {
 		if !slices.Contains(first, s) {
@@ -133,7 +133,7 @@ func TestAboveFortyStationsRotate(t *testing.T) {
 	for _, s := range live[1:] {
 		l.Heard(s, later, Place{})
 	}
-	second, _ := l.Plan(later, 40)
+	second, _, _ := l.Plan(later, 40)
 	for _, s := range left {
 		if !slices.Contains(second, s) {
 			t.Errorf("%s, left out of one update, is not polled in the next", s)
@@ -201,8 +201,8 @@ func TestAListStateIsCheckedOnApply(t *testing.T) {
 	if got := back.Since(live[0], now); !got.Equal(t0.Add(-20 * time.Minute)) {
 		t.Errorf("restored, %s is asked from %v; its reading was at %v", live[0], got, t0.Add(-20*time.Minute))
 	}
-	a, _ := back.Plan(now, 10)
-	b, _ := l.Plan(now, 10)
+	a, _, _ := back.Plan(now, 10)
+	b, _, _ := l.Plan(now, 10)
 	if !slices.Equal(a, b) {
 		t.Errorf("the restored rotation polls %v; the kept list %v", a, b)
 	}

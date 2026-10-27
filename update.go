@@ -10,8 +10,8 @@ import (
 
 	"github.com/branden-thompson/go-ionomaps/internal/assimilate"
 	"github.com/branden-thompson/go-ionomaps/internal/background"
+	"github.com/branden-thompson/go-ionomaps/internal/deadline"
 	"github.com/branden-thompson/go-ionomaps/internal/drap"
-	"github.com/branden-thompson/go-ionomaps/internal/giro"
 	"github.com/branden-thompson/go-ionomaps/internal/glotec"
 	"github.com/branden-thompson/go-ionomaps/internal/grid"
 	"github.com/branden-thompson/go-ionomaps/internal/scales"
@@ -98,14 +98,17 @@ type UpdateOptions struct {
 //
 // An update never runs into ctx's deadline, which is to leave it at least
 // MinDeadline. Each NOAA ask has 20 s and each GIRO ask 15 s, in real time
-// whatever Options.Clock says. A NOAA ask that runs out, or that the host's
-// client gives up on first, stops that round and backs NOAA off; a GIRO ask
-// that runs out is its station's failure, and two or three in a row call
-// GIRO down. No NOAA ask starts without its 20 s left: the round ends there,
-// the files not asked named in Inputs.Unread, nothing backed off. GIRO's
-// last asks get the time the deadline leaves, and the stations not reached
-// are counted in Inputs.StationsNotReached and asked first next hour. With
-// no room for any ask, nothing is asked and the error wraps ErrNoRoom.
+// whatever Options.Clock says, and every ask leaves a 1 s margin after it.
+// A NOAA ask that runs out, or that the host's client gives up on first,
+// stops that round and backs NOAA off; a GIRO ask that runs out is its
+// station's failure, and two or three in a row, one after another, call
+// GIRO down. No NOAA ask starts without its 20 s and the margin left: the
+// round ends there, nothing backed off, and Inputs.Unread names that file
+// and any input the snapshot lacks - a young file held stands in. GIRO's
+// last asks get the time the deadline leaves, and the live stations a burst
+// did not reach before the deadline are counted in
+// Inputs.StationsNotReached and asked first next hour. With no room for any
+// ask, nothing is asked and the error wraps ErrNoRoom.
 //
 // Source: NOAA SWPC's GloTEC and F10.7; GIRO's DIDBase; this library.
 func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error) {
@@ -221,12 +224,9 @@ func (l *Library) unfinished(ctx context.Context, now time.Time, o UpdateOptions
 // the last snapshot, said Unfinished, or none; and an error that names the
 // time left and the least an update needs (watchpost D-298).
 func (l *Library) roomless(ctx context.Context, now time.Time, o UpdateOptions) (Snapshot, error) {
-	left, _ := giro.TimeLeft(ctx)
-	err := fmt.Errorf("%w: it left %s, and an update needs at least %s; nothing was asked, and nothing backed off", ErrNoRoom, max(left, 0).Round(time.Millisecond), MinDeadline)
-	if !l.made {
-		return Snapshot{Computed: now, Reason: Unfinished}, err
-	}
-	s, _ := l.early(now, o) // the last snapshot, rebuilt when the options differ
+	left, _ := deadline.Left(ctx)
+	err := fmt.Errorf("%w: it left %s, and an update needs at least %s; nothing was asked, and nothing backed off", ErrNoRoom, max(left, 0).Truncate(time.Millisecond), MinDeadline)
+	s, _ := l.early(now, o) // the last snapshot, rebuilt when the options differ; none made, an empty one
 	s.Reason = Unfinished
 	return s, err
 }
@@ -321,10 +321,12 @@ func nextAsk(now time.Time, backOff time.Duration, trouble bool) (time.Time, tim
 	return now.Add(backOff), backOff
 }
 
-// MinDeadline is the least time an update's context may leave it: one of
-// NOAA's asks. With less, nothing is asked and Update's error wraps
-// ErrNoRoom.
-const MinDeadline = 20 * time.Second
+// MinDeadline is the least time an update's context is to leave it: room
+// for two of GIRO's full asks and the margin each keeps, so every rule of
+// the update holds at it; an update given it asks. With less, an update may
+// find no room for any ask, and then nothing is asked and Update's error
+// wraps ErrNoRoom.
+const MinDeadline = 32 * time.Second
 
 // ErrNoRoom is the error, wrapped, when an update's deadline left no room
 // for its first ask: nothing was asked and nothing backed off, and the
@@ -334,10 +336,10 @@ var ErrNoRoom = errors.New("ionomaps: the update's deadline left no room for an 
 // noaaAskTimeout is how long one of NOAA's asks may take, in real time. One
 // that runs out, or that the host's client gives up on first, stops the
 // round and backs NOAA off, so a host that accepts and never answers costs
-// one ask's time; and no ask starts without it left, the round ending there
-// with nothing backed off, so the update ends inside the host's deadline
-// (watchpost D-285, D-298, R4L-3).
-var noaaAskTimeout = MinDeadline
+// one ask's time; and no ask starts without it and deadline.Margin left,
+// the round ending there with nothing backed off, so the update ends inside
+// the host's deadline (watchpost D-285, D-298, D-301, R4L-3).
+var noaaAskTimeout = 20 * time.Second
 
 // ask is one request: the answer, whether it is one to use (200, or 304
 // when validators were sent), and whether it stops the update's round - a
@@ -348,14 +350,14 @@ var noaaAskTimeout = MinDeadline
 // and a failure, or an error that is no timeout, stops nothing, the file
 // missed and the round going on (watchpost D-270).
 func (l *Library) ask(ctx context.Context, url string, v Validators) (r Response, ok, endsRound bool) {
-	if left, set := giro.TimeLeft(ctx); set && left < noaaAskTimeout {
+	if limit, _ := deadline.Room(ctx, noaaAskTimeout, noaaAskTimeout); limit == 0 {
 		l.noRoom = true
 		return Response{}, false, true // no room for one more ask: the round ends before the host's deadline (watchpost D-298)
 	}
 	l.asked = true
 	askCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout)
 	r, err := l.fetch.Fetch(askCtx, url, v)
-	timedOut := err != nil && ctx.Err() == nil && (askCtx.Err() == context.DeadlineExceeded || giro.IsTimeout(err))
+	timedOut := err != nil && ctx.Err() == nil && (askCtx.Err() == context.DeadlineExceeded || deadline.IsTimeout(err))
 	cancel()
 	l.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError
 	if timedOut {

@@ -1,6 +1,10 @@
 package ionomaps
 
-import "time"
+import (
+	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/deadline"
+)
 
 // HeldReadings is what the library holds from GIRO, for the tests: how many
 // stations' readings, and the oldest - held, whether or not the field
@@ -46,3 +50,11 @@ func SetNOAAAskTimeout(d time.Duration) (restore func()) {
 // NOAAAskTimeout is how long one of NOAA's asks may take, for the test that
 // holds it under a host's budget.
 func NOAAAskTimeout() time.Duration { return noaaAskTimeout }
+
+// SetDeadlineMargin sets the margin every ask leaves the host's update, for
+// a test that scales the asks; the function it returns puts it back.
+func SetDeadlineMargin(d time.Duration) func() {
+	was := deadline.Margin
+	deadline.Margin = d
+	return func() { deadline.Margin = was }
+}

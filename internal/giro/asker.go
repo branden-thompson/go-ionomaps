@@ -2,11 +2,11 @@ package giro
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/branden-thompson/go-ionomaps/internal/deadline"
 	"github.com/branden-thompson/go-ionomaps/internal/limits"
 	"github.com/branden-thompson/go-ionomaps/internal/stations"
 	"github.com/branden-thompson/go-ionomaps/internal/throttle"
@@ -27,20 +27,21 @@ const (
 const failuresInARow = 3
 
 // timeoutsAtTheEnd is how many asks running out of the full askTimeout one
-// after another call GIRO down when the burst reaches the end of the host's
-// update: one is that station's own failure (watchpost D-296).
+// after another, nothing between them, call GIRO down when the burst
+// reaches the end of the host's update: one is that station's own failure
+// (watchpost D-296, D-305).
 const timeoutsAtTheEnd = 2
 
 // askTimeout is how long one station's ask may take while the host's
-// update has room for it: a GIRO that stops answering is called down and
-// backed off by asks running out in a row (watchpost D-275, D-286, D-296).
-// A burst of 39 took about 36 s in PLAN, under a second an ask.
+// update has room for it and deadline.Margin after: a GIRO that stops
+// answering is called down and backed off by asks running out in a row
+// (watchpost D-275, D-286, D-296). A burst of 39 took about 36 s in PLAN,
+// under a second an ask.
 //
-// askMargin is the time an ask leaves the host's update after it, and
-// askFloor the least an ask is given: past the room for a full askTimeout,
-// an ask gets the time left less askMargin, and none starts with less than
-// askFloor to give it (watchpost D-295).
-var askTimeout, askMargin, askFloor = 15 * time.Second, time.Second, 2 * time.Second
+// askFloor is the least an ask is given: past the room for a full
+// askTimeout, an ask gets the time left less the margin, and none starts
+// with less than askFloor to give it (watchpost D-295, D-301).
+var askTimeout, askFloor = 15 * time.Second, 2 * time.Second
 
 // movedKm is how far from where the list places a station its reply may
 // put it and still be read (watchpost D-248).
@@ -162,17 +163,24 @@ func (a *Asker) BurstDue(now time.Time) bool { return a.thr.Due(now) }
 // whatever answered, stops it and pauses GIRO by D-39's back-off; a 401 or
 // 403 stops it and pauses GIRO for a day (watchpost D-247, D-271, D-272,
 // D-286). Past the room for a full ask, each ask gets the time the host's
-// update leaves; when even askFloor does not fit, or a shortened ask runs
-// out, the burst ends there, its stations not reached asked first next hour,
-// and GIRO is called down only if its last timeoutsAtTheEnd full asks ran
-// out (watchpost D-291, D-295, D-296). A burst with no room for its first
-// ask, or whose context ended before it, asks nothing and spends no hour
-// (watchpost D-298). A run of failures that stops it moves the rotation's
-// head past the station that ended it (watchpost D-287). Each station's
-// latest reading is held.
+// update leaves less deadline.Margin; when even askFloor does not fit, or a
+// shortened ask runs out, the burst ends there, the live stations not
+// reached counted in NotReached and asked first next hour, and GIRO is
+// called down only if its last timeoutsAtTheEnd full asks ran out one after
+// another (watchpost D-291, D-295, D-296, D-301, D-302, D-305). A burst the
+// host cancels, or GIRO stops, counts none not reached but puts its
+// stations first, the one it interrupted among them; a burst with no room
+// for its first ask, or whose context ended before it, asks nothing, spends
+// no hour and leaves the last burst's counts (watchpost D-298, D-302). A
+// probe not reached keeps its turn and is asked first next hour (watchpost
+// D-303); a station whose full ask ran out is asked last in the bursts
+// after, until it is answered (watchpost D-307). A run of failures that
+// stops it moves the rotation's head past the station that ended it
+// (watchpost D-287). Each station's latest reading is held.
 //
 // Source: watchpost D-39, D-51, D-87, D-247; go-ionomaps R-5.2, R-5.3.
 func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
+	a.NoRoom = false // this burst's own, whatever ends it
 	if fetch == nil {
 		return
 	}
@@ -186,42 +194,65 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 		}
 		a.list = list
 	}
-	poll, probe := a.list.Plan(now, throttle.MaxBurst)
+	poll, probe, probeFirst := a.list.Plan(now, throttle.MaxBurst)
 	asks := poll
-	if probe != "" {
+	if probe != "" && probeFirst {
+		asks = append([]string{probe}, poll...) // a probe not reached last time first (watchpost D-303)
+	} else if probe != "" {
 		asks = append(asks, probe)
 	}
-	before := a.thr
+	before, counts := a.thr, a.counts()
 	granted := a.thr.Start(now, len(asks))
 	if granted > 0 {
-		a.Rejected, a.Failed, a.NotReached, a.NoRoom, a.Outcome = 0, 0, 0, false, Answered // the counts are this burst's
+		a.Rejected, a.Failed, a.NotReached, a.Outcome = 0, 0, 0, Answered // the counts are this burst's
 	}
 	var t tally
 	for i, code := range asks[:granted] {
-		limit, full := askLimit(ctx)
+		limit, full := deadline.Room(ctx, askTimeout, askFloor)
 		if ctx.Err() != nil || limit == 0 { // the host's cancel, or no room left in its update
-			a.endEarly(ctx, before, i == 0, t, asks[i:granted], now)
+			a.endEarly(ctx, endOf{before, counts, i == 0}, t, asks[i:granted], probe, now)
 			return
 		}
 		res, retryAfter := a.ask(ctx, code, now, fetch, limit, full)
-		if res == notReached { // a shortened ask ran out: the update's end, not the station's failure (watchpost D-295)
-			a.endEarly(ctx, before, false, t, asks[i:granted], now)
+		if res == notReached || res == cancelled { // the update's end or the host's cancel: the station asked first next hour (watchpost D-295, D-302)
+			a.endEarly(ctx, endOf{before, counts, false}, t, asks[i:granted], probe, now)
 			return
 		}
+		a.list.RanOut(code, res == timedOut) // last next hour while it runs out (watchpost D-307)
 		if t.add(res) {
 			a.Failed++
 		}
 		if a.stops(res, retryAfter, t, now) {
-			a.NotReached = granted - i - 1
 			a.list.Unasked(asks[i+1:granted], movedPast(res, code), now)
 			return
 		}
 	}
 }
 
+// burstCounts is what a burst says of itself, kept across a burst that asks
+// nothing (watchpost D-302).
+type burstCounts struct {
+	rejected, failed, notReached int
+	outcome                      Outcome
+}
+
+// counts is the last burst's counts.
+func (a *Asker) counts() burstCounts {
+	return burstCounts{a.Rejected, a.Failed, a.NotReached, a.Outcome}
+}
+
+// endOf is what a burst ended early puts back when it asked nothing: GIRO's
+// throttle and the last burst's counts.
+type endOf struct {
+	thr          throttle.GIRO
+	counts       burstCounts
+	nothingAsked bool
+}
+
 // tally is how a burst's asks have ended so far (watchpost D-271, D-286,
-// D-296): the stations failed one after another, the full asks run out one
-// after another, and whether any station answered.
+// D-296, D-305): the stations failed one after another, the full asks run
+// out one after another, nothing between them, and whether any station
+// answered.
 type tally struct {
 	inARow, timeouts int
 	anyAnswered      bool
@@ -230,9 +261,10 @@ type tally struct {
 // add counts one ask's end, and is whether it was the station's failure.
 func (t *tally) add(res result) bool {
 	t.anyAnswered = t.anyAnswered || res == answered
-	t.timeouts++
-	if res != timedOut {
-		t.timeouts = 0 // the run of asks run out ends
+	if res == timedOut {
+		t.timeouts++
+	} else {
+		t.timeouts = 0 // any other end breaks the run (watchpost D-305)
 	}
 	if res != failed && res != timedOut {
 		t.inARow = 0
@@ -242,50 +274,38 @@ func (t *tally) add(res result) bool {
 	return true
 }
 
-// askLimit is how long the next ask may take, and whether that is the full
-// askTimeout: the full one while the host's update has room for it and
-// askMargin after; past that, the time left less askMargin; zero when that
-// would be under askFloor (watchpost D-291, D-295). With no deadline set,
-// every ask is a full one.
-func askLimit(ctx context.Context) (limit time.Duration, full bool) {
-	left, set := TimeLeft(ctx)
-	if !set {
-		return askTimeout, true // no deadline: the burst runs to its end
-	}
-	left -= askMargin
-	if left >= askTimeout {
-		return askTimeout, true
-	}
-	if left < askFloor {
-		return 0, false // not even a shortened ask fits
-	}
-	return left, false
-}
-
 // endEarly ends a burst before its last ask: the host's cancel, or the end
-// of its update. With nothing asked, GIRO saw no burst and the hour is not
-// spent (watchpost D-298). At the update's end GIRO is called down when its
-// last timeoutsAtTheEnd full asks ran out; otherwise nothing is backed off
-// (watchpost D-296). The stations not reached are asked first next hour,
-// and the rotation's head stays: the stations that ran out were the burst's
-// last already.
-func (a *Asker) endEarly(ctx context.Context, before throttle.GIRO, nothingAsked bool, t tally, rest []string, now time.Time) {
-	if nothingAsked {
-		a.thr, a.NoRoom = before, ctx.Err() == nil // nothing asked: GIRO saw no burst
+// of its update. With nothing asked, GIRO saw no burst: the hour is not
+// spent and the last burst's counts stand (watchpost D-298, D-302). At the
+// update's end the live stations not reached are counted - the probe apart
+// - and GIRO is called down when its last timeoutsAtTheEnd full asks ran
+// out; otherwise nothing is backed off (watchpost D-296, D-302, D-303). A
+// cancel counts none. Either way the stations not reached are asked first
+// next hour, and the rotation's head stays: the stations that ran out were
+// the burst's last already.
+func (a *Asker) endEarly(ctx context.Context, e endOf, t tally, rest []string, probe string, now time.Time) {
+	cancelled := ctx.Err() != nil
+	if e.nothingAsked {
+		a.thr, a.NoRoom = e.thr, !cancelled // nothing asked: GIRO saw no burst
+		a.Rejected, a.Failed, a.NotReached, a.Outcome = e.counts.rejected, e.counts.failed, e.counts.notReached, e.counts.outcome
 	}
-	if ctx.Err() == nil && t.timeouts >= timeoutsAtTheEnd {
+	if !cancelled && !e.nothingAsked {
+		a.NotReached = len(slices.DeleteFunc(slices.Clone(rest), func(c string) bool { return c == probe }))
+	}
+	if !cancelled && t.timeouts >= timeoutsAtTheEnd {
 		a.thr.Refused(now, "")
 		a.Outcome = Unavailable
 	}
-	a.NotReached = len(rest)
 	a.list.Unasked(rest, "", now)
 }
 
 // movedPast is the station a stopped burst's rotation head moves past: the
-// one whose failure ended a run of failures or of asks run out (watchpost
-// D-287); none when GIRO refused or denied the burst.
+// one whose own failure ended a run of failures (watchpost D-287); none
+// when GIRO refused or denied the burst, or when the run ended with an ask
+// that ran out - that station goes last next hour whatever the head
+// (watchpost D-307).
 func movedPast(res result, code string) string {
-	if res != failed && res != timedOut {
+	if res != failed {
 		return ""
 	}
 	return code
@@ -298,8 +318,6 @@ func movedPast(res result, code string) string {
 // out in a row are GIRO down whatever answered before (watchpost D-286).
 func (a *Asker) stops(res result, retryAfter string, t tally, now time.Time) bool {
 	switch {
-	case res == cancelled:
-		return true // the host's cancel: no refusal of GIRO's
 	case res == denied:
 		a.thr.Deny(now)
 		a.Outcome = Denied
@@ -325,7 +343,7 @@ func (a *Asker) ask(ctx context.Context, code string, now time.Time, fetch Fetch
 	if ctx.Err() != nil {
 		return cancelled, ""
 	}
-	ranOut := err != nil && (askCtx.Err() == context.DeadlineExceeded || IsTimeout(err))
+	ranOut := err != nil && (askCtx.Err() == context.DeadlineExceeded || deadline.IsTimeout(err))
 	if ranOut && !full {
 		return notReached, "" // a shortened ask: the update's end, not the station's (watchpost D-295)
 	}
@@ -422,29 +440,4 @@ func (a *Asker) Readings() []Held {
 	}
 	slices.SortFunc(out, func(x, y Held) int { return strings.Compare(x.Station.Code, y.Station.Code) })
 	return out
-}
-
-// TimeLeft is the time the context's deadline leaves, and whether it has
-// one; with none set, there is no limit to read. GIRO's burst and NOAA's
-// round both read it before each ask (watchpost D-291, D-298).
-//
-// Source: watchpost D-291, D-298.
-func TimeLeft(ctx context.Context) (left time.Duration, set bool) {
-	at, set := ctx.Deadline()
-	if !set {
-		return 0, false // no deadline: the caller's own limits alone
-	}
-	return time.Until(at), true
-}
-
-// IsTimeout is whether an error is a timeout by its own account - the
-// host's client giving up before the library's own limit does - told by the
-// Timeout method the standard library's network errors carry, never by
-// importing them (the library opens no connection of its own). GIRO's burst
-// and NOAA's round both read it.
-//
-// Source: watchpost R4L-3.
-func IsTimeout(err error) bool {
-	var t interface{ Timeout() bool }
-	return errors.As(err, &t) && t.Timeout()
 }

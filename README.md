@@ -23,12 +23,15 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
   every ten minutes and GIRO in one burst of at most 40 an hour, and never retries a refusal itself.
   Each NOAA ask has 20 s and each GIRO ask 15 s, in real time. A NOAA ask that runs out, or that the
   host's client gives up on first, stops that round and backs NOAA off. A GIRO ask that runs out is
-  that station's failure; three in a row, or two as the update's deadline comes, call GIRO down.
-- **An update ends inside its deadline**, which is to leave it at least `MinDeadline` (20 s); give
-  each `Update` its own. No NOAA ask starts without its 20 s left: the round ends there, the files not
-  asked named in `Inputs.Unread`, nothing backed off. GIRO's last asks get the time left, and the
-  stations not reached are counted (`Inputs.StationsNotReached`) and asked first next hour. With no
-  room for any ask, nothing is asked and the error wraps `ErrNoRoom`.
+  that station's failure; three in a row, or two one after another as the update's deadline comes,
+  call GIRO down. Every ask leaves the update a 1 s margin after it.
+- **An update ends inside its deadline**, which is to leave it at least `MinDeadline` (32 s); give
+  each `Update` its own. No NOAA ask starts without its 20 s and the margin left: the round ends
+  there, nothing backed off, and `Inputs.Unread` names that file and any the snapshot lacks - a young
+  file held stands in. GIRO's last asks get the time left, and the live stations a burst did not reach
+  before the deadline are counted (`Inputs.StationsNotReached`) and asked first next hour. With no
+  room for any ask, nothing is asked and the error wraps `ErrNoRoom`. The host's `Fetch` is to return
+  once its context ends; the limits rest on it.
 
 ## Using it
 
