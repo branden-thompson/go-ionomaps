@@ -48,3 +48,22 @@ func unscoredCells(cells []bool) Bitset {
 	}
 	return out
 }
+
+// recentWithin is how old a reading may be and still count as a station
+// reporting now (watchpost D-319).
+const recentWithin = 3 * time.Hour
+
+// reporting is how many stations hold a reading, how many of those were
+// taken within recentWithin of now, and the newest, so a host can say when
+// too few stations report or the data is stale (watchpost D-316, D-319).
+func reporting(held []giro.Held, now time.Time) (stations, recent int, newest time.Time) {
+	for _, h := range held {
+		if now.Sub(h.Reading.At) <= recentWithin {
+			recent++
+		}
+		if h.Reading.At.After(newest) {
+			newest = h.Reading.At
+		}
+	}
+	return len(held), recent, newest
+}

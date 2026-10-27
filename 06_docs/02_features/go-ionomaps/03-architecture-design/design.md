@@ -22,7 +22,7 @@ from** (watchpost D-53).
 flowchart TB
   API["ionomaps (public)<br/>Library, Snapshot, Bands, Path, Reach"]
   THR["internal/throttle<br/>D-39 burst, back-off, early answers"]
-  ST["internal/stations<br/>seed list, rotation, dark-station drop (D-51)"]
+  ST["internal/stations<br/>seed list, rotation, stations flagged after 3 misses (D-51, D-317)"]
   GIRO["internal/giro<br/>FastChar requests, parsing, ranges"]
   GT["internal/glotec<br/>typed GeoJSON, foF2 from NmF2"]
   DR["internal/drap<br/>D-RAP table: the 1 dB frequency<br/>on the 2° grid (R-2.5)"]
@@ -48,7 +48,7 @@ flowchart TB
 ## One update
 
 1. **Throttle** (R-5.3, R-5.4): within the hour's budget? If not, answer from the last good snapshot, with its age and the reason; when the host's options have changed, that snapshot is rebuilt at its own time from what is held, nothing asked (A-7).
-2. **Stations** (R-5.5): the live list, rotation and one probe, never more than 40 requests together (D-87).
+2. **Stations** (R-5.5): the seed list in rotation, a station that misses three asks in a row flagged and asked every 6 hours, never more than 40 requests together (D-87).
 3. **Fetch**, through the host's fetcher (R-5.1), in two updates when GIRO is due (D-63): the first asks NOAA and returns its snapshot, said StationsNext; the host's next, at once, makes GIRO's burst (`internal/giro`'s Asker, over `internal/throttle` and `internal/stations`):
    - GIRO readings since the last held (R-5.2), foF2 and M(3000)F2 alone (D-62);
    - GloTEC's newest grid, found by its timestamped name or the directory index (W0.0 measures which; a new grid is never a 304, D-111);

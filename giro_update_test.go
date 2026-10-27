@@ -94,7 +94,7 @@ func (n *noaa) giroAnswer(ctx context.Context, raw string) (ionomaps.Response, e
 // placed station elsewhere is refused, watchpost D-248); a station the seed
 // does not place spread by its code.
 func placeOf(code string) string {
-	list, err := stations.Seed(start)
+	list, err := stations.Seed()
 	if err != nil {
 		panic(err) // the shipped seed is broken: its own test fails first
 	}
@@ -428,8 +428,8 @@ func TestAnUnscoredStationIsSaid(t *testing.T) {
 	}
 }
 
-// TestGIROsOutcomeIsSaidAllHour is watchpost D-247: a station that fails is
-// counted and the others assimilated; three failing in a row are GIRO
+// TestGIROsOutcomeIsSaidAllHour is watchpost D-247 and D-318: a station that
+// fails is counted and the others assimilated; GIRO's 429 is GIRO
 // unavailable, and a 403 GIRO's denial - each carried in every snapshot of
 // the hour that follows, the denial said GIRO paused for a day, never a
 // quiet hour said as no readings.
@@ -444,7 +444,7 @@ func TestGIROsOutcomeIsSaidAllHour(t *testing.T) {
 	for _, c := range []struct {
 		status int
 		want   ionomaps.GIROOutcome
-	}{{503, ionomaps.GIROUnavailable}, {403, ionomaps.GIRODenied}} {
+	}{{429, ionomaps.GIROUnavailable}, {403, ionomaps.GIRODenied}} {
 		l, n, clk := giroLibrary(t)
 		n.giro.all = c.status
 		update(t, l)
@@ -514,24 +514,25 @@ func TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked(t *testing.T) {
 	}
 }
 
-// TestACutShortBurstIsCounted is watchpost D-297: a burst its update's
-// deadline cuts short while GIRO answers - each station slow, the last asks
-// given the time left - is no stop of GIRO's: the snapshot says GIRO
-// answered, and counts the stations not reached, which the next burst asks
-// first. A 4 s deadline leaves the burst a few shortened asks.
-func TestACutShortBurstIsCounted(t *testing.T) {
-	l, n, _ := library(t)
-	n.list(t, start.Add(-30*time.Minute), 7)
-	n.giro.speak = true
-	if s := update(t, l); s.Reason != ionomaps.StationsNext {
-		t.Fatalf("the first update: %v; want StationsNext", s.Reason)
+// TestTheSnapshotSaysHowRecentTheStationsAre is the update's timing model's
+// rule 7 (watchpost D-316, D-319): a snapshot counts the stations holding a
+// reading, how many of those readings are under 3 hours old, and the newest;
+// 4 hours into a GIRO that gives nothing, the readings are still held but
+// none is recent, and the newest is the old one - what a host says as data
+// to rely on warily.
+func TestTheSnapshotSaysHowRecentTheStationsAre(t *testing.T) {
+	l, n, clk := giroLibrary(t)
+	update(t, l)
+	s := update(t, l)
+	if s.Inputs.StationsHeld == 0 || s.Inputs.StationsRecent != s.Inputs.StationsHeld || s.Inputs.NewestReading.IsZero() {
+		t.Fatalf("GIRO answering: %d held, %d recent, newest %v; want every reading recent", s.Inputs.StationsHeld, s.Inputs.StationsRecent, s.Inputs.NewestReading)
 	}
-	n.giro.delay = 300 * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	s, err := l.Update(ctx, ionomaps.UpdateOptions{})
-	asked := len(n.giro.asks)
-	if err != nil || s.Reason == ionomaps.Unfinished || s.Inputs.GIRO != ionomaps.GIROAnswered || asked == 0 || s.Inputs.StationsNotReached == 0 || s.Inputs.StationsFailed != 0 {
-		t.Errorf("the burst cut short: %v, %v, GIRO %v, %d asked, %d not reached, %d failed; want GIRO answered and the stations not reached counted, none failed", s.Reason, err, s.Inputs.GIRO, asked, s.Inputs.StationsNotReached, s.Inputs.StationsFailed)
+	held, newest := s.Inputs.StationsHeld, s.Inputs.NewestReading
+	n.giro.all = 503
+	clk.Add(4 * time.Hour)
+	update(t, l)
+	later := update(t, l)
+	if later.Inputs.StationsHeld != held || later.Inputs.StationsRecent != 0 || !later.Inputs.NewestReading.Equal(newest) || later.Inputs.GIRO != ionomaps.GIROAnswered {
+		t.Errorf("4 hours of no data: %d held, %d recent, newest %v, GIRO %v; want the %d still held, none recent, the newest %v, GIRO not called down", later.Inputs.StationsHeld, later.Inputs.StationsRecent, later.Inputs.NewestReading, later.Inputs.GIRO, held, newest)
 	}
 }

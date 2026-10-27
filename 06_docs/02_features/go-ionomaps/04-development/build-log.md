@@ -333,3 +333,12 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **Docs:** the README's call-down words and known limits, R-5.3, `Inputs.StationsNotReached` (R8D-3), `State.Last`, `RanOut`, `Burst` and `tally`; the stations ledger row's veto wording (R8D-6).
 - **Mutants:** m098 and m108 re-pointed, m100, m101 and m111 to the renamed test; m118 to m130 new, each killed.
 
+## REVIEW: the HUM LEAD's simpler model (watchpost D-316 to D-319; D-121, A-39)
+
+- **The model** (D-121): `update-timing-model.md` replaced by the HUM LEAD's six points - seven rules and four accepted limits.
+- **`internal/stations`** rewritten around them: each station's misses in a row and, flagged, when it was last asked; `Plan` asks the stations not flagged in rotation, then the flagged due, one place kept for them (A-39 (1), (2)); `Asked` records each ask's end. Liveness, the probe rotation, the kept probe, stations known to hang and the retry are gone.
+- **`internal/giro`'s `Burst`**: every ask whole or none; a station that gives no data is a miss and the burst moves on; a 429 or a 401/403 stops it; the tally, the runs, `endEarly`, `NotReached` and shortened asks are gone.
+- **The snapshot**: `Inputs.StationsNotReached` removed; `StationsHeld`, `StationsRecent` and `NewestReading` added (D-319).
+- **Tests**: the stations and asker suites rewritten to the rules, among them a two-day GIRO outage read again on its return, a station flagged and asked again 6 hours on, and the flags across a restart (`TestAFlaggedStationStaysFlaggedAcrossARestart`); rule 7's facts (`TestTheSnapshotSaysHowRecentTheStationsAre`).
+- **Mutants**: 45 retired with the mechanics they guarded, 12 re-pointed, m131 to m143 added, each killed.
+

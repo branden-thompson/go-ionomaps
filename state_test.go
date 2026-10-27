@@ -67,6 +67,32 @@ func TestTheThrottleOutlivesARestart(t *testing.T) {
 	}
 }
 
+// TestAFlaggedStationStaysFlaggedAcrossARestart is the update's timing
+// model's rule 3 with D-213: a station that missed three bursts running is
+// flagged, and the state the host keeps carries it, so a restart does not
+// ask it again before it is due.
+func TestAFlaggedStationStaysFlaggedAcrossARestart(t *testing.T) {
+	l, n, c := giroLibrary(t)
+	n.giro.status = map[string]int{"AL945": 503}
+	for range 3 {
+		update(t, l)
+		update(t, l)
+		c.Add(time.Hour)
+	}
+	again := restarted(t, n, c, l.State())
+	asked := len(n.giro.asks)
+	update(t, again)
+	update(t, again)
+	if len(n.giro.asks) == asked {
+		t.Fatal("control: the restored library made no burst")
+	}
+	for _, raw := range n.giro.asks[asked:] {
+		if u, _ := url.Parse(raw); u.Query().Get("ursiCode") == "AL945" {
+			t.Errorf("restored, AL945, flagged by three misses an hour before, was asked again; want it left until due")
+		}
+	}
+}
+
 // TestTheStateHoldsNoReading is watchpost D-213 and brief GC-2: the state
 // is times, a back-off and the rotation's places - never a reading, which
 // GIRO's terms keep from being stored - and NOAA's F10.7 mean, public

@@ -100,16 +100,18 @@ type UpdateOptions struct {
 // MinDeadline. Each NOAA ask has 20 s and each GIRO ask 15 s, in real time
 // whatever Options.Clock says, and every ask leaves a 1 s margin after it.
 // A NOAA ask that runs out, or that the host's client gives up on first,
-// stops that round and backs NOAA off; a GIRO ask that runs out is its
-// station's failure, and GIRO is called down by three in a row whatever
-// answered, or two in a row as the deadline comes - a station already known
-// to hang counting toward neither. No NOAA ask starts without its 20 s and the margin left: the
-// round ends there, nothing backed off, and Inputs.Unread names that file
-// and any input the snapshot lacks - a young file held stands in. GIRO's
-// last asks get the time the deadline leaves, and the live stations a burst
-// did not reach before the deadline are counted in
-// Inputs.StationsNotReached and asked first next hour. With no room for any
-// ask, nothing is asked and the error wraps ErrNoRoom.
+// stops that round and backs NOAA off. A GIRO station that gives no data -
+// its ask run out among the ways - is a miss, counted in
+// Inputs.StationsFailed, and the burst moves on; one that misses three
+// bursts running is asked every 6 hours until it gives data again, and
+// GIRO itself is paused only when it refuses. No ask starts without its
+// whole time and the margin left: a NOAA round ends there, nothing backed
+// off, and Inputs.Unread names that file and any input the snapshot lacks -
+// a young file held stands in; a GIRO burst ends there and the next carries
+// on from where it stopped. With no room for any ask, nothing is asked and
+// the error wraps ErrNoRoom. Inputs.StationsHeld, StationsRecent and
+// NewestReading say how many stations report and how recently, for a host
+// to say when the map rests on too few.
 //
 // Source: NOAA SWPC's GloTEC and F10.7; GIRO's DIDBase; this library.
 func (l *Library) Update(ctx context.Context, o UpdateOptions) (Snapshot, error) {
@@ -323,8 +325,8 @@ func nextAsk(now time.Time, backOff time.Duration, trouble bool) (time.Time, tim
 }
 
 // MinDeadline is the least time an update's context is to leave it: room
-// for two of GIRO's full asks and the margin each keeps, so every rule of
-// the update holds at it; an update given it asks. With less, an update may
+// for a NOAA ask, or two of GIRO's, and the margin each keeps; an update
+// given it asks. With less, an update may
 // find no room for any ask, and then nothing is asked and Update's error
 // wraps ErrNoRoom.
 const MinDeadline = 32 * time.Second
@@ -543,13 +545,17 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		fo.put(i, f)
 		muf.put(i, f*res.M3000[i])
 	}
+	held, recent, newestHeld := 0, 0, time.Time{}
+	if !o.NoStations {
+		held, recent, newestHeld = reporting(l.giro.Readings(), now)
+	}
 	s := Snapshot{
 		Computed:   now,
 		Now:        Hour{At: now, FoF2: fo, MUF3000: muf},
 		Background: Backgrounds{FoF2: backgroundOf(b.FoF2From), M3000: backgroundOf(b.M3000From)},
 		Inputs: Inputs{F107Mean: float32(l.solar.Mean), F107Days: l.solar.Days, F107Age: l.solar.Age(now),
 			CoordsExtrapolated: b.CoordsExtrapolated, Stations: res.Used, OldestReading: oldest, Rejected: l.giro.Rejected, Implausible: res.Implausible, ImplausibleM: res.ImplausibleM, NoStations: o.NoStations,
-			GIRO: GIROOutcome(l.giro.Outcome), StationsFailed: l.giro.Failed, StationsNotReached: l.giro.NotReached, Unread: slices.Clone(l.unread)},
+			GIRO: GIROOutcome(l.giro.Outcome), StationsFailed: l.giro.Failed, StationsHeld: held, StationsRecent: recent, NewestReading: newestHeld, Unread: slices.Clone(l.unread)},
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),

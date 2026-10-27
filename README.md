@@ -22,30 +22,27 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
 - **The host supplies the network.** The library opens no connection of its own; it asks NOAA at most
   every ten minutes and GIRO in one burst of at most 40 an hour, and never retries a refusal itself.
   Each NOAA ask has 20 s and each GIRO ask 15 s, in real time. A NOAA ask that runs out, or that the
-  host's client gives up on first, stops that round and backs NOAA off. A GIRO ask that runs out is
-  that station's failure; three in a row, or two one after another as the update's deadline comes,
-  call GIRO down. A station already known to hang is asked last, and one of them is retried each
-  burst with a 2 s ask; once a station has answered in the burst, their running out counts toward
-  neither. Every ask leaves the update a 1 s margin after it. The whole is one model:
-  [the update's timing and GIRO's burst](06_docs/02_features/go-ionomaps/03-architecture-design/update-timing-model.md).
+  host's client gives up on first, stops that round and backs NOAA off. A GIRO station that gives no
+  data is a miss, counted, and the burst moves on; one that misses three bursts running is asked
+  every 6 hours until it gives data again. GIRO is paused only when it refuses: a 429 backs it off, a
+  401 or 403 pauses it a day. Every ask leaves the update a 1 s margin after it. The whole is one
+  model: [the update's timing and GIRO's stations](06_docs/02_features/go-ionomaps/03-architecture-design/update-timing-model.md).
 - **An update ends inside its deadline**, which is to leave it at least `MinDeadline` (32 s); give
   each `Update` its own. No NOAA ask starts without its 20 s and the margin left: the round ends
   there, nothing backed off, and `Inputs.Unread` names that file and any the snapshot lacks - a young
-  file held stands in. GIRO's last asks get the time left, and the live stations a burst did not reach
-  before the deadline - the probe and those known to hang apart - are counted
-  (`Inputs.StationsNotReached`) and asked first next hour. With no
-  room for any ask, nothing is asked and the error wraps `ErrNoRoom`. The host's `Fetch` is to return
+  file held stands in. A GIRO burst the deadline stops carries on next hour from where it stopped.
+  With no room for any ask, nothing is asked and the error wraps `ErrNoRoom`. `Inputs.StationsHeld`,
+  `StationsRecent` and `NewestReading` say how many stations report and how recently, so a host can
+  say when the map rests on too few. The host's `Fetch` is to return
   once its context ends; the limits rest on it.
 
 ## Known limits
 
-The update's timing model accepts these (its section 8):
-- **GIRO dying late in a burst** is called down the next hour, not that one.
-- **A struggling GIRO** that alternates hangs with server errors is never called down; each ask fails visibly as a station's own.
-- **In the hour stations first hang**, before they are known to: three side by side anywhere call GIRO down at once, and two side by side at the update's end call it down.
-- **GIRO dying after a burst's first answer, as it reaches the stations known to hang,** is not called down by their timeouts that hour; the other stations' timeouts, or the next hour, catch it.
-- **A station known to hang that recovers** is read within as many hours as there are stations known to hang, by the retry; sooner when the hour has room. One answering slower than 2 s waits for the tail.
-- **A dark probe the deadline left, not yet known to hang,** opens the next hour with a full ask; with GIRO at about 1.05 s an ask or slower, that can leave 2 to 5 live stations to the hour after.
+The update's timing model accepts these:
+- **A GIRO that stops answering** costs each hour's burst its deadline in timeouts, about three asks, and is said by the reporting counts once its newest reading is 3 hours old. When it answers again, the stations not flagged are read that hour, the flagged within 6 hours.
+- **A station that answers slower than 15 s** is never read; it is flagged and asked every 6 hours.
+- **With 39 or more stations not flagged**, the rotation spreads them across hours, and the flagged come back one an hour.
+- **A reply with an old reading only** counts as data; the reading's age is in the reporting counts.
 
 ## Using it
 

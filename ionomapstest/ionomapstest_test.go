@@ -214,8 +214,9 @@ func TestALibraryRunsOnRecordedDays(t *testing.T) {
 
 // TestAHostDrivesEachState is RL-12: answers given in place of the recorded
 // ones drive the real library into the states a host must say - Fresh, with
-// D-RAP and the scales served; Partial, GloTEC refused; GIRO unavailable,
-// every station failing.
+// D-RAP and the scales served; Partial, GloTEC refused; every station
+// giving no data, each a miss - the recorded ones failing, the rest with no
+// reading - and GIRO not called down (watchpost D-316).
 func TestAHostDrivesEachState(t *testing.T) {
 	rec := recorded(t)
 	at := day.Add(35 * time.Minute)
@@ -250,7 +251,7 @@ func TestAHostDrivesEachState(t *testing.T) {
 	for _, st := range stations {
 		failing[st.Code] = ionomapstest.Answer{Status: 503}
 	}
-	if s := run(failing); s.Inputs.StationsFailed != len(stations) || s.Inputs.Stations != 0 {
-		t.Errorf("every recorded station failing: %d failed, %d assimilated, %v", s.Inputs.StationsFailed, s.Inputs.Stations, s.Inputs.GIRO)
+	if s := run(failing); s.Inputs.StationsFailed < len(stations) || s.Inputs.Stations != 0 || s.Inputs.GIRO != ionomaps.GIROAnswered {
+		t.Errorf("every recorded station failing: %d missed, %d assimilated, %v; want each a miss, none assimilated, GIRO not called down", s.Inputs.StationsFailed, s.Inputs.Stations, s.Inputs.GIRO)
 	}
 }
