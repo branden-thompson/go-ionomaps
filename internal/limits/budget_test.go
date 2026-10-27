@@ -133,3 +133,19 @@ func TestTheBudgetRefusesBadInput(t *testing.T) {
 		t.Errorf("no hops crossed 90 km at %v", fr)
 	}
 }
+
+// TestPenetrationsStayOnThePath is the hosted gate's fuzz find: a path
+// under a kilometre, its elevation rounding short of the vertical, has its
+// crossings held to the path - from 0 to 1 - never millions of paths past
+// its ends, where no place is.
+func TestPenetrationsStayOnThePath(t *testing.T) {
+	for _, D := range []float64{6e-9, 1e-6, 0.01, 1, 50, 300, 4000} {
+		for _, delta := range []float64{89.99, 80, 45, 3} {
+			for _, f := range PenetrationFractions(D, 1, delta) {
+				if !(f >= 0 && f <= 1) {
+					t.Errorf("a %g km path at %g°: a crossing at %g of it", D, delta, f)
+				}
+			}
+		}
+	}
+}

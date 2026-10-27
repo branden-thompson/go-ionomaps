@@ -85,6 +85,7 @@ func FuzzAnswersNeverReturnNaN(f *testing.F) {
 	f.Add(40.0, -100.0, 400.0, 14.2, int16(0))
 	f.Add(91.0, 181.0, 0.0, 0.5, int16(-30))
 	f.Add(math.NaN(), math.Inf(1), 2001.0, 31.0, int16(500))
+	f.Add(40.0, -460.0, 425.0, 14.2, int16(0)) // a path of no length, -460 wrapping onto -100: the hosted gate's amd64 find
 	finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 	f.Fuzz(func(t *testing.T, lat, lon, radius, mhz float64, minutes int16) {
 		s, p := slopedSnapshot(noonUTC.Add(time.Duration(minutes)*time.Minute)), LatLon{Lat: lat, Lon: lon}
@@ -154,5 +155,30 @@ func TestAPlaceThatIsNoNumberFallsInNoCell(t *testing.T) {
 		if n := s.nearestAt(s.Now.FoF2, p); n.Known {
 			t.Errorf("%+v has a nearest station %+v", p, n)
 		}
+	}
+}
+
+// TestAPathOfNoLengthIsFinite is the hosted gate's fuzz find on amd64: a
+// path from a place to itself - -460 wrapping onto -100, or a hair apart -
+// is answered finite, and a sun track asked of a place that is no number
+// answers no number and takes no step, never an index out of range.
+func TestAPathOfNoLengthIsFinite(t *testing.T) {
+	s := slopedSnapshot(noonUTC)
+	for _, to := range []LatLon{{Lat: 40, Lon: -460}, {Lat: 40, Lon: -100}, {Lat: 40, Lon: 260}, {Lat: 40, Lon: -100.0000000001}} {
+		as, err := s.Path(LatLon{Lat: 40, Lon: -100}, []LatLon{to})
+		if err != nil {
+			continue // refused is an answer too
+		}
+		for _, a := range as {
+			for _, b := range a.Bands {
+				if math.IsNaN(float64(b.LimitMHz)) || math.IsInf(float64(b.LimitMHz), 0) {
+					t.Errorf("a path to %+v: %+v", to, b)
+				}
+			}
+		}
+	}
+	decl, chi, since := newSunTrack(noonUTC).sunAt(math.NaN(), math.NaN())
+	if math.IsNaN(decl) || !math.IsNaN(chi) || !math.IsNaN(since) {
+		t.Errorf("the sun at no place: %v, %v, %v; want the declination, and no number for the zenith and the hours", decl, chi, since)
 	}
 }

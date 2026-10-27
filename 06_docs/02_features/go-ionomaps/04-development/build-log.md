@@ -309,3 +309,8 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **Docs:** `Update`, `MinDeadline`, `StationsNotReached`, `Burst`, the README's network and deadline paragraphs and R-5.3; the `Fetcher` doc's duty to return once its context ends (R6T-5); `roomless`'s redundant branch removed (R6C-6).
 - **Mutants:** m093 to m104; m032, m068, m073 to m076, m078 to m081, m085, m086 and m088 re-pointed; m083 retired.
 
+## The hosted gate's fuzz find on rc.11 (A-36)
+
+- **The find:** the full hosted gate on rc.11 (run 40428744932, ubuntu amd64) failed `FuzzAnswersNeverReturnNaN`: `Snapshot.Path` from (40, -100) to (40, -460), the same place, panicked with an index out of range in `sunAt`. A path of no length rounds its elevation short of the vertical, its penetration crossings land millions of paths past its ends, `Along` gives no place, and `sunAt` turned the NaN into a step with `int()` - the least int64 on amd64, 0 on arm64, so the local gates, all arm64, never saw it.
+- **The fix:** `PenetrationFractions` holds each crossing to the path (`TestPenetrationsStayOnThePath`; m105); `sunAt` answers no number for a place that is no number, before its loop (`TestAPathOfNoLengthIsFinite`; m106); the find is a seed of the fuzz target. The target ran 25,000 times natively and under amd64 emulation, green. The first gate failed on `internal/limits`' density, 1.22 against its 1.25 floor, the clamp a helper of its own; it is written in its one caller now (the failed row kept in `gate-runs.md`).
+

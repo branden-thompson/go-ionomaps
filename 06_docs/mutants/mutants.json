@@ -1028,5 +1028,25 @@
     "new": "\tif false {\n\t\treturn cancelled, \"\"\n\t}\n",
     "package": "./internal/giro",
     "test": "TestOnlyTheUpdatesEndCountsStationsNotReached"
+  },
+  {
+    "id": "m105",
+    "row": "R-3.3 (hosted fuzz, amd64)",
+    "what": "a short path's crossings lie far past its ends, where no place is",
+    "file": "internal/limits/budget.go",
+    "old": "\t\tout = append(out, math.Min(1, math.Max(0, up)), math.Min(1, math.Max(0, down))) // held to the path\n",
+    "new": "\t\tout = append(out, up, down) // held to the path\n",
+    "package": "./internal/limits",
+    "test": "TestPenetrationsStayOnThePath"
+  },
+  {
+    "id": "m106",
+    "row": "R-3.3, P10-02 (hosted fuzz, amd64)",
+    "what": "the sun track steps on a place that is no number",
+    "file": "answers.go",
+    "old": "\tif math.IsNaN(lat) || math.IsNaN(lon) {\n\t\treturn t.decl, math.NaN(), math.NaN() // no place",
+    "new": "\tif false && math.IsNaN(lat) || math.IsNaN(lon) && false {\n\t\treturn t.decl, math.NaN(), math.NaN() // no place",
+    "package": ".",
+    "test": "TestAPathOfNoLengthIsFinite"
   }
 ]

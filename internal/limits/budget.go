@@ -67,6 +67,9 @@ func SlantRange(n int, d, delta float64) float64 {
 
 // PenetrationFractions are where a mode's n hops cross 90 km, as parts of a
 // path of D km: two a hop, nearest each end of it (§5.2.2); none for no hop.
+// Each is held to the path, from 0 to 1: a path under about a kilometre,
+// its elevation rounding short of the vertical, would put a crossing far
+// past its ends.
 //
 // Source: ITU-R P.533-14 §5.2.2 (reflection at the mirror, penetration at
 // 90 km); the crossing's place from the hop's geometry.
@@ -79,7 +82,8 @@ func PenetrationFractions(D float64, n int, delta float64) []float64 {
 	dh := D / float64(n)
 	out := make([]float64, 0, 2*n)
 	for i := range n {
-		out = append(out, (float64(i)*dh+in)/D, (float64(i+1)*dh-in)/D)
+		up, down := (float64(i)*dh+in)/D, (float64(i+1)*dh-in)/D
+		out = append(out, math.Min(1, math.Max(0, up)), math.Min(1, math.Max(0, down))) // held to the path
 	}
 	return out
 }
