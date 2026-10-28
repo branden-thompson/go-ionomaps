@@ -103,7 +103,8 @@ type UpdateOptions struct {
 // stops that round and backs NOAA off. A GIRO station that gives no data -
 // its ask run out among the ways - is a miss, counted in
 // Inputs.StationsFailed, and the burst moves on; one that misses three
-// bursts running is asked every 6 hours until it gives data again, and
+// asks in a row is flagged, asked every 6 hours until it gives data again,
+// its misses no longer counted, and
 // GIRO itself is paused only when it refuses. No ask starts without its
 // whole time and the margin left: a NOAA round ends there, nothing backed
 // off, and Inputs.Unread names that file and any input the snapshot lacks -

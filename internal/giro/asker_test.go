@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,9 +134,12 @@ func withDataAt(at time.Time) func(context.Context, string) (int, string, []byte
 
 // TestAStationThatGivesNoDataIsAMiss is the update's timing model's rule 2
 // (watchpost D-247, D-272, D-316): a server error, a 404, a 410, a status
-// no rule names, no answer, a timeout, a reply with no reading, or one GIRO
-// does not write, is that station's miss - counted, and the burst goes on
-// to every other - never GIRO paused.
+// no rule names, no answer, a timeout, a reply with no reading, one GIRO
+// does not write, or one placing a placed station elsewhere, is that
+// station's miss -
+// counted, and the burst goes on to every other - never GIRO paused; the
+// flagged station in the kept place misses too, and is not counted
+// (watchpost D-321).
 func TestAStationThatGivesNoDataIsAMiss(t *testing.T) {
 	was := askTimeout
 	askTimeout = 20 * time.Millisecond
@@ -153,6 +157,10 @@ func TestAStationThatGivesNoDataIsAMiss(t *testing.T) {
 		"not GIRO's reply": func(context.Context) (int, string, []byte, error) {
 			return 200, "", []byte("<html>moved</html>\n"), nil
 		},
+		"a reply placing it elsewhere": func(context.Context) (int, string, []byte, error) {
+			_, _, body, _ := withData("AL945", now) // the first asked, AL945, placed by the seed in Michigan
+			return 200, "", []byte(strings.Replace(string(body), "45.1 N   276.4 E", "51.5 N   359.9 E", 1)), nil
+		},
 	} {
 		var a Asker
 		var asked []string
@@ -164,8 +172,8 @@ func TestAStationThatGivesNoDataIsAMiss(t *testing.T) {
 			}
 			return withData(code, now)
 		})
-		if len(asked) != throttle.MaxBurst || a.Failed != 2 || a.Paused(now) || a.Outcome != Answered || len(a.Readings()) != throttle.MaxBurst-2 {
-			t.Errorf("%s: %d asked, %d missed, %d held, paused %v, %v; want all %d asked, two misses - it and the one flagged station - the rest held, no pause", name, len(asked), a.Failed, len(a.Readings()), a.Paused(now), a.Outcome, throttle.MaxBurst)
+		if len(asked) != throttle.MaxBurst || a.Failed != 1 || a.Paused(now) || a.Outcome != Answered || len(a.Readings()) != throttle.MaxBurst-2 {
+			t.Errorf("%s: %d asked, %d missed, %d held, paused %v, %v; want all %d asked, it alone counted a miss - the flagged station's not said (D-321) - the rest held, no pause", name, len(asked), a.Failed, len(a.Readings()), a.Paused(now), a.Outcome, throttle.MaxBurst)
 		}
 	}
 }
@@ -187,8 +195,8 @@ func TestNothingAStationDoesStopsTheBurst(t *testing.T) {
 		}
 		return 500, "", nil, nil
 	})
-	if asked != throttle.MaxBurst || a.Failed != throttle.MaxBurst || a.Paused(now) || a.Outcome != Answered {
-		t.Errorf("every station failing: %d asked, %d missed, paused %v, %v; want all %d asked and missed, GIRO not called down", asked, a.Failed, a.Paused(now), a.Outcome, throttle.MaxBurst)
+	if asked != throttle.MaxBurst || a.Failed != throttle.MaxBurst-1 || a.Paused(now) || a.Outcome != Answered {
+		t.Errorf("every station failing: %d asked, %d missed, paused %v, %v; want all %d asked, each a miss - the flagged one in the kept place not said - GIRO not called down", asked, a.Failed, a.Paused(now), a.Outcome, throttle.MaxBurst)
 	}
 }
 
@@ -342,11 +350,19 @@ func TestABurstEndsInsideItsDeadline(t *testing.T) {
 	plan, _ := stations.Seed()
 	order := plan.Plan(now, throttle.MaxBurst)
 	next := now.Add(time.Hour)
-	second, _ := burstUnder(t, &a, next, 600*time.Millisecond, withDataAt(next))
+	second, _ := burstUnder(t, &a, next, 600*time.Millisecond, func(_ context.Context, code string) (int, string, []byte, error) {
+		if code == order[5] {
+			return 503, "", nil, nil // one miss, so the counts a burst that asks nothing keeps are seen
+		}
+		return withData(code, next)
+	})
 	if len(second) != throttle.MaxBurst || second[0] != order[3] {
 		t.Errorf("the next hour asked %d, from %s; want all, carrying on from %s", len(second), second[0], order[3])
 	}
 	held := a.Failed
+	if held != 1 {
+		t.Fatalf("control: the next hour counted %d misses; want the one", held)
+	}
 	later := now.Add(2 * time.Hour)
 	if asked, _ := burstUnder(t, &a, later, 100*time.Millisecond, withDataAt(later)); len(asked) != 0 || !a.NoRoom || !a.BurstDue(later) || a.Failed != held {
 		t.Errorf("no room for an ask: %d asked, no room %v, still due %v, counts %d; want nothing asked, the hour not spent, the last counts kept", len(asked), a.NoRoom, a.BurstDue(later), a.Failed)

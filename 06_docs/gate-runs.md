@@ -87,3 +87,5 @@ Every run of `scripts/gate` adds a row: when, HEAD, the git tree that was tested
 | 2026-10-27T17:39:21Z | 59cb4a9 | efa784a41b69 | full | green | 1714 | - |
 | 2026-10-27T21:19:02Z | f60cc5c | d5f793a7d80d | full | FAILED: tests, race detector on; tests, race detector off | 519 | - |
 | 2026-10-27T21:29:07Z | f60cc5c | 7110bbf9fc22 | full | green | 527 | - |
+| 2026-10-28T00:13:16Z | 5396d3f | 2a76d3fa17c6 | full | FAILED: every mutant killed by its test (watchpost RL-5) | 554 | - |
+| 2026-10-28T00:23:14Z | 5396d3f | 1a80f8151cb0 | full | green | 530 | - |

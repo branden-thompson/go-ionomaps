@@ -111,7 +111,7 @@ func TestTheStateHoldsNoReading(t *testing.T) {
 	}
 	for k := range keys {
 		switch k {
-		case "v", "burst", "pause", "backoff", "seeded", "heard", "poll", "probe", "out", "f107", "f107days", "f107at":
+		case "v", "burst", "pause", "backoff", "heard", "poll", "misses", "asked", "f107", "f107days", "f107at":
 		default:
 			t.Errorf("the state carries %q", k)
 		}

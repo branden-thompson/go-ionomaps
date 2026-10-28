@@ -23,8 +23,8 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
   every ten minutes and GIRO in one burst of at most 40 an hour, and never retries a refusal itself.
   Each NOAA ask has 20 s and each GIRO ask 15 s, in real time. A NOAA ask that runs out, or that the
   host's client gives up on first, stops that round and backs NOAA off. A GIRO station that gives no
-  data is a miss, counted, and the burst moves on; one that misses three bursts running is asked
-  every 6 hours until it gives data again. GIRO is paused only when it refuses: a 429 backs it off, a
+  data is a miss, counted, and the burst moves on; one that misses three asks in a row is flagged,
+  asked every 6 hours until it gives data again, and its misses no longer counted. GIRO is paused only when it refuses: a 429 backs it off, a
   401 or 403 pauses it a day. Every ask leaves the update a 1 s margin after it. The whole is one
   model: [the update's timing and GIRO's stations](06_docs/02_features/go-ionomaps/03-architecture-design/update-timing-model.md).
 - **An update ends inside its deadline**, which is to leave it at least `MinDeadline` (32 s); give

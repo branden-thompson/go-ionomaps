@@ -75,7 +75,7 @@ type Asker struct {
 	list     *stations.List
 	held     map[string]Held
 	Rejected int     // the last burst's rows refused by range checks
-	Failed   int     // the last burst's stations that gave no data, the burst going on (watchpost D-247, D-316)
+	Failed   int     // the last burst's stations not flagged that gave no data, the burst going on (watchpost D-247, D-316, D-321)
 	NoRoom   bool    // the last burst found no room for its first ask: nothing asked, no hour spent (watchpost D-298)
 	Outcome  Outcome // how the last burst ended, carried until the next
 }
@@ -139,7 +139,8 @@ func (a *Asker) BurstDue(now time.Time) bool { return a.thr.Due(now) }
 // to 6): the stations in turn within the budget, each ask whole or none
 // inside the host's update. A station that gives no data is a miss, counted
 // in Failed, and the burst moves on; a 429 stops it and backs GIRO off, a
-// 401 or 403 stops it and pauses GIRO a day (watchpost D-247, D-318). The
+// 401 or 403 stops it and pauses GIRO a day (watchpost D-247, D-318); a
+// flagged station's miss is not counted (watchpost D-321). The
 // host's cancel, or no room for the next ask, ends it there, and the next
 // burst carries on from where it stopped; with nothing asked, no hour is
 // spent and the last burst's counts stand (watchpost D-298, D-302). Each
@@ -175,13 +176,14 @@ func (a *Asker) Burst(ctx context.Context, now time.Time, fetch Fetch) {
 			}
 			return
 		}
+		flagged := a.list.Flagged(code)
 		res, retryAfter := a.ask(ctx, code, now, fetch, limit)
 		if a.stops(res, retryAfter, now) {
 			return
 		}
 		a.list.Asked(code, now, res == data)
-		if res == missed {
-			a.Failed++
+		if res == missed && !flagged {
+			a.Failed++ // a flagged station giving nothing is no news (watchpost D-321)
 		}
 	}
 }
@@ -247,10 +249,9 @@ func (a *Asker) ask(ctx context.Context, code string, now time.Time, fetch Fetch
 		return missed, ""
 	}
 	a.Rejected += rep.Rejected
-	if len(rep.Readings) == 0 {
-		return missed, "" // no reading: no data (watchpost D-316)
+	if !a.hold(code, rep) {
+		return missed, "" // no reading, or a reply refused - another station's, or one placed elsewhere: no data (watchpost D-316)
 	}
-	a.hold(code, rep)
 	return data, ""
 }
 
@@ -274,18 +275,18 @@ func ended(status int, err error) (result, bool) {
 	return data, false // a 200: read it to know whether it holds data
 }
 
-// hold keeps a reply's latest reading for its station, and tells the list
-// when and where the station gave it.
-func (a *Asker) hold(code string, rep Reply) {
+// hold keeps a reply's latest reading for its station, tells the list when
+// and where the station gave it, and is whether it was kept.
+func (a *Asker) hold(code string, rep Reply) bool {
 	if len(rep.Readings) == 0 {
-		return
+		return false
 	}
 	if rep.Station.Code != code {
-		return // never held under another station's code
+		return false // never held under another station's code
 	}
 	if at, placed := a.list.At(code); placed && limits.Distance(at.Lat, at.Lon, rep.Station.Lat, rep.Station.Lon) > movedKm {
 		a.Rejected++ // a placed station keeps its place: a reply putting it elsewhere is refused (watchpost D-248)
-		return
+		return false
 	}
 	if at, placed := a.list.At(code); placed {
 		rep.Station.Lat, rep.Station.Lon = at.Lat, at.Lon
@@ -301,6 +302,7 @@ func (a *Asker) hold(code string, rep Reply) {
 	}
 	a.held[code] = Held{Reading: latest, Station: rep.Station}
 	a.list.Heard(code, latest.At, stations.Place{Lat: rep.Station.Lat, Lon: rep.Station.Lon, Known: true})
+	return true
 }
 
 // LetGo lets go of readings older than heldFor (D-51): a reading is reused

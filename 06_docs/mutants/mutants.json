@@ -894,8 +894,8 @@
     "row": "watchpost D-316",
     "what": "a reply with no reading is taken as data",
     "file": "internal/giro/asker.go",
-    "old": "\tif len(rep.Readings) == 0 {\n\t\treturn missed, \"\" // no reading: no data",
-    "new": "\tif false {\n\t\treturn missed, \"\" // no reading: no data",
+    "old": "\tif len(rep.Readings) == 0 {\n\t\treturn false\n",
+    "new": "\tif len(rep.Readings) == 0 {\n\t\treturn true\n",
     "package": "./internal/giro",
     "test": "TestAStationThatGivesNoDataIsAMiss"
   },
@@ -904,8 +904,8 @@
     "row": "watchpost D-247, D-316",
     "what": "a miss is not counted",
     "file": "internal/giro/asker.go",
-    "old": "\t\tif res == missed {\n\t\t\ta.Failed++\n",
-    "new": "\t\tif false {\n\t\t\ta.Failed++\n",
+    "old": "\t\tif res == missed && !flagged {\n\t\t\ta.Failed++",
+    "new": "\t\tif res == missed && !flagged && false {\n\t\t\ta.Failed++",
     "package": "./internal/giro",
     "test": "TestAStationThatGivesNoDataIsAMiss"
   },
@@ -968,5 +968,45 @@
     "new": "\t\t_ = now\n",
     "package": "./internal/giro",
     "test": "TestAStationMissingThreeInARowIsAskedLessUntilItReturns"
+  },
+  {
+    "id": "m144",
+    "row": "watchpost D-321",
+    "what": "a flagged station's miss is counted and said",
+    "file": "internal/giro/asker.go",
+    "old": "\t\tif res == missed && !flagged {\n",
+    "new": "\t\tif res == missed && (!flagged || true) {\n",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m145",
+    "row": "watchpost D-316 (R10-7)",
+    "what": "a reply hold refuses - another station's, or one placed elsewhere - is taken as data",
+    "file": "internal/giro/asker.go",
+    "old": "\tif !a.hold(code, rep) {\n",
+    "new": "\tif !a.hold(code, rep) && false {\n",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m146",
+    "row": "watchpost D-319 (R10-4)",
+    "what": "a reading counts as recent only up to 2 hours old",
+    "file": "stations.go",
+    "old": "const recentWithin = 3 * time.Hour\n",
+    "new": "const recentWithin = 2 * time.Hour\n",
+    "package": ".",
+    "test": "TestTheSnapshotSaysHowRecentTheStationsAre"
+  },
+  {
+    "id": "m147",
+    "row": "watchpost D-319 (R10-4)",
+    "what": "the newest reading said is the first held, not the newest",
+    "file": "stations.go",
+    "old": "\t\tif h.Reading.At.After(newest) {\n",
+    "new": "\t\tif newest.IsZero() {\n",
+    "package": ".",
+    "test": "TestTheSnapshotSaysHowRecentTheStationsAre"
   }
 ]

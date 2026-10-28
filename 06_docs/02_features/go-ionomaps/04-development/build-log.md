@@ -342,3 +342,9 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **Tests**: the stations and asker suites rewritten to the rules, among them a two-day GIRO outage read again on its return, a station flagged and asked again 6 hours on, and the flags across a restart (`TestAFlaggedStationStaysFlaggedAcrossARestart`); rule 7's facts (`TestTheSnapshotSaysHowRecentTheStationsAre`).
 - **Mutants**: 45 retired with the mechanics they guarded, 12 re-pointed, m131 to m143 added, each killed.
 
+## REVIEW: round 10, the light review (watchpost D-320, D-321; D-122, A-40)
+
+- **One fresh reviewer, no Importants, seven Minors; exit REVIEW.** Its report verbatim is in watchpost's `reviewer-notes/review-round-10.md`.
+- **A flagged station's miss is not counted** (D-122, R10-2): the kept place's probe of a code never heard no longer says "1 station gave no data" every hour (m144).
+- **A refused reply is a miss** (R10-7; m145); rule 7 names `StationsHeld` (R10-1); the kept place's reach a stated limit (R10-3); the 3-hour edge and the newest tested (R10-4; m146, m147); the state's keys (R10-5); "three asks in a row" (R10-6).
+

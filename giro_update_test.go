@@ -516,23 +516,39 @@ func TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked(t *testing.T) {
 
 // TestTheSnapshotSaysHowRecentTheStationsAre is the update's timing model's
 // rule 7 (watchpost D-316, D-319): a snapshot counts the stations holding a
-// reading, how many of those readings are under 3 hours old, and the newest;
-// 4 hours into a GIRO that gives nothing, the readings are still held but
-// none is recent, and the newest is the old one - what a host says as data
-// to rely on warily.
+// reading, how many of those readings are no more than 3 hours old, and the
+// newest; as a GIRO that gives nothing ages them, each reading leaves the
+// recent count once past 3 hours, and the readings stay held, the newest
+// unchanged, GIRO not called down. One station's reading is newer than the
+// rest, and its code sorts after others', so the edge of the 3 hours and
+// the newest are each seen; the checks are 10 minutes apart or more, as an
+// update sooner is asked too soon.
 func TestTheSnapshotSaysHowRecentTheStationsAre(t *testing.T) {
 	l, n, clk := giroLibrary(t)
+	asked := clk.Now()
+	n.giro.at = asked.Add(-50 * time.Minute)
+	n.giro.rows = map[string][]time.Time{"AS00Q": {asked.Add(-5 * time.Minute)}} // the newest; the rest 50 minutes old
 	update(t, l)
 	s := update(t, l)
-	if s.Inputs.StationsHeld == 0 || s.Inputs.StationsRecent != s.Inputs.StationsHeld || s.Inputs.NewestReading.IsZero() {
-		t.Fatalf("GIRO answering: %d held, %d recent, newest %v; want every reading recent", s.Inputs.StationsHeld, s.Inputs.StationsRecent, s.Inputs.NewestReading)
+	held, newest := s.Inputs.StationsHeld, asked.Add(-5*time.Minute)
+	if held == 0 || s.Inputs.StationsRecent != held || !s.Inputs.NewestReading.Equal(newest) {
+		t.Fatalf("GIRO answering: %d held, %d recent, newest %v; want every reading recent, the newest %v", held, s.Inputs.StationsRecent, s.Inputs.NewestReading, newest)
 	}
-	held, newest := s.Inputs.StationsHeld, s.Inputs.NewestReading
 	n.giro.all = 503
-	clk.Add(4 * time.Hour)
-	update(t, l)
-	later := update(t, l)
-	if later.Inputs.StationsHeld != held || later.Inputs.StationsRecent != 0 || !later.Inputs.NewestReading.Equal(newest) || later.Inputs.GIRO != ionomaps.GIROAnswered {
-		t.Errorf("4 hours of no data: %d held, %d recent, newest %v, GIRO %v; want the %d still held, none recent, the newest %v, GIRO not called down", later.Inputs.StationsHeld, later.Inputs.StationsRecent, later.Inputs.NewestReading, later.Inputs.GIRO, held, newest)
+	for _, c := range []struct {
+		after  time.Duration
+		recent int
+	}{
+		{2*time.Hour + 5*time.Minute, held}, // the rest's readings 2 h 55 m old
+		{2*time.Hour + 20*time.Minute, 1},   // 3 h 10 m; AS00Q's 2 h 25 m
+		{2*time.Hour + 50*time.Minute, 1},   // AS00Q's 2 h 55 m
+		{3*time.Hour + 5*time.Minute, 0},    // 3 h 10 m
+	} {
+		clk.Add(asked.Add(c.after).Sub(clk.Now()))
+		update(t, l)
+		later := update(t, l)
+		if later.Inputs.StationsHeld != held || later.Inputs.StationsRecent != c.recent || !later.Inputs.NewestReading.Equal(newest) || later.Inputs.GIRO != ionomaps.GIROAnswered {
+			t.Errorf("%v after the readings: %d held, %d recent, newest %v, GIRO %v; want %d held, %d recent, the newest %v, GIRO not called down", c.after, later.Inputs.StationsHeld, later.Inputs.StationsRecent, later.Inputs.NewestReading, later.Inputs.GIRO, held, c.recent, newest)
+		}
 	}
 }

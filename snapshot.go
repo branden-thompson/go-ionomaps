@@ -140,7 +140,7 @@ type Inputs struct {
 	NoStations         bool          // the host asked for no stations (UpdateOptions.NoStations): GIRO not asked, no reading on the field
 	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
 	GIRO               GIROOutcome   // how the last burst ended, carried until the next
-	StationsFailed     int           // stations whose own ask failed in the last burst - a server error, a 404, no answer - the burst going on
+	StationsFailed     int           // stations not flagged that gave no data in the last burst - a server error, a 404, no answer, an ask run out, a reply with no reading - the burst going on
 	StationsHeld       int           // stations whose latest reading is held - one taken within the last 72 hours: the stations reporting
 	StationsRecent     int           // of those, the ones whose reading was taken within the last 3 hours
 	NewestReading      time.Time     // the newest reading held; zero when none is
