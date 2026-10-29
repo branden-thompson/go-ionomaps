@@ -11,7 +11,7 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
 ## How it works
 
 - **The field.** foF2 over a background derived from NOAA SWPC's GloTEC (the climatology where GloTEC
-  gives nothing), M(3000)F2 over a climatology (a Go port of NASA's PyIRI method), and station readings
+  gives nothing, and over the north-west tropical Pacific, where GloTEC is measured worse), M(3000)F2 over a climatology (a Go port of NASA's PyIRI method), and station readings
   from the Global Ionospheric Radio Observatory (GIRO) assimilated onto both. MUF(3000) is their
   product. 2° cells over the whole globe.
 - **The answers.** For one snapshot: the readings at places, each band's status over a place's

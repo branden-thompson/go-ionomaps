@@ -27,6 +27,7 @@ type Result struct {
 	Implausible     int // readings refused whole, their foF2 past its residual's bound (watchpost D-248)
 	ImplausibleM    int // readings whose M(3000)F2 alone was refused, past its bound, their foF2 used
 	MeanResidual    float64
+	Residuals       []Obs // foF2's, at each reading used
 	NearestKm       []float32
 	NearestUnscored []bool
 }
@@ -96,7 +97,7 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 		return r, nil // too few, or none: the background as it was
 	}
 	mFit, errM := NewFit(mObs, M3000Kernel)
-	r.Used = len(foObs)
+	r.Used, r.Residuals = len(foObs), foObs
 	for _, o := range foObs {
 		r.MeanResidual += o.Residual / float64(r.Used)
 	}
@@ -115,13 +116,14 @@ func Onto(foBack, mBack []float32, readings []Reading) (Result, error) {
 	return r, nil
 }
 
-// Shifted is foF2 moved by a number of MHz a cell, each held to the floor
-// (R-9.6): a correction pulling far below a thin background never makes a
-// value of no meaning. False, and nothing made, for a field not on the
-// library's grid or a shift that is no finite number.
+// Shifted is foF2 moved by a number of MHz a cell, scaled by the share of
+// each cell the shift is for (all of it with no share given), each held to
+// the floor (R-9.6): a correction pulling far below a thin background never
+// makes a value of no meaning. False, and nothing made, for a field not on
+// the library's grid or a shift that is no finite number.
 //
-// Source: watchpost D-105.
-func Shifted(foF2 []float32, by float64) ([]float32, bool) {
+// Source: watchpost D-105; go-ionomaps D-124.
+func Shifted(foF2 []float32, by float64, share func(lat, lon float64) float64) ([]float32, bool) {
 	if len(foF2) != grid.Cells {
 		return nil, false
 	}
@@ -131,7 +133,11 @@ func Shifted(foF2 []float32, by float64) ([]float32, bool) {
 	}
 	out := make([]float32, len(foF2))
 	for i, f := range foF2 {
-		out[i] = float32(math.Max(float64(f)+by, minFoF2))
+		part := 1.0
+		if share != nil {
+			part = share(grid.Centre(i))
+		}
+		out[i] = float32(math.Max(float64(f)+by*part, minFoF2))
 	}
 	return out, true
 }

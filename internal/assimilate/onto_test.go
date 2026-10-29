@@ -109,23 +109,26 @@ func TestTheMeanResidualIsTheLiveOffset(t *testing.T) {
 }
 
 // TestAShiftIsHeldToTheFloor is R-9.6: the no-readings correction moves
-// every cell by the offset, and holds one it would take below 0.5 MHz there;
+// every cell by the offset, by the share of the cell it is for (D-124), and holds one it would take below 0.5 MHz there;
 // the field given is not changed; a shift that is no number, or a field off
 // the grid, makes nothing.
 func TestAShiftIsHeldToTheFloor(t *testing.T) {
 	in := flat(7)
 	in[1], in[2] = 0.8, 0.5
-	got, ok := Shifted(in, -0.5)
+	got, ok := Shifted(in, -0.5, nil)
 	if !ok || got[0] != 6.5 || got[1] != 0.5 || got[2] != 0.5 || in[0] != 7 {
 		t.Errorf("shifted by -0.5: %v, %v (given %v); want 6.5, 0.5, 0.5, the given unchanged", ok, got[:3], in[:3])
 	}
 	for _, by := range []float64{math.NaN(), math.Inf(-1)} {
-		if out, ok := Shifted(in, by); ok || out != nil {
+		if out, ok := Shifted(in, by, nil); ok || out != nil {
 			t.Errorf("a shift of %v was made", by)
 		}
 	}
-	if out, ok := Shifted(in[:3], -0.5); ok || out != nil {
+	if out, ok := Shifted(in[:3], -0.5, nil); ok || out != nil {
 		t.Error("a field off the library's grid was shifted")
+	}
+	if half, _ := Shifted(in, -0.5, func(float64, float64) float64 { return 0.5 }); half[0] != 6.75 {
+		t.Errorf("shifted by -0.5 over a cell half its own: %v; want 6.75 (D-124)", half[0])
 	}
 }
 

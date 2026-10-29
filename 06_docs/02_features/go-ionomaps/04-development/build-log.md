@@ -348,3 +348,11 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **A flagged station's miss is not counted** (D-122, R10-2): the kept place's probe of a code never heard no longer says "1 station gave no data" every hour (m144).
 - **A refused reply is a miss** (R10-7; m145); rule 7 names `StationsHeld` (R10-1); the kept place's reach a stated limit (R10-3); the 3-hour edge and the newest tested (R10-4; m146, m147); the state's keys (R10-5); "three asks in a row" (R10-6).
 
+
+## VALIDATE: the north-west Pacific's background (watchpost D-333, D-334; D-124, A-41)
+
+- **The find:** held out on the recorded days, the Pacific's foF2 is worse than the climatology alone (watchpost VALIDATE item 5). Split four ways - the climatology, GloTEC alone, GloTEC with the stations, the climatology with the stations - the loss is GloTEC's background at Wake and Guam; the stations move it little. GloTEC's quality flag is 0 in every cell, and a distance cut-off would cost far stations GloTEC serves (Niue, Ascension).
+- **The change** (`internal/background`): over the box, foF2's background is the climatology, blended into GloTEC's over 4° outside it (`ClimatologyShare`); the stations are assimilated as everywhere. **The offset stays GloTEC's** (`update.go`'s `gloTECResidual`, `gloTECShare`; `assimilate.Shifted` takes each cell's share): the first build's full gate failed on the offset tests, the box's stations counted against the climatology - a FAILED row kept in `gate-runs.md`.
+- **Measured before building** (a probe beside gm3, kept with the evidence outside the tree): the Pacific 1.23 (climatology 1.22) on the fresh days, 1.39 (1.39) on the 10-minute day, 1.28 (1.32) on PLAN's independent week; all stations 0.84 to 0.80, 0.98 to 0.91, 0.85 to 0.84.
+- **Tests:** `TestTheNorthWestPacificTakesTheClimatology`, `TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge` (a place that is no number takes none, so no NaN reaches the field; the P10 floor's check); the correction leaves the box's climatology (`TestTheNoReadingsCorrectionIsNamed`) and a shift is by share (`TestAShiftIsHeldToTheFloor`); `TestAnUpdateMakesTheFieldsFromNOAA` expects the blend near the box; m148 to m154, each vetted applied.
+- **Docs:** R-9.3 and R-9.6, the design's background and offset steps, the README's field.

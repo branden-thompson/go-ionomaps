@@ -57,7 +57,8 @@ func Build(at time.Time, f107 float64, g *glotec.Grid) Fields {
 		}
 		lat, lon := grid.Centre(i)
 		if v, ok := regrid(g, lat, lon); ok {
-			f.FoF2[i] = v
+			w := float32(ClimatologyShare(lat, lon))
+			f.FoF2[i] = (1-w)*v + w*f.FoF2[i]
 			fromGloTEC++
 			continue
 		}
@@ -67,6 +68,38 @@ func Build(at time.Time, f107 float64, g *glotec.Grid) Fields {
 		f.FoF2From = GloTEC
 	}
 	return f
+}
+
+// The north-west tropical Pacific, where GloTEC's foF2 is measured worse
+// than the climatology's, so the climatology is the background there
+// (watchpost D-333, D-334): held out at Wake and Guam, GloTEC alone scored
+// 1.45 MHz RMS against the climatology's 1.22 on the fresh days, and the
+// climatology there with the stations assimilated 1.23. The climatology's
+// share falls to none over boxEdge degrees outside the box, so the map has
+// no seam at its edge.
+//
+// Source: watchpost D-333, D-334; go-ionomaps G-M3 on the recorded days.
+const (
+	boxSouth, boxNorth = 0.0, 30.0
+	boxWest, boxEast   = 130.0, 180.0 // degrees east
+	boxEdge            = 4.0
+)
+
+// ClimatologyShare is the climatology's share of a place's foF2 background
+// where GloTEC gives one: 1 inside the box, falling linearly to 0 at boxEdge
+// degrees outside it, 0 elsewhere and for a place that is no number, which
+// would otherwise carry NaN into the field. GloTEC's offset is measured
+// and applied by the rest (D-124).
+//
+// Source: watchpost D-333, D-334; go-ionomaps D-124.
+func ClimatologyShare(lat, lon float64) float64 {
+	nowhere := math.IsNaN(lat) || math.IsNaN(lon)
+	if nowhere {
+		return 0
+	}
+	east := math.Mod(math.Mod(lon, 360)+360, 360) // 0 to 360, so the box's east edge is 180
+	out := max(boxSouth-lat, lat-boxNorth, boxWest-east, east-boxEast, 0)
+	return max(0, 1-out/boxEdge)
 }
 
 // regrid is GloTEC's foF2 at a place: bilinear between the four cell centres

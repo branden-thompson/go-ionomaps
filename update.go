@@ -517,6 +517,27 @@ func (l *Library) scalesOf(now time.Time) Scales {
 	return s
 }
 
+// gloTECResidual is the live offset, GloTEC's against the stations: the
+// mean residual of the readings used where GloTEC is the whole background,
+// and how many there were (R-9.6, D-124).
+func gloTECResidual(obs []assimilate.Obs) (mean float64, n int) {
+	sum := 0.0
+	for _, o := range obs {
+		if background.ClimatologyShare(o.Lat, o.Lon) == 0 {
+			sum += o.Residual
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, 0
+	}
+	return sum / float64(n), n
+}
+
+// gloTECShare is GloTEC's share of a place's foF2 background, which the
+// no-readings correction moves (D-124).
+func gloTECShare(lat, lon float64) float64 { return 1 - background.ClimatologyShare(lat, lon) }
+
 // build is the snapshot at now from what is held, with the options asked:
 // the typical offset learns from a live offset over readings not yet
 // learned from, and the no-readings correction moves GloTEC's foF2 when no
@@ -529,14 +550,15 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		res, oldest, newest = l.assimilated(b, now)
 	}
 	overGloTEC := b.FoF2From == background.GloTEC
-	measured := overGloTEC && res.Used >= liveReadings
+	live, overIt := gloTECResidual(res.Residuals)
+	measured := overGloTEC && overIt >= liveReadings
 	if measured {
-		l.offset.learn(res.MeanResidual, newest)
+		l.offset.learn(live, newest)
 	}
 	corrected := false
 	if o.CorrectNoReadings && overGloTEC && res.Used == 0 {
 		var shifted []float32
-		shifted, corrected = assimilate.Shifted(res.FoF2, l.offset.mean)
+		shifted, corrected = assimilate.Shifted(res.FoF2, l.offset.mean, gloTECShare)
 		if corrected {
 			res.FoF2 = shifted
 		}
@@ -560,7 +582,7 @@ func (l *Library) build(now time.Time, o UpdateOptions) Snapshot {
 		NearestKm:       res.NearestKm,
 		NearestUnscored: unscoredCells(res.NearestUnscored),
 		TypicalError:    typicalError(),
-		Offset:          l.offset.offset(res.MeanResidual, measured, corrected),
+		Offset:          l.offset.offset(live, measured, corrected),
 		Noise:           o.Noise,
 		Scales:          l.scalesOf(now),
 		typical:         l.typical,

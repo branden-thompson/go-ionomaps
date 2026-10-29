@@ -290,8 +290,10 @@ func TestAnUpdateMakesTheFieldsFromNOAA(t *testing.T) {
 		if h.FoF2.NoData.Has(i) || h.MUF3000.NoData.Has(i) {
 			t.Fatalf("cell %d has no data", i)
 		}
-		if math.Abs(float64(fo)-7) > 1e-4 {
-			t.Fatalf("cell %d: foF2 %v; GloTEC's is 7", i, fo)
+		lat, lon := 89-2*float64(i/180), -179+2*float64(i%180) // the cell's centre
+		share := background.ClimatologyShare(lat, lon)         // the north-west Pacific's climatology (D-124)
+		if want := (1-share)*7 + share*float64(climatology.FoF2[i]); math.Abs(float64(fo)-want) > 1e-4 {
+			t.Fatalf("cell %d: foF2 %v; GloTEC's 7, the climatology's share %v of it, is %v", i, fo, share, want)
 		}
 		if want := float64(fo) * float64(climatology.M3000[i]); math.Abs(float64(h.MUF3000.Values[i])-want) > 1e-4 {
 			t.Fatalf("cell %d: MUF(3000) %v; foF2 %v times the climatology's M(3000)F2 is %v", i, h.MUF3000.Values[i], fo, want)

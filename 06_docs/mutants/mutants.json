@@ -1008,5 +1008,75 @@
     "new": "\t\tif newest.IsZero() {\n",
     "package": ".",
     "test": "TestTheSnapshotSaysHowRecentTheStationsAre"
+  },
+  {
+    "id": "m148",
+    "row": "watchpost D-334",
+    "what": "the box takes none of the climatology: GloTEC's foF2 everywhere",
+    "file": "internal/background/background.go",
+    "old": "\t\t\tw := float32(ClimatologyShare(lat, lon))\n",
+    "new": "\t\t\tw := float32(0)\n",
+    "package": "./internal/background",
+    "test": "TestTheNorthWestPacificTakesTheClimatology"
+  },
+  {
+    "id": "m149",
+    "row": "watchpost D-334",
+    "what": "the box's edge is a seam: the climatology whole inside, none outside",
+    "file": "internal/background/background.go",
+    "old": "\treturn max(0, 1-out/boxEdge)\n",
+    "new": "\treturn float64(map[bool]int{true: 1}[out == 0])\n",
+    "package": "./internal/background",
+    "test": "TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge"
+  },
+  {
+    "id": "m150",
+    "row": "watchpost D-334",
+    "what": "the box is read on longitudes unwrapped, so it ends at the antimeridian",
+    "file": "internal/background/background.go",
+    "old": "\teast := math.Mod(math.Mod(lon, 360)+360, 360) // 0 to 360, so the box's east edge is 180\n",
+    "new": "\teast := lon\n",
+    "package": "./internal/background",
+    "test": "TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge"
+  },
+  {
+    "id": "m151",
+    "row": "watchpost D-334",
+    "what": "a place that is no number takes a NaN share, carried into the field",
+    "file": "internal/background/background.go",
+    "old": "\tnowhere := math.IsNaN(lat) || math.IsNaN(lon)\n",
+    "new": "\tnowhere := false\n",
+    "package": "./internal/background",
+    "test": "TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge"
+  },
+  {
+    "id": "m152",
+    "row": "watchpost D-334 (go-ionomaps D-124)",
+    "what": "the live offset counts the stations in the box, against the climatology",
+    "file": "update.go",
+    "old": "\t\tif background.ClimatologyShare(o.Lat, o.Lon) == 0 {\n",
+    "new": "\t\tif true {\n",
+    "package": ".",
+    "test": "TestTheLiveOffsetIsCarried"
+  },
+  {
+    "id": "m153",
+    "row": "watchpost D-334 (go-ionomaps D-124)",
+    "what": "the no-readings correction moves the box's climatology by GloTEC's offset",
+    "file": "update.go",
+    "old": "assimilate.Shifted(res.FoF2, l.offset.mean, gloTECShare)",
+    "new": "assimilate.Shifted(res.FoF2, l.offset.mean, nil)",
+    "package": ".",
+    "test": "TestTheNoReadingsCorrectionIsNamed"
+  },
+  {
+    "id": "m154",
+    "row": "watchpost D-334 (go-ionomaps D-124)",
+    "what": "a shift moves every cell whole, whatever its share",
+    "file": "internal/assimilate/onto.go",
+    "old": "\t\t\tpart = share(grid.Centre(i))\n",
+    "new": "\t\t\tpart = 1\n",
+    "package": "./internal/assimilate",
+    "test": "TestAShiftIsHeldToTheFloor"
   }
 ]

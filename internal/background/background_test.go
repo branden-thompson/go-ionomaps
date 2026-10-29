@@ -158,3 +158,39 @@ func BenchmarkBuild(b *testing.B) {
 		Build(noon, 150, g)
 	}
 }
+
+// TestTheNorthWestPacificTakesTheClimatology is watchpost D-334: inside the
+// box GloTEC is measured worse than the climatology, so foF2's background
+// there is the climatology's; outside it GloTEC's stands; between, over the
+// box's edge, the two are blended by distance, so the map has no seam.
+func TestTheNorthWestPacificTakesTheClimatology(t *testing.T) {
+	b := Build(noon, 150, flatGloTEC())
+	cell := func(lat, lon float64) (got, clim, glotec float64) {
+		row, col := int((89-lat)/2), int((lon+179)/2)
+		fo, _ := expected(row, col)
+		return float64(b.FoF2[row*grid.Cols+col]), fo, 5 + (89-2*float64(row))/30
+	}
+	if got, clim, _ := cell(15, 155); math.Abs(got-clim) > 1e-4 {
+		t.Errorf("inside the box (15°N, 155°E): foF2 %v; the climatology gives %v", got, clim)
+	}
+	if got, _, gt := cell(15, -79); math.Abs(got-gt) > 1e-4 {
+		t.Errorf("far from the box (15°N, 79°W): foF2 %v; GloTEC regridded gives %v", got, gt)
+	}
+	got, clim, gt := cell(33, 155) // 3° north of the box: a quarter climatology
+	if want := 0.75*gt + 0.25*clim; math.Abs(got-want) > 1e-3 {
+		t.Errorf("3° outside the box (33°N, 155°E): foF2 %v; a quarter of the climatology's %v into GloTEC's %v gives %v", got, clim, gt, want)
+	}
+}
+
+// TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge pins the weight
+// the blend uses (D-334), across the antimeridian as well, and none for a
+// place that is no number.
+func TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge(t *testing.T) {
+	for _, c := range []struct {
+		lat, lon, want float64
+	}{{15, 155, 1}, {0, 130, 1}, {30, -180, 1}, {15, 128, 0.5}, {15, -178, 0.5}, {32, 155, 0.5}, {-2, 155, 0.5}, {15, 125, 0}, {15, -175, 0}, {35, 155, 0}, {15, -79, 0}, {-60, 155, 0}, {math.NaN(), 155, 0}, {15, math.NaN(), 0}} {
+		if got := ClimatologyShare(c.lat, c.lon); !(math.Abs(got-c.want) <= 1e-9) { // NaN fails too
+			t.Errorf("at %v°, %v°: the climatology's share %v; want %v", c.lat, c.lon, got, c.want)
+		}
+	}
+}

@@ -109,7 +109,8 @@ func TestTheTypicalOffsetLearnsFromUpdates(t *testing.T) {
 
 // TestTheNoReadingsCorrectionIsNamed is R-9.6 (D-105 c): asked for, and with
 // no readings assimilated, foF2 is GloTEC's moved by the typical offset,
-// MUF(3000) with it, and the snapshot says so; with readings assimilated, or
+// MUF(3000) with it, the climatology's in the north-west Pacific box left
+// where it is (D-124), and the snapshot says so; with readings assimilated, or
 // over the climatology, it is not applied, and not said.
 func TestTheNoReadingsCorrectionIsNamed(t *testing.T) {
 	correct := ionomaps.UpdateOptions{CorrectNoReadings: true}
@@ -131,6 +132,9 @@ func TestTheNoReadingsCorrectionIsNamed(t *testing.T) {
 		if math.Abs(ratio-6.5/7) > 1e-5 {
 			t.Fatalf("cell %d: MUF(3000) moved by %v; foF2 by 6.5/7", i, ratio)
 		}
+	}
+	if box := 37*180 + 167; s.Now.FoF2.Values[box] != as.Now.FoF2.Values[box] { // 15° N, 155° E: the climatology's (D-124)
+		t.Fatalf("inside the north-west Pacific box foF2 was moved to %v from %v; GloTEC's offset never moves the climatology", s.Now.FoF2.Values[box], as.Now.FoF2.Values[box])
 	}
 	n.giro.speakers = 2 // two readings held: too few to assimilate, so still none used
 	if s, _ := l.Update(context.Background(), correct); !s.Offset.Corrected || s.Inputs.Stations != 0 {
