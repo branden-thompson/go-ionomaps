@@ -356,3 +356,7 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 - **Measured before building** (a probe beside gm3, kept with the evidence outside the tree): the Pacific 1.23 (climatology 1.22) on the fresh days, 1.39 (1.39) on the 10-minute day, 1.28 (1.32) on PLAN's independent week; all stations 0.84 to 0.80, 0.98 to 0.91, 0.85 to 0.84.
 - **Tests:** `TestTheNorthWestPacificTakesTheClimatology`, `TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge` (a place that is no number takes none, so no NaN reaches the field; the P10 floor's check); the correction leaves the box's climatology (`TestTheNoReadingsCorrectionIsNamed`) and a shift is by share (`TestAShiftIsHeldToTheFloor`); `TestAnUpdateMakesTheFieldsFromNOAA` expects the blend near the box; m148 to m154, each vetted applied.
 - **Docs:** R-9.3 and R-9.6, the design's background and offset steps, the README's field.
+
+## VALIDATE: the README audited for content (watchpost's VALIDATE exit gate)
+
+- A fresh reviewer read it against the code at v0.1.0-rc.17: accurate - the background box, every timing constant, the `Answers` keys and every linked document match. Its two minors fixed: the box's 4° blend named, and `NOTICE`'s other credits (IGRF-14, the ITU-R recommendations, ITUHFProp) pointed to.

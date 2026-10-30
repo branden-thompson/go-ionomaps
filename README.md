@@ -11,8 +11,9 @@ host, watchpost 0.19.0. The design and its record are in `06_docs/02_features/go
 ## How it works
 
 - **The field.** foF2 over a background derived from NOAA SWPC's GloTEC (the climatology where GloTEC
-  gives nothing, and over the north-west tropical Pacific, where GloTEC is measured worse), M(3000)F2 over a climatology (a Go port of NASA's PyIRI method), and station readings
-  from the Global Ionospheric Radio Observatory (GIRO) assimilated onto both. MUF(3000) is their
+  gives nothing, and over the north-west tropical Pacific, where GloTEC is measured worse, blended into
+  GloTEC's over 4° outside it), M(3000)F2 over a climatology (a Go port of NASA's PyIRI method), and
+  station readings from the Global Ionospheric Radio Observatory (GIRO) assimilated onto both. MUF(3000) is their
   product. 2° cells over the whole globe.
 - **The answers.** For one snapshot: the readings at places, each band's status over a place's
   near-vertical area or on a path (ITU-R P.533-14's basic MUF above, its reference circuit below), the
@@ -114,7 +115,8 @@ Sources and their terms are in `NOTICE`. In short:
 - No GIRO data is in this repository, and none ever will be. The throttle state the library hands a
   host holds times, never a reading.
 - NOAA's products are public domain; PyIRI's coefficient tables ship under its MIT licence, given in
-  full in `NOTICE`.
+  full in `NOTICE`, which also credits IGRF-14's coefficients, the ITU-R recommendations implemented
+  and ITUHFProp's absorption factors.
 
 Research for the design fetched GIRO and NOAA data under GIRO's and NOAA's terms; that data was kept outside
 this repository.

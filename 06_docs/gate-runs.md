@@ -91,3 +91,4 @@ Every run of `scripts/gate` adds a row: when, HEAD, the git tree that was tested
 | 2026-10-28T00:23:14Z | 5396d3f | 1a80f8151cb0 | full | green | 530 | - |
 | 2026-10-29T19:54:54Z | d71cf55 | b1d0c86a06ad | full | FAILED: tests, race detector on; tests, race detector off | 550 | - |
 | 2026-10-29T20:08:34Z | d71cf55 | 85f0843e03d6 | full | green | 513 | - |
+| 2026-10-30T01:13:59Z | 37b7d42 | ec165b6460c9 | docs | green | 53 | - |
