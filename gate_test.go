@@ -164,3 +164,13 @@ func TestAFuzzLegThatFinishesIsNotHeldByItsLimit(t *testing.T) {
 		t.Errorf("a fuzz leg of ten runs took %v (%v):\n%s", took, err, out)
 	}
 }
+
+// TestACostRunThatMeasuresNothingFails is G10.3 (watchpost D-345): the
+// release step that measures G-G1 fails where nothing is measured, never
+// passing as a step that holds.
+func TestACostRunThatMeasuresNothingFails(t *testing.T) {
+	out, ok := runGate(t, plantModule(t, nil), "--cost")
+	if ok || !strings.Contains(out, "FAILED  G-G1 measured") {
+		t.Errorf("the cost step on a module with no measure: ok=%v\n%s", ok, out)
+	}
+}

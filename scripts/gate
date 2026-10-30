@@ -15,8 +15,13 @@
 #                           staged it fails
 #   scripts/gate --fuzz     the fuzz legs alone
 #   scripts/gate --release  every leg, then the release steps: no measured
-#                           constant over a year old (R-9.8), never run by
-#                           the everyday gate
+#                           constant over a year old (R-9.8), and G-G1's
+#                           record holding for this code (G10.3); never run
+#                           by the everyday gate
+#   scripts/gate --cost     G-G1 measured on this machine, at rest, and its
+#                           record written for the code as it stands (G10.3,
+#                           watchpost D-345): run on the reference machine
+#                           before the release, and commit the record
 #
 # Settings, each written on the run's log line when given:
 #   GATE_FUZZ_EXECS=Nx      how many runs each fuzz target makes (FUZZ_EXECS
@@ -67,18 +72,19 @@ case "$FUZZ_LIMIT" in
   ''|*[!0-9]*|0) echo "gate: GATE_FUZZ_LIMIT must be a whole number of seconds above zero, not '$FUZZ_LIMIT'"; exit 2 ;;
 esac
 
-quick=0 docs=0 fuzzonly=0 release=0 modes=0
+quick=0 docs=0 fuzzonly=0 release=0 cost=0 modes=0
 for arg in "$@"; do
   case "$arg" in
     --quick) quick=1; modes=$((modes + 1)) ;;
     --docs) docs=1; modes=$((modes + 1)) ;;
     --fuzz) fuzzonly=1; modes=$((modes + 1)) ;;
     --release) release=1; modes=$((modes + 1)) ;;
+    --cost) cost=1; modes=$((modes + 1)) ;;
     *) echo "gate: unknown argument $arg"; exit 2 ;;
   esac
 done
 if [ "$modes" -gt 1 ]; then
-  echo "gate: one mode at most a run (--quick, --docs, --fuzz or --release)"
+  echo "gate: one mode at most a run (--quick, --docs, --fuzz, --release or --cost)"
   exit 2
 fi
 mode="full"
@@ -86,6 +92,7 @@ mode="full"
 [ "$docs" = 1 ] && mode="docs"
 [ "$fuzzonly" = 1 ] && mode="fuzz"
 [ "$release" = 1 ] && mode="release"
+[ "$cost" = 1 ] && mode="cost"
 
 FLOOR_TOOLCHAIN="go$(sed -n 's/^go \([0-9.]*\)$/\1/p' go.mod | head -1)"
 # Every leg runs on the floor toolchain go.mod names, whatever the
@@ -135,6 +142,45 @@ constants_current() {
     return 1
   fi
   printf '%s\n' "$out" | grep -q -- '--- PASS: TestNoConstantIsOverAYearOld ' || { echo "the release step did not run: TestNoConstantIsOverAYearOld was skipped or not selected"; return 1; }
+}
+
+# code_tree is the git tree of the code as it stands: the working tree with
+# 06_docs and every Markdown file left out, so G-G1's record, taken before
+# the checklist's ticks and the release notes, still names the code released.
+code_tree() {
+  local dir index tree
+  dir="$(mktemp -d)" || return 1
+  index="$dir/index"
+  GIT_INDEX_FILE="$index" git read-tree HEAD 2>/dev/null || return 1
+  GIT_INDEX_FILE="$index" git add -A 2>/dev/null || return 1
+  GIT_INDEX_FILE="$index" git rm -r -q --cached --ignore-unmatch 06_docs '*.md' >/dev/null 2>&1
+  tree="$(GIT_INDEX_FILE="$index" git write-tree 2>/dev/null)" || return 1
+  rm -rf "$dir"
+  printf '%s' "${tree:0:12}"
+}
+
+# cost_measured is G10.3's measure: G-G1 on this machine, its record written
+# for this code (cost_test.go). A run that selects no test fails.
+cost_measured() {
+  local out tree
+  tree="$(code_tree)" || { echo "the code's tree cannot be read"; return 1; }
+  out="$(IONOMAPS_TREE="$tree" go test -run '^TestTheCostIsRecorded$' -count=1 -v . -args -record-cost 2>&1)"
+  local rc=$?
+  printf '%s\n' "$out" | grep -E '^ *\| |past its target|FAIL' | head -20
+  [ "$rc" = 0 ] || return 1
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestTheCostIsRecorded ' || { echo "the measure did not run: TestTheCostIsRecorded was skipped or not selected"; return 1; }
+}
+
+# cost_recorded is G10.3's release check: G-G1's record names this code and
+# the reference machine, and every target is met (cost_test.go).
+cost_recorded() {
+  local out tree
+  tree="$(code_tree)" || { echo "the code's tree cannot be read"; return 1; }
+  if ! out="$(IONOMAPS_RELEASE=1 IONOMAPS_TREE="$tree" go test -run '^TestTheCostRecordHoldsForThisCode$' -count=1 -v . 2>&1)"; then
+    printf '%s\n' "$out" | grep -E 'cost_test|FAIL' | head -20
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestTheCostRecordHoldsForThisCode ' || { echo "the release step did not run: TestTheCostRecordHoldsForThisCode was skipped or not selected"; return 1; }
 }
 
 # limited runs a command under a wall-clock limit in seconds, its process
@@ -245,8 +291,13 @@ if [ "$docs" = 1 ]; then
   leg "tests (docs lane)" go test -count=1 ./...
 fi
 
+# --- G-G1's measure: this leg alone ----------------------------------------------
+if [ "$cost" = 1 ]; then
+  leg "G-G1 measured on this machine, its record written (G10.3)" cost_measured
+fi
+
 # --- the module ---------------------------------------------------------------
-if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ]; then
+if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ] && [ "$cost" = 0 ]; then
   leg "gofmt" gofmt_clean
   leg "vet" go vet ./...
   leg "tests, race detector on" go test -race -count=1 ./...
@@ -262,7 +313,7 @@ if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ]; then
 fi
 
 # --- fuzzing: every target, each for FUZZ_EXECS runs ----------------------------
-if [ "$docs" = 0 ] && { [ "$quick" = 0 ] || [ "$fuzzonly" = 1 ]; }; then
+if [ "$docs" = 0 ] && [ "$cost" = 0 ] && { [ "$quick" = 0 ] || [ "$fuzzonly" = 1 ]; }; then
   if ! listed="$(go test -list '^Fuzz' ./... 2>&1)"; then
     fail "the fuzz targets cannot be listed"
     printf '%s\n' "$listed" | sed 's/^/          /'
@@ -295,10 +346,11 @@ fi
 # --- the release steps ------------------------------------------------------------
 if [ "$mode" = "release" ]; then
   leg "R-9.8, no measured constant over a year old" constants_current
+  leg "G-G1's record holds for this code, on the reference machine (G10.3)" cost_recorded
 fi
 
 # --- P10, where the harness is set up -------------------------------------------
-if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ]; then
+if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ] && [ "$cost" = 0 ]; then
   if ! command -v a2dh >/dev/null 2>&1; then
     p10_not_run="the P10 check (a2dh is not on PATH)"
   elif [ ! -f .a2dh.yml ]; then

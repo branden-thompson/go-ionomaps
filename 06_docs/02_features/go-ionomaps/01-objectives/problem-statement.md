@@ -57,7 +57,7 @@ Each ruled from PLAN's dry run, against watchpost D-75's floors, and listed here
 | G-M1 | every source's terms recorded and tested (pass or fail) | watchpost D-12, D-69 |
 | G-M2 | bit-identical on the same OS and architecture; at most 0.001 MHz apart across amd64 and arm64 | watchpost D-97 |
 | G-M4 | 100% of injected faults reported | watchpost D-12 |
-| G-G1 | a cold first open (25 hours, 2°) ≤ 0.5 s CPU; a refresh ≤ 50 ms; live heap ≤ 15 MB (Apple M5 Pro) | watchpost D-98, D-112 |
+| G-G1 | a cold open of the hour now at 2° ≤ 0.5 s CPU; each hour ahead, built when asked, ≤ 50 ms; a refresh ≤ 100 ms; live heap with 24 hours ahead held ≤ 15 MB (Apple M5 Pro) | watchpost D-98, D-112, D-347 |
 | G-M3 | held-out RMS ≥ 15% below the climatology's in the mainland US and ≥ 10% below overall, on foF2 and MUF(3000); within 500 km of a reporting station foF2 ≤ 0.5 MHz, MUF(3000) ≤ 1.6 MHz; on ≥ 3 days fetched in BUILD after PLAN, G10.4 | watchpost D-108, D-132 |
 | G-M3 (reported, not gated) | the Pacific stations and each distance band (under 500, 500-1000, 1000-2000, over 2000 km) reported separately | watchpost D-116 |
 

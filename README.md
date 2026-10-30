@@ -100,7 +100,8 @@ its shape, as reviewed for a host developer, is in
 detector, the nested modules' own, fuzzing, the pinned vulnerability scan at the module's floor
 toolchain, cross-compiles and the mutants (`06_docs/mutants/mutants.json`, each a change its test must
 catch). `--quick` skips the slow legs, `--docs` is the lane for a staged change of Markdown alone, and
-`--release` adds the release steps: no measured constant over a year old. Every leg runs on the floor
+`--release` adds the release steps: no measured constant over a year old, and G-G1's record holding for
+the code (`--cost` measures G-G1 on the reference machine and writes that record). Every leg runs on the floor
 toolchain `go.mod` names. P10 runs where the li-A2DH harness is set up, with its two local files
 (`.a2dh.yml` and `.a2dh-p10-exemptions.yml`, whose rows are mirrored in `06_docs/p10-ledger.md`), and is
 named NOT RUN elsewhere. `tools/gm3` is G-M3's instrument over recorded days (`go run ./tools/gm3 -h`).

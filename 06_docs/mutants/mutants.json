@@ -1078,5 +1078,45 @@
     "new": "\t\t\tpart = 1\n",
     "package": "./internal/assimilate",
     "test": "TestAShiftIsHeldToTheFloor"
+  },
+  {
+    "id": "m155",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check takes a record of any code as this code's",
+    "file": "cost_test.go",
+    "old": "if got := strings.Trim(fields[rowTree], \"`\"); got != tree {",
+    "new": "if got := strings.Trim(fields[rowTree], \"`\"); got == \"\" {",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
+  },
+  {
+    "id": "m156",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check takes a record from any machine",
+    "file": "cost_test.go",
+    "old": "if !strings.Contains(fields[rowMachine], referenceMachine) {",
+    "new": "if fields[rowMachine] == \"\" {",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
+  },
+  {
+    "id": "m157",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check lets a figure run to twice its target",
+    "file": "cost_test.go",
+    "old": "if v > costTargets[r] {",
+    "new": "if v > 2*costTargets[r] {",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
+  },
+  {
+    "id": "m158",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check never reads the hour ahead",
+    "file": "cost_test.go",
+    "old": "for _, r := range []string{rowOpen, rowAhead, rowRefresh, rowHeap} {\n\t\tfigure",
+    "new": "for _, r := range []string{rowOpen, rowRefresh, rowHeap} {\n\t\tfigure",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
   }
 ]

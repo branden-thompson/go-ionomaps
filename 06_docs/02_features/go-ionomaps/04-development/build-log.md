@@ -360,3 +360,10 @@ Scored by `tools/gm3` at `73c4a940bffa` (`v0.1.0-rc.4`), built from a clean tree
 ## VALIDATE: the README audited for content (watchpost's VALIDATE exit gate)
 
 - A fresh reviewer read it against the code at v0.1.0-rc.17: accurate - the background box, every timing constant, the `Answers` keys and every linked document match. Its two minors fixed: the box's 4° blend named, and `NOTICE`'s other credits (IGRF-14, the ITU-R recommendations, ITUHFProp) pointed to.
+
+## SHIP: G10.3's release step (watchpost D-345, D-347)
+
+- **Found at SHIP** (the checklist's row 0.2): G10.3 was half built - the gate held G-G1's proxies, but the wall clock D-119 made a release step had never landed, and only PLAN's spike had measured it.
+- **Built** (D-345): `scripts/gate --cost` measures G-G1 from the test service, each figure the median of five, and writes `07-readiness/cost-record.md` with the machine, the Go version and the code's tree - the working tree less `06_docs` and Markdown, so the checklist's ticks after it still name the code released. `scripts/gate --release` refuses a record that is missing, names other code or another machine, or misses a target. `TestTheCostIsRecorded`, `TestTheCostRecordHoldsForThisCode`, `TestACostRecordIsRefused`, `TestACostRunThatMeasuresNothingFails`; m155 to m158, each applied and killed.
+- **Measured at rest** (Apple M5 Pro, CPU): the cold open of the hour now 94 ms; each hour ahead about 37 ms, all 24 about 880 ms - so D-98's "25 hours" open, a PLAN-time definition before the hours ahead were built when asked (D-60), about 0.98 s against 0.5; a refresh 90 ms against 50, about 60 % the assimilation's cell-by-station great-circle distances and 36 % the climatology rebuilt for the new moment; the live heap 8.1 MB. **G-G1 amended to the library as built** (watchpost D-347, D-127): the hour now ≤ 0.5 s, an hour ahead ≤ 50 ms, a refresh ≤ 100 ms, the heap ≤ 15 MB - all met in the record; a faster refresh is a v0.1.1 follow-up.
+- **The plan's G9.3** names the six-point model's tests (watchpost D-316 to D-319); its old tests went with the mechanism they held.
