@@ -1,0 +1,6 @@
+github.com/branden-thompson/go-tuimaps v0.2.0 h1:eSHqTN/oek3sBBB1Aj28vCgIZHMKpWXNG2mvK76gomI=
+github.com/branden-thompson/go-tuimaps v0.2.0/go.mod h1:ZFNCqaVzLGcj2azwqLk9ap7CychuOOcCsS8VMpEb/0M=
+github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
+github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
+github.com/mattn/go-runewidth v0.0.24 h1:cpokDiIn0MGnhdHwuWnJBITySJ20QyNGnY2kR/ay2DU=
+github.com/mattn/go-runewidth v0.0.24/go.mod h1:XBkDxAl56ILZc9knddidhrOlY5R/pDhgLpndooCuJAs=

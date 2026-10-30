@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+# The gate (NFR-1, plan task G0.1), modelled on go-tuiMaps'. It stands before
+# every commit, run here; the hosted workflow (.github/workflows/gate.yml)
+# runs the quick gate on every push and the full gate on dispatch.
+#
+#   scripts/gate            every leg
+#   scripts/gate --quick    skip the slow legs: fuzzing, the vulnerability
+#                           scans and the cross-compiles (P10 still runs
+#                           where the harness is; elsewhere the run says
+#                           "green without P10", NOT RUN, never green)
+#   scripts/gate --docs     the docs lane: for a STAGED change of Markdown
+#                           only, the module's tests (which read the
+#                           documents) and no other leg. Any other staged file
+#                           is refused and sent to the full gate; with nothing
+#                           staged it fails
+#   scripts/gate --fuzz     the fuzz legs alone
+#   scripts/gate --release  every leg, then the release steps: no measured
+#                           constant over a year old (R-9.8), and G-G1's
+#                           record holding for this code (G10.3); never run
+#                           by the everyday gate
+#   scripts/gate --cost     G-G1 measured on this machine, at rest, and its
+#                           record written for the code as it stands (G10.3,
+#                           watchpost D-345): run on the reference machine
+#                           before the release, and commit the record
+#
+# Settings, each written on the run's log line when given:
+#   GATE_FUZZ_EXECS=Nx      how many runs each fuzz target makes (FUZZ_EXECS
+#                           below by default): a count, not a time (H-11)
+#   GATE_FUZZ_LIMIT=S       the wall-clock seconds a fuzz leg may take (600)
+#
+# EVERY RUN THAT REACHES A LEG IS LOGGED to 06_docs/gate-runs.md when that
+# file exists: HEAD, the git tree that was tested (this log left out), the
+# mode, the result (and the legs that failed), the seconds it took and any
+# override. A lane that refuses before any leg runs - the docs lane with
+# nothing staged, or with a file that is not Markdown - says why and logs
+# nothing: a refusal is no run (watchpost D-280).
+#
+# GATE_ROOT names the tree to check; by default, the repository this script
+# is in. The floor toolchain is read from go.mod's go directive.
+set -u
+
+root="${GATE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+cd "$root" || exit 2
+
+GOVULNCHECK_PIN="v1.8.0"
+TARGETS="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
+
+# THE FUZZ BUDGET IS A COUNT OF RUNS, NOT A STRETCH OF TIME (watchpost H-11,
+# as go-tuiMaps' gate D-9): with `-fuzztime <duration>` the engine can report
+# its own deadline as a failure. A count has no wall clock, so each fuzz leg
+# also runs under FUZZ_LIMIT seconds and fails as TIME LIMIT past them.
+# THE COUNT IS PER TARGET, the targets differing by thousands of times in
+# runs a second; a target with no row runs the default, named. GATE_FUZZ_EXECS
+# sets every target's count.
+fuzz_execs() {
+  [ -n "${GATE_FUZZ_EXECS:-}" ] && { echo "$GATE_FUZZ_EXECS"; return; }
+  case "$1" in
+    FuzzAnswersNeverReturnNaN) echo "25000x" ;; # about a minute at 40000x (2026-10-17, Apple M5 Pro); 40000x took 438 s on the hosted amd64 runner at the floor toolchain (2026-10-24), too near its 600 s
+    FuzzAReachNeverReturnsNaN) echo "1500x" ;; # a reach is the whole globe's circuits; about a minute (2026-10-17, Apple M5 Pro)
+    FuzzARestoredStateNeverPanics) echo "20000x" ;; # each run a library and two updates; 48 s (2026-10-18, Apple M5 Pro), 200000x ran past the hosted runners' 600 s
+    FuzzGloTECDecode) echo "40000x" ;; # each run a whole 72 x 72 grid; 14 s at 100000x (2026-10-19, Apple M5 Pro); 100000x took 322 s on the hosted arm64 runner and passed 600 s on amd64 at the floor toolchain (2026-10-24), which runs about half as fast
+    *)                         echo "$FUZZ_EXECS_DEFAULT" ;;
+  esac
+}
+FUZZ_EXECS_DEFAULT="200000x"
+FUZZ_EXECS="${GATE_FUZZ_EXECS:-$FUZZ_EXECS_DEFAULT}"
+FUZZ_LIMIT="${GATE_FUZZ_LIMIT:-600}"
+case "$FUZZ_EXECS" in
+  *[!0-9x]*|x|''|*x*x*|*[!x]) echo "gate: GATE_FUZZ_EXECS must be a count of runs such as 200000x, not '$FUZZ_EXECS'"; exit 2 ;;
+esac
+case "$FUZZ_LIMIT" in
+  ''|*[!0-9]*|0) echo "gate: GATE_FUZZ_LIMIT must be a whole number of seconds above zero, not '$FUZZ_LIMIT'"; exit 2 ;;
+esac
+
+quick=0 docs=0 fuzzonly=0 release=0 cost=0 modes=0
+for arg in "$@"; do
+  case "$arg" in
+    --quick) quick=1; modes=$((modes + 1)) ;;
+    --docs) docs=1; modes=$((modes + 1)) ;;
+    --fuzz) fuzzonly=1; modes=$((modes + 1)) ;;
+    --release) release=1; modes=$((modes + 1)) ;;
+    --cost) cost=1; modes=$((modes + 1)) ;;
+    *) echo "gate: unknown argument $arg"; exit 2 ;;
+  esac
+done
+if [ "$modes" -gt 1 ]; then
+  echo "gate: one mode at most a run (--quick, --docs, --fuzz, --release or --cost)"
+  exit 2
+fi
+mode="full"
+[ "$quick" = 1 ] && mode="quick"
+[ "$docs" = 1 ] && mode="docs"
+[ "$fuzzonly" = 1 ] && mode="fuzz"
+[ "$release" = 1 ] && mode="release"
+[ "$cost" = 1 ] && mode="cost"
+
+FLOOR_TOOLCHAIN="go$(sed -n 's/^go \([0-9.]*\)$/\1/p' go.mod | head -1)"
+# Every leg runs on the floor toolchain go.mod names, whatever the
+# environment sets: setup-go sets GOTOOLCHAIN=local, which ran the hosted
+# gate on its own Go, not the floor (watchpost RC-12, D-152).
+export GOTOOLCHAIN="$FLOOR_TOOLCHAIN"
+export GOFLAGS="${GOFLAGS:--mod=readonly}"
+
+failures=""
+p10_not_run=""
+started_at=$SECONDS
+pass() { echo "  ok      $1"; }
+fail() { echo "  FAILED  $1"; failures="${failures}  FAILED  $1"$'\n'; }
+leg() {
+  local name="$1"; shift
+  local out started
+  started=$SECONDS
+  if out="$("$@" 2>&1)"; then
+    pass "$name [$((SECONDS - started))s]"
+  else
+    fail "$name [$((SECONDS - started))s]"
+    printf '%s\n' "$out" | sed 's/^/          /'
+  fi
+}
+
+# mutants_killed runs the mutants anyone can run again (watchpost RL-5):
+# every mutant in 06_docs/mutants/mutants.json, applied to a copy of the
+# tree, is caught by its test (mutants_kill_test.go). A run that selects no
+# test fails: a table nobody checked would pass as quietly as one that holds
+# (go-tuiMaps' leg, as it is there).
+mutants_killed() {
+  local out
+  if ! out="$(go test -tags mutants -run '^TestEveryMutantIsKilled$' -count=1 -v -timeout 30m . 2>&1)"; then
+    printf '%s\n' "$out" | grep -E 'SURVIVED|INVALID|FAIL|panic' | head -40
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestEveryMutantIsKilled ' || { echo "no mutant was run: TestEveryMutantIsKilled was not selected"; return 1; }
+}
+
+# constants_current is R-9.8's release step: no measured constant's data
+# over a year old (constants_test.go). A skip here is the step not run, so
+# it fails, as a run that selects no test does.
+constants_current() {
+  local out
+  if ! out="$(IONOMAPS_RELEASE=1 go test -run '^TestNoConstantIsOverAYearOld$' -count=1 -v . 2>&1)"; then
+    printf '%s\n' "$out" | grep -E 'measured on|FAIL' | head -20
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestNoConstantIsOverAYearOld ' || { echo "the release step did not run: TestNoConstantIsOverAYearOld was skipped or not selected"; return 1; }
+}
+
+# code_tree is the git tree of the code as it stands: the working tree with
+# 06_docs and every Markdown file left out, so G-G1's record, taken before
+# the checklist's ticks and the release notes, still names the code released.
+code_tree() {
+  local dir index tree
+  dir="$(mktemp -d)" || return 1
+  index="$dir/index"
+  GIT_INDEX_FILE="$index" git read-tree HEAD 2>/dev/null || return 1
+  GIT_INDEX_FILE="$index" git add -A 2>/dev/null || return 1
+  GIT_INDEX_FILE="$index" git rm -r -q --cached --ignore-unmatch 06_docs '*.md' >/dev/null 2>&1
+  tree="$(GIT_INDEX_FILE="$index" git write-tree 2>/dev/null)" || return 1
+  rm -rf "$dir"
+  printf '%s' "${tree:0:12}"
+}
+
+# cost_measured is G10.3's measure: G-G1 on this machine, its record written
+# for this code (cost_test.go). A run that selects no test fails.
+cost_measured() {
+  local out tree
+  tree="$(code_tree)" || { echo "the code's tree cannot be read"; return 1; }
+  out="$(IONOMAPS_TREE="$tree" go test -run '^TestTheCostIsRecorded$' -count=1 -v . -args -record-cost 2>&1)"
+  local rc=$?
+  printf '%s\n' "$out" | grep -E '^ *\| |past its target|FAIL' | head -20
+  [ "$rc" = 0 ] || return 1
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestTheCostIsRecorded ' || { echo "the measure did not run: TestTheCostIsRecorded was skipped or not selected"; return 1; }
+}
+
+# cost_recorded is G10.3's release check: G-G1's record names this code and
+# the reference machine, and every target is met (cost_test.go).
+cost_recorded() {
+  local out tree
+  tree="$(code_tree)" || { echo "the code's tree cannot be read"; return 1; }
+  if ! out="$(IONOMAPS_RELEASE=1 IONOMAPS_TREE="$tree" go test -run '^TestTheCostRecordHoldsForThisCode$' -count=1 -v . 2>&1)"; then
+    printf '%s\n' "$out" | grep -E 'cost_test|FAIL' | head -20
+    return 1
+  fi
+  printf '%s\n' "$out" | grep -q -- '--- PASS: TestTheCostRecordHoldsForThisCode ' || { echo "the release step did not run: TestTheCostRecordHoldsForThisCode was skipped or not selected"; return 1; }
+}
+
+# limited runs a command under a wall-clock limit in seconds, its process
+# group ended at the limit: TIME LIMIT, exit 124. The watchdog ends its own
+# sleep when the command finishes first, so no sleep outlives the leg holding
+# the leg's output open (go-tuiMaps' gate, as it is there).
+limited() {
+  local limit="$1" pid dog rc dogrc
+  shift
+  perl -e 'setpgrp(0, 0); exec { $ARGV[0] } @ARGV or die "cannot run $ARGV[0]: $!\n"' -- "$@" &
+  pid=$!
+  (
+    fired=0
+    nap=""
+    trap 'if [ "$fired" = 0 ]; then [ -n "$nap" ] && kill "$nap" 2>/dev/null; exit 0; fi' TERM
+    sleep "$limit" &
+    nap=$!
+    wait "$nap"
+    if kill -0 "$pid" 2>/dev/null; then
+      fired=1
+      kill -TERM -- "-$pid" 2>/dev/null
+      sleep 5 &
+      nap=$!
+      wait "$nap" || wait "$nap"
+      kill -KILL -- "-$pid" 2>/dev/null
+      exit 124
+    fi
+    exit 0
+  ) &
+  dog=$!
+  wait "$pid"
+  rc=$?
+  kill -TERM "$dog" 2>/dev/null
+  wait "$dog"
+  dogrc=$?
+  if [ "$dogrc" = 124 ]; then
+    echo "TIME LIMIT: stopped after ${limit}s of wall-clock time - slow or stalled, it did not finish (GATE_FUZZ_LIMIT overrides it)"
+    return 124
+  fi
+  return "$rc"
+}
+
+# scanner_is_pinned reports whether the govulncheck on PATH was built from the
+# pinned module version, read from the binary's own build record, with no
+# call to the vulnerability database ("govulncheck -version" asks it, and an
+# unreachable one hides the version line; go-tuiMaps' gate).
+scanner_is_pinned() {
+  local bin record
+  bin="$(command -v govulncheck)" || return 1
+  record="$(GOTOOLCHAIN=local go version -m "$bin" 2>/dev/null)" || return 1
+  printf '%s\n' "$record" | awk -v pin="$GOVULNCHECK_PIN" '$1 == "mod" && $2 == "golang.org/x/vuln" && $3 == pin { found = 1 } END { exit !found }'
+}
+
+# gofmt_clean fails, naming the files, when gofmt would change any Go file
+# outside testdata.
+gofmt_clean() {
+  local bad
+  bad="$(find . -name '*.go' -not -path './testdata/*' -not -path '*/testdata/*' -not -path './_a2dh/*' -print0 | xargs -0 gofmt -l 2>&1)"
+  [ -z "$bad" ] && return 0
+  echo "not formatted (run gofmt -w): $bad"
+  return 1
+}
+
+# tested_tree is the git tree of what was checked, this log left out: the
+# staged change for the docs lane, the whole working tree otherwise.
+tested_tree() {
+  local dir index tree
+  dir="$(mktemp -d)" || return 1
+  index="$dir/index"
+  if [ "$docs" = 1 ]; then
+    cp "$(git rev-parse --git-path index)" "$index" 2>/dev/null || return 1
+  else
+    GIT_INDEX_FILE="$index" git read-tree HEAD 2>/dev/null || return 1
+    GIT_INDEX_FILE="$index" git add -A 2>/dev/null || return 1
+  fi
+  GIT_INDEX_FILE="$index" git rm -q --cached --ignore-unmatch 06_docs/gate-runs.md >/dev/null 2>&1
+  tree="$(GIT_INDEX_FILE="$index" git write-tree 2>/dev/null)" || return 1
+  rm -rf "$dir"
+  printf '%s' "${tree:0:12}"
+}
+
+log_run() {
+  local rc="$1" result="FAILED" why overrides="-"
+  [ -f 06_docs/gate-runs.md ] || return 0
+  why="$(printf '%s' "$failures" | sed -n 's/^  FAILED  \(.*\) \[[0-9]*s\]$/\1/p; s/^  FAILED  \([^[]*\)$/\1/p' | paste -sd ';' - | sed 's/;/; /g')"
+  [ -n "$why" ] && result="FAILED: $why"
+  [ "$rc" = 0 ] && result="green"
+  [ "$rc" = 0 ] && [ -n "$p10_not_run" ] && result="green without P10: $p10_not_run not run"
+  overrides="$( { [ -n "${GATE_FUZZ_EXECS:-}" ] && printf 'GATE_FUZZ_EXECS=%s ' "$GATE_FUZZ_EXECS"; [ -n "${GATE_FUZZ_LIMIT:-}" ] && printf 'GATE_FUZZ_LIMIT=%s' "$GATE_FUZZ_LIMIT"; } | sed 's/ $//')"
+  [ -z "$overrides" ] && overrides="-"
+  printf '| %s | %s | %s | %s | %s | %s | %s |\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse --short HEAD 2>/dev/null || echo none)" \
+    "$(tested_tree || echo unknown)" "$mode" "$result" "$((SECONDS - started_at))" "$overrides" >> 06_docs/gate-runs.md
+}
+
+echo "gate: $root ($mode), toolchain $GOTOOLCHAIN"
+
+# --- the docs lane ------------------------------------------------------------
+if [ "$docs" = 1 ]; then
+  staged="$(git diff --cached --name-only 2>&1)" || { echo "gate: git cannot read the staged change"; exit 2; }
+  if [ -z "$staged" ]; then
+    echo "gate: REFUSED - the docs lane: nothing is staged; stage the Markdown change first"
+    exit 1
+  fi
+  if other="$(printf '%s\n' "$staged" | grep -v '\.md$' | grep -v '^06_docs/gate-runs\.md$')"; then
+    echo "gate: REFUSED - the docs lane takes Markdown alone; run the full gate for: $(echo $other)"
+    exit 1
+  fi
+  leg "tests (docs lane)" go test -count=1 ./...
+fi
+
+# --- G-G1's measure: this leg alone ----------------------------------------------
+if [ "$cost" = 1 ]; then
+  leg "G-G1 measured on this machine, its record written (G10.3)" cost_measured
+fi
+
+# --- the module ---------------------------------------------------------------
+if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ] && [ "$cost" = 0 ]; then
+  leg "gofmt" gofmt_clean
+  leg "vet" go vet ./...
+  leg "tests, race detector on" go test -race -count=1 ./...
+  leg "tests, race detector off" go test -count=1 ./...
+  # THE TOOL MODULES ARE CHECKED TOO: each go.mod under tools/ is a module of
+  # its own, which ./... above never reaches.
+  for mod in tools/*/go.mod; do
+    [ -f "$mod" ] || continue
+    dir="$(dirname "$mod")"
+    leg "$dir: vet" env GOWORK=off sh -c "cd '$dir' && go vet ./..."
+    leg "$dir: tests" env GOWORK=off sh -c "cd '$dir' && go test -count=1 ./..."
+  done
+fi
+
+# --- fuzzing: every target, each for FUZZ_EXECS runs ----------------------------
+if [ "$docs" = 0 ] && [ "$cost" = 0 ] && { [ "$quick" = 0 ] || [ "$fuzzonly" = 1 ]; }; then
+  if ! listed="$(go test -list '^Fuzz' ./... 2>&1)"; then
+    fail "the fuzz targets cannot be listed"
+    printf '%s\n' "$listed" | sed 's/^/          /'
+  else
+    count=0
+    for dir in $(go list -f '{{.Dir}}' ./...); do
+      for target in $(cd "$dir" && go test -list '^Fuzz' . 2>/dev/null | grep '^Fuzz'); do
+        count=$((count + 1))
+        execs="$(fuzz_execs "$target")"
+        leg "fuzz $target, $execs" limited "$FUZZ_LIMIT" go test -run '^$' -fuzz "^${target}\$" -fuzztime "$execs" "$dir"
+      done
+    done
+    [ "$count" = 0 ] && fail "no fuzz target was found to run: the module's targets cannot be missing"
+  fi
+fi
+
+# --- the full lane's slow legs --------------------------------------------------
+if [ "$mode" = "full" ] || [ "$mode" = "release" ]; then
+  if scanner_is_pinned; then
+    leg "vulnerability scan, govulncheck $GOVULNCHECK_PIN, at the floor, $FLOOR_TOOLCHAIN" env GOTOOLCHAIN="$FLOOR_TOOLCHAIN" govulncheck ./...
+  else
+    fail "govulncheck $GOVULNCHECK_PIN is not on PATH: go install golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_PIN"
+  fi
+  for target in $TARGETS; do
+    leg "cross-compile $target, C toolchain off" env CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+  done
+  leg "every mutant killed by its test (watchpost RL-5)" mutants_killed
+fi
+
+# --- the release steps ------------------------------------------------------------
+if [ "$mode" = "release" ]; then
+  leg "R-9.8, no measured constant over a year old" constants_current
+  leg "G-G1's record holds for this code, on the reference machine (G10.3)" cost_recorded
+fi
+
+# --- P10, where the harness is set up -------------------------------------------
+if [ "$docs" = 0 ] && [ "$fuzzonly" = 0 ] && [ "$cost" = 0 ]; then
+  if ! command -v a2dh >/dev/null 2>&1; then
+    p10_not_run="the P10 check (a2dh is not on PATH)"
+  elif [ ! -f .a2dh.yml ]; then
+    p10_not_run="the P10 check (this tree has no .a2dh.yml)"
+  else
+    leg "P10, a2dh p10 check" env -u GOFLAGS GOWORK=off GOTOOLCHAIN=local NO_COLOR=1 a2dh p10 check "$root"
+  fi
+fi
+
+echo
+if [ -n "$failures" ]; then
+  log_run 1
+  echo "gate: FAILED"
+  printf '%s' "$failures"
+  echo "What to do: fix each FAILED leg above and run the gate again. Nothing merges until it is green."
+  exit 1
+fi
+log_run 0
+if [ -n "$p10_not_run" ]; then
+  echo "gate: green without P10 - NOT RUN on this machine, and not assumed: $p10_not_run."
+  exit 0
+fi
+echo "gate: green"
+exit 0

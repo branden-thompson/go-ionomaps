@@ -1,0 +1,76 @@
+goos: darwin
+goarch: arm64
+pkg: spike
+cpu: Apple M5 Pro
+BenchmarkClimHour/2deg/naive-18         	      15	 136338739 ns/op	302217275 B/op	   65528 allocs/op
+BenchmarkClimHour/2deg/naive-18         	      16	 133821570 ns/op	302217287 B/op	   65528 allocs/op
+BenchmarkClimHour/2deg/naive-18         	      18	 133528451 ns/op	302217310 B/op	   65528 allocs/op
+BenchmarkClimHour/2deg/naive-18         	      18	 134242394 ns/op	302217592 B/op	   65529 allocs/op
+BenchmarkClimHour/2deg/naive-18         	      16	 142415648 ns/op	302217356 B/op	   65529 allocs/op
+BenchmarkClimHour/2deg/fast-qdonly-18   	     121	  19496692 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-qdonly-18   	     138	  17780674 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-qdonly-18   	     136	  17434411 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-qdonly-18   	     140	  17215128 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-qdonly-18   	     141	  16962616 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg64-18    	     360	   6781006 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg64-18    	     356	   6684429 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg64-18    	     361	   6913276 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg64-18    	     360	   6781324 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg64-18    	     336	   6791833 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg32-18    	     230	  10378287 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg32-18    	     228	  10585113 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg32-18    	     229	  10426396 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg32-18    	     231	  10422655 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/2deg/fast-leg32-18    	     230	  10421993 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/naive-18         	       4	 549285334 ns/op	1202117008 B/op	  260652 allocs/op
+BenchmarkClimHour/1deg/naive-18         	       4	 556600479 ns/op	1202116748 B/op	  260649 allocs/op
+BenchmarkClimHour/1deg/naive-18         	       4	 538838229 ns/op	1202116864 B/op	  260650 allocs/op
+BenchmarkClimHour/1deg/naive-18         	       4	 547995406 ns/op	1202116944 B/op	  260651 allocs/op
+BenchmarkClimHour/1deg/naive-18         	       4	 558117666 ns/op	1202116944 B/op	  260651 allocs/op
+BenchmarkClimHour/1deg/fast-qdonly-18   	      34	  67130422 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-qdonly-18   	      34	  67577403 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-qdonly-18   	      34	  66952077 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-qdonly-18   	      36	  67067803 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-qdonly-18   	      34	  67076783 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg64-18    	      90	  26628666 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg64-18    	      90	  29255756 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg64-18    	      90	  26785138 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg64-18    	      90	  26928341 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg64-18    	      88	  26623829 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg32-18    	      57	  41265834 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg32-18    	      57	  41205450 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg32-18    	      54	  42752455 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg32-18    	      58	  42700376 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimHour/1deg/fast-leg32-18    	      57	  41190105 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClimDayCache/2deg/qdonly-18    	     158	  15180302 ns/op	  393344 B/op	       4 allocs/op
+BenchmarkClimDayCache/2deg/qdonly-18    	     159	  15032561 ns/op	  393344 B/op	       4 allocs/op
+BenchmarkClimDayCache/2deg/qdonly-18    	     159	  15062483 ns/op	  393344 B/op	       4 allocs/op
+BenchmarkClimDayCache/2deg/qdonly-18    	     160	  14941920 ns/op	  393344 B/op	       4 allocs/op
+BenchmarkClimDayCache/2deg/qdonly-18    	     162	  15031167 ns/op	  393344 B/op	       4 allocs/op
+BenchmarkClimDayCache/2deg/leg64-18     	      81	  28468804 ns/op	61333633 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg64-18     	      97	  26178233 ns/op	61333633 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg64-18     	      92	  25938186 ns/op	61333633 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg64-18     	      90	  25938736 ns/op	61333636 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg64-18     	      86	  25979183 ns/op	61333635 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg32-18     	      85	  28279941 ns/op	30867589 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg32-18     	      85	  28071838 ns/op	30867589 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg32-18     	      81	  28519237 ns/op	30867589 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg32-18     	      81	  29215083 ns/op	30867585 B/op	       5 allocs/op
+BenchmarkClimDayCache/2deg/leg32-18     	      81	  29556273 ns/op	30867585 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/qdonly-18    	      38	  60957541 ns/op	 1572992 B/op	       4 allocs/op
+BenchmarkClimDayCache/1deg/qdonly-18    	      39	  58976874 ns/op	 1572992 B/op	       4 allocs/op
+BenchmarkClimDayCache/1deg/qdonly-18    	      37	  59163625 ns/op	 1572992 B/op	       4 allocs/op
+BenchmarkClimDayCache/1deg/qdonly-18    	      39	  58601083 ns/op	 1572992 B/op	       4 allocs/op
+BenchmarkClimDayCache/1deg/qdonly-18    	      40	  58284385 ns/op	 1572992 B/op	       4 allocs/op
+BenchmarkClimDayCache/1deg/leg64-18     	      19	 119848895 ns/op	243974272 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg64-18     	      22	 104640263 ns/op	243974277 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg64-18     	      22	 105208028 ns/op	243974277 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg64-18     	      22	 112438629 ns/op	243974272 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg64-18     	      22	 103126627 ns/op	243974277 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg32-18     	      21	 114827238 ns/op	122773642 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg32-18     	      19	 117249099 ns/op	122773632 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg32-18     	      19	 112846296 ns/op	122773632 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg32-18     	      20	 114780927 ns/op	122773632 B/op	       5 allocs/op
+BenchmarkClimDayCache/1deg/leg32-18     	      18	 117258604 ns/op	122773632 B/op	       5 allocs/op
+PASS
+ok  	spike	164.595s

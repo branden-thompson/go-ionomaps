@@ -1,0 +1,36 @@
+goos: darwin
+goarch: arm64
+pkg: spike
+cpu: Apple M5 Pro
+BenchmarkAssimilate/2deg/naive-18         	      60	  41396028 ns/op	  287472 B/op	       7 allocs/op
+BenchmarkAssimilate/2deg/naive-18         	      57	  39708742 ns/op	  287472 B/op	       7 allocs/op
+BenchmarkAssimilate/2deg/naive-18         	      60	  40780816 ns/op	  287472 B/op	       7 allocs/op
+BenchmarkAssimilate/2deg/naive-18         	      61	  39493389 ns/op	  287472 B/op	       7 allocs/op
+BenchmarkAssimilate/2deg/naive-18         	      60	  39777177 ns/op	  287472 B/op	       7 allocs/op
+BenchmarkAssimilate/2deg/fast-18          	     396	   6284689 ns/op	     661 B/op	       0 allocs/op
+BenchmarkAssimilate/2deg/fast-18          	     397	   6012328 ns/op	     660 B/op	       0 allocs/op
+BenchmarkAssimilate/2deg/fast-18          	     399	   6025392 ns/op	     657 B/op	       0 allocs/op
+BenchmarkAssimilate/2deg/fast-18          	     399	   5998039 ns/op	     657 B/op	       0 allocs/op
+BenchmarkAssimilate/2deg/fast-18          	     399	   5982862 ns/op	     657 B/op	       0 allocs/op
+BenchmarkAssimilate/1deg/naive-18         	      15	 154604725 ns/op	 1073904 B/op	       7 allocs/op
+BenchmarkAssimilate/1deg/naive-18         	      15	 152515056 ns/op	 1073904 B/op	       7 allocs/op
+BenchmarkAssimilate/1deg/naive-18         	      15	 152216858 ns/op	 1073904 B/op	       7 allocs/op
+BenchmarkAssimilate/1deg/naive-18         	      15	 157888328 ns/op	 1073904 B/op	       7 allocs/op
+BenchmarkAssimilate/1deg/naive-18         	      15	 153526572 ns/op	 1073904 B/op	       7 allocs/op
+BenchmarkAssimilate/1deg/fast-18          	     100	  22627623 ns/op	   10485 B/op	       0 allocs/op
+BenchmarkAssimilate/1deg/fast-18          	     100	  22698292 ns/op	   10485 B/op	       0 allocs/op
+BenchmarkAssimilate/1deg/fast-18          	     100	  22656019 ns/op	   10485 B/op	       0 allocs/op
+BenchmarkAssimilate/1deg/fast-18          	     100	  22599412 ns/op	   10485 B/op	       0 allocs/op
+BenchmarkAssimilate/1deg/fast-18          	     100	  22397543 ns/op	   10485 B/op	       0 allocs/op
+BenchmarkGloTECDecode/typed-18            	     513	   4649658 ns/op	 538.23 MB/s	  739664 B/op	      16 allocs/op
+BenchmarkGloTECDecode/typed-18            	     514	   4743428 ns/op	 527.59 MB/s	  739625 B/op	      16 allocs/op
+BenchmarkGloTECDecode/typed-18            	     499	   5510148 ns/op	 454.18 MB/s	  739629 B/op	      16 allocs/op
+BenchmarkGloTECDecode/typed-18            	     502	   4878835 ns/op	 512.95 MB/s	  739627 B/op	      16 allocs/op
+BenchmarkGloTECDecode/typed-18            	     498	   4871214 ns/op	 513.75 MB/s	  739628 B/op	      16 allocs/op
+BenchmarkGloTECDecode/generic-18          	     231	  10524590 ns/op	 237.79 MB/s	 7607479 B/op	  191890 allocs/op
+BenchmarkGloTECDecode/generic-18          	     216	  10679660 ns/op	 234.33 MB/s	 7607316 B/op	  191890 allocs/op
+BenchmarkGloTECDecode/generic-18          	     223	  10738046 ns/op	 233.06 MB/s	 7607288 B/op	  191890 allocs/op
+BenchmarkGloTECDecode/generic-18          	     220	  11562764 ns/op	 216.44 MB/s	 7607283 B/op	  191890 allocs/op
+BenchmarkGloTECDecode/generic-18          	     171	  13753905 ns/op	 181.96 MB/s	 7607292 B/op	  191890 allocs/op
+PASS
+ok  	spike	71.693s

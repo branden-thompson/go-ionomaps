@@ -1,0 +1,46 @@
+goos: darwin
+goarch: arm64
+pkg: spike
+cpu: Apple M5 Pro
+BenchmarkKeypress/2deg/naive-18   	     423	   5672696 ns/op	 1281820 B/op	   16382 allocs/op
+BenchmarkKeypress/2deg/naive-18   	     412	   5662648 ns/op	 1281808 B/op	   16382 allocs/op
+BenchmarkKeypress/2deg/naive-18   	     426	   5600366 ns/op	 1281808 B/op	   16382 allocs/op
+BenchmarkKeypress/2deg/naive-18   	     370	   6570059 ns/op	 1281809 B/op	   16382 allocs/op
+BenchmarkKeypress/2deg/naive-18   	     344	   6190019 ns/op	 1281808 B/op	   16382 allocs/op
+BenchmarkKeypress/2deg/fast-18    	     668	   3779649 ns/op	      24 B/op	       0 allocs/op
+BenchmarkKeypress/2deg/fast-18    	     602	   3767227 ns/op	       0 B/op	       0 allocs/op
+BenchmarkKeypress/2deg/fast-18    	     686	   3573795 ns/op	       0 B/op	       0 allocs/op
+BenchmarkKeypress/2deg/fast-18    	     642	   3851137 ns/op	       0 B/op	       0 allocs/op
+BenchmarkKeypress/2deg/fast-18    	     626	   3591522 ns/op	       0 B/op	       0 allocs/op
+BenchmarkKeypress/1deg/naive-18   	      99	  24096921 ns/op	 5098386 B/op	   65162 allocs/op
+BenchmarkKeypress/1deg/naive-18   	     100	  32153184 ns/op	 5098406 B/op	   65162 allocs/op
+BenchmarkKeypress/1deg/naive-18   	      98	  23615065 ns/op	 5098386 B/op	   65162 allocs/op
+BenchmarkKeypress/1deg/naive-18   	     100	  22205158 ns/op	 5098384 B/op	   65162 allocs/op
+BenchmarkKeypress/1deg/naive-18   	     100	  23192042 ns/op	 5098395 B/op	   65162 allocs/op
+BenchmarkKeypress/1deg/fast-18    	     175	  14091080 ns/op	     374 B/op	       0 allocs/op
+BenchmarkKeypress/1deg/fast-18    	     174	  13810636 ns/op	       0 B/op	       0 allocs/op
+BenchmarkKeypress/1deg/fast-18    	     146	  17016729 ns/op	       0 B/op	       0 allocs/op
+BenchmarkKeypress/1deg/fast-18    	     122	  19521376 ns/op	       0 B/op	       0 allocs/op
+BenchmarkKeypress/1deg/fast-18    	     129	  18080339 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/2deg/naive-18   	     355	   7063677 ns/op	 1289120 B/op	   16459 allocs/op
+BenchmarkHourStep/2deg/naive-18   	     356	   7166475 ns/op	 1289120 B/op	   16459 allocs/op
+BenchmarkHourStep/2deg/naive-18   	     336	   7234804 ns/op	 1289121 B/op	   16459 allocs/op
+BenchmarkHourStep/2deg/naive-18   	     336	   7143391 ns/op	 1289120 B/op	   16459 allocs/op
+BenchmarkHourStep/2deg/naive-18   	     345	   6998000 ns/op	 1289120 B/op	   16459 allocs/op
+BenchmarkHourStep/2deg/fast-18    	     578	   4428579 ns/op	      28 B/op	       0 allocs/op
+BenchmarkHourStep/2deg/fast-18    	     583	   4541313 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/2deg/fast-18    	     463	   4758953 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/2deg/fast-18    	     548	   3917468 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/2deg/fast-18    	     614	   4120962 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/1deg/naive-18   	      78	  30268834 ns/op	 5105696 B/op	   65239 allocs/op
+BenchmarkHourStep/1deg/naive-18   	      75	  33322854 ns/op	 5105696 B/op	   65239 allocs/op
+BenchmarkHourStep/1deg/naive-18   	      92	  31678077 ns/op	 5105699 B/op	   65239 allocs/op
+BenchmarkHourStep/1deg/naive-18   	      69	  33525245 ns/op	 5105699 B/op	   65239 allocs/op
+BenchmarkHourStep/1deg/naive-18   	      75	  29417778 ns/op	 5105697 B/op	   65239 allocs/op
+BenchmarkHourStep/1deg/fast-18    	     144	  17892469 ns/op	     455 B/op	       0 allocs/op
+BenchmarkHourStep/1deg/fast-18    	     133	  18749321 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/1deg/fast-18    	     100	  23909347 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/1deg/fast-18    	     100	  20678178 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHourStep/1deg/fast-18    	     140	  16143600 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	spike	97.061s

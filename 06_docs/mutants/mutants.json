@@ -1,0 +1,1122 @@
+[
+  {
+    "id": "m001",
+    "row": "R-5.4",
+    "what": "a snapshot short of a GloTEC grid past its age is said Fresh",
+    "file": "update.go",
+    "old": "{UnreadGloTEC, l.heldGrid(now) == nil},",
+    "new": "{UnreadGloTEC, l.grid == nil},",
+    "package": ".",
+    "test": "TestAGridHeldPastItsAgeIsNamed"
+  },
+  {
+    "id": "m002",
+    "row": "R-5.4",
+    "what": "the inputs a snapshot lacks are never named",
+    "file": "update.go",
+    "old": "\tl.short(now)\n",
+    "new": "",
+    "package": ".",
+    "test": "TestEveryFaultIsReported"
+  },
+  {
+    "id": "m003",
+    "row": "R-5.4",
+    "what": "a grid is fetched with no F10.7 mean to build a field on",
+    "file": "update.go",
+    "old": "\tif !endsRound && fieldable {          // a 429, an ask run out, or no room for the next, stops the round (D-39, watchpost D-285, D-298); a failed file does not (watchpost D-270)",
+    "new": "\tif !endsRound {          // a 429, an ask run out, or no room for the next, stops the round (D-39, watchpost D-285, D-298); a failed file does not (watchpost D-270)",
+    "package": ".",
+    "test": "TestNoMeanAsksNoGrid"
+  },
+  {
+    "id": "m004",
+    "row": "R-5.4",
+    "what": "NOAA answering and the solar file unreadable is said Offline",
+    "file": "update.go",
+    "old": "\t\treason := Partial",
+    "new": "\t\treason := Offline",
+    "package": ".",
+    "test": "TestNoMeanAsksNoGrid"
+  },
+  {
+    "id": "m005",
+    "row": "R-9.5",
+    "what": "an F10.7 mean of any age builds a field",
+    "file": "update.go",
+    "old": "\treturn l.solar.Age(now) <= solarMaxAge",
+    "new": "\treturn true",
+    "package": ".",
+    "test": "TestTheMeanIsKeptAcrossARestart"
+  },
+  {
+    "id": "m006",
+    "row": "R-5.8",
+    "what": "the F10.7 mean is not kept across a restart",
+    "file": "state.go",
+    "old": "\tif f.OK {\n\t\tk.F107",
+    "new": "\tif false {\n\t\tk.F107",
+    "package": ".",
+    "test": "TestTheMeanIsKeptAcrossARestart"
+  },
+  {
+    "id": "m007",
+    "row": "R-5.3",
+    "what": "a refused NOAA is asked again after 60 s, sooner than a healthy one",
+    "file": "update.go",
+    "old": "\tbackOff = min(max(2*backOff, noaaEvery), longestPause)",
+    "new": "\tbackOff = min(max(2*backOff, time.Minute), longestPause)",
+    "package": ".",
+    "test": "TestARefusalBacksOff"
+  },
+  {
+    "id": "m008",
+    "row": "R-5.3",
+    "what": "a NOAA server error does not back the next update off",
+    "file": "update.go",
+    "old": "l.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError",
+    "new": "l.trouble = l.trouble || err != nil || r.Status == statusRefused",
+    "package": ".",
+    "test": "TestARefusalBacksOff"
+  },
+  {
+    "id": "m009",
+    "row": "R-5.3",
+    "what": "NOAA's back-off is not counted at all",
+    "file": "update.go",
+    "old": "\tif len(l.gridAsks) >= gridsAnHour {",
+    "new": "\tif false {",
+    "package": ".",
+    "test": "TestGridsAreAskedAtMostSixAnHour"
+  },
+  {
+    "id": "m010",
+    "row": "R-5.4",
+    "what": "Offline is said when NOAA's files came back",
+    "file": "update.go",
+    "old": "\tcase !l.heard:\n",
+    "new": "\tcase false:\n",
+    "package": ".",
+    "test": "TestOfflineIsSaidOnlyWhenNothingCameBack"
+  },
+  {
+    "id": "m011",
+    "row": "R-5.8",
+    "what": "a burst kept a moment ahead of the clock is refused",
+    "file": "internal/throttle/throttle.go",
+    "old": "\tif s.BurstAt.After(now) {\n\t\ts.BurstAt = now\n\t}\n",
+    "new": "",
+    "package": "./internal/throttle",
+    "test": "TestAThrottleStateIsCheckedOnResume"
+  },
+  {
+    "id": "m013",
+    "row": "R-8.1",
+    "what": "a third typical day empties the cache",
+    "file": "typical.go",
+    "old": "\t\tdelete(t.days, old)",
+    "new": "\t\tclear(t.days)",
+    "package": ".",
+    "test": "TestTheTypicalDayIsKept"
+  },
+  {
+    "id": "m014",
+    "row": "R-9.5",
+    "what": "a day named twice counts twice in the mean",
+    "file": "internal/solar/solar.go",
+    "old": "\t\tif ok && !seen[d.Date] {",
+    "new": "\t\tif ok {",
+    "package": "./internal/solar",
+    "test": "TestAFileIsReadWhole"
+  },
+  {
+    "id": "m015",
+    "row": "R-9.5",
+    "what": "a line the scanner cannot take ends the file unsaid",
+    "file": "internal/solar/solar.go",
+    "old": "\tif sc.Err() != nil {\n\t\treturn nil, errLine",
+    "new": "\tif false {\n\t\treturn nil, errLine",
+    "package": "./internal/solar",
+    "test": "TestAFileIsReadWhole"
+  },
+  {
+    "id": "m016",
+    "row": "R-5.3",
+    "what": "a station's own failure - a status no rule names among them - stops the burst as GIRO's refusal",
+    "file": "internal/giro/asker.go",
+    "old": "\tif status != statusOK {\n\t\treturn missed, true",
+    "new": "\tif status != statusOK {\n\t\treturn refused, true",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m018",
+    "row": "R-5.3",
+    "what": "GIRO refusing this host pauses it as a 429 does",
+    "file": "internal/giro/asker.go",
+    "old": "\t\ta.thr.Deny(now)",
+    "new": "\t\ta.thr.Refused(now, retryAfter)",
+    "package": "./internal/giro",
+    "test": "TestARefusalStopsTheBurst"
+  },
+  {
+    "id": "m019",
+    "row": "R-5.3",
+    "what": "a burst the deadline stopped begins at the same stations next hour",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tl.pollAt = (l.pollAt + 1) % pollAtMost\n",
+    "new": "\t\tl.pollAt = l.pollAt % pollAtMost\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsInsideItsDeadline"
+  },
+  {
+    "id": "m020",
+    "row": "R-5.4",
+    "what": "GIRO's failure is said only on the burst's own update",
+    "file": "update.go",
+    "old": "GIRO: GIROOutcome(l.giro.Outcome),",
+    "new": "GIRO: GIROAnswered,",
+    "package": ".",
+    "test": "TestGIROsOutcomeIsSaidAllHour"
+  },
+  {
+    "id": "m021",
+    "row": "R-3.3",
+    "what": "a reply moving a placed station anywhere is read",
+    "file": "internal/giro/asker.go",
+    "old": "rep.Station.Lat, rep.Station.Lon) > movedKm {",
+    "new": "rep.Station.Lat, rep.Station.Lon) > 1e9 {",
+    "package": "./internal/giro",
+    "test": "TestAPlacedStationKeepsItsPlace"
+  },
+  {
+    "id": "m022",
+    "row": "R-3.3",
+    "what": "a reading 13 MHz over its background is assimilated",
+    "file": "internal/assimilate/onto.go",
+    "old": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound || !withinFold(x.FoF2, b) {",
+    "new": "\t\tif math.Abs(x.FoF2-b) > 1e9 || !withinFold(x.FoF2, b) {",
+    "package": "./internal/assimilate",
+    "test": "TestAnImplausibleReadingIsRefused"
+  },
+  {
+    "id": "m023",
+    "row": "R-1.3",
+    "what": "an hour ahead shares its nearest-station table with the snapshot",
+    "file": "ahead.go",
+    "old": "\ta := s.withTables()",
+    "new": "\ta := s",
+    "package": ".",
+    "test": "TestTwentyFourHoursAheadFitTheHeap"
+  },
+  {
+    "id": "m024",
+    "row": "R-5.7",
+    "what": "a reading over an hour old is assimilated",
+    "file": "internal/hybrid/hybrid.go",
+    "old": "\t\tfresh := age >= 0 && age <= For",
+    "new": "\t\tfresh := age >= 0",
+    "package": "./internal/hybrid",
+    "test": "TestOnlyFreshReadingsAreAssimilated"
+  },
+  {
+    "id": "m025",
+    "row": "watchpost D-237",
+    "what": "a station not recorded is answered 404, not as GIRO answers",
+    "file": "ionomapstest/replay.go",
+    "old": "\t\treturn answer(noData), nil",
+    "new": "\t\treturn ionomaps.Response{Status: statusMissing}, nil",
+    "package": "./ionomapstest",
+    "test": "TestTheReplayAnswersOnlyWhatItHolds"
+  },
+  {
+    "id": "m026",
+    "row": "watchpost D-237",
+    "what": "a host's answers are not given",
+    "file": "ionomapstest/replay.go",
+    "old": "\tif a, given := p.answers[inputOf(u)]; given {",
+    "new": "\tif a, given := p.answers[inputOf(u)]; given && false {",
+    "package": "./ionomapstest",
+    "test": "TestAHostDrivesEachState"
+  },
+  {
+    "id": "m027",
+    "row": "watchpost D-264",
+    "what": "a density under its floor passes",
+    "file": "exemption_test.go",
+    "old": "\treturn float64(checks)/float64(funcs) < floor-0.005\n",
+    "new": "\treturn float64(checks)/float64(funcs) < floor-1\n",
+    "package": ".",
+    "test": "TestEveryDensityRowHoldsItsFloor"
+  },
+  {
+    "id": "m028",
+    "row": "watchpost D-265",
+    "what": "the older grid's prediction is the newest grid's",
+    "file": "tools/gm3/score.go",
+    "old": "\t\t\told := hybrid.Field(*m.stale, rs)\n",
+    "new": "\t\t\told := hybrid.Field(m.hybrid, rs)\n",
+    "package": "./tools/gm3",
+    "test": "TestAnOlderGridIsScoredBesideTheNewest"
+  },
+  {
+    "id": "m029",
+    "row": "watchpost D-270",
+    "what": "a NOAA server error stops the update's round, GloTEC left unasked",
+    "file": "update.go",
+    "old": "\tif r.Status >= statusServerError {\n\t\treturn r, false, false\n",
+    "new": "\tif r.Status >= statusServerError {\n\t\treturn r, false, true\n",
+    "package": ".",
+    "test": "TestTheMeanIsKeptAcrossARestart"
+  },
+  {
+    "id": "m031",
+    "row": "watchpost D-272",
+    "what": "a 410 for one station pauses all of GIRO as a denial",
+    "file": "internal/giro/asker.go",
+    "old": "\tif status == statusUnauthorized || status == statusForbidden {\n\t\treturn denied, true",
+    "new": "\tif status == statusUnauthorized || status == statusForbidden || status == 410 {\n\t\treturn denied, true",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m033",
+    "row": "watchpost R2P-1",
+    "what": "a typical hour makes every row at its first read",
+    "file": "typical.go",
+    "old": "\t\td.hours[h] = new(typicalCells)\n",
+    "new": "\t\td.hours[h] = new(typicalCells)\n\t\tfor r := range d.hours[h].rows {\n\t\t\td.hours[h].rows[r].Store(new(typicalRow))\n\t\t}\n",
+    "package": ".",
+    "test": "TestTheTypicalDayIsKept"
+  },
+  {
+    "id": "m034",
+    "row": "watchpost RP-2",
+    "what": "a day older than every kept one evicts today's",
+    "file": "typical.go",
+    "old": "\t\tif start.Before(old.day) {\n\t\t\treturn newTypicalDay(start)",
+    "new": "\t\tif false && start.Before(old.day) {\n\t\t\treturn newTypicalDay(start)",
+    "package": ".",
+    "test": "TestTheTypicalDayIsKept"
+  },
+  {
+    "id": "m035",
+    "row": "watchpost R2I-1",
+    "what": "a solar file past its line bound is read short, its newest days dropped",
+    "file": "internal/solar/solar.go",
+    "old": "\tif lines == maxLines && sc.Scan() {\n\t\treturn nil, errTooLong",
+    "new": "\tif false && lines == maxLines && sc.Scan() {\n\t\treturn nil, errTooLong",
+    "package": "./internal/solar",
+    "test": "TestAFileIsReadWhole"
+  },
+  {
+    "id": "m036",
+    "row": "watchpost D-248",
+    "what": "the readings refused as implausible are not counted in the snapshot",
+    "file": "update.go",
+    "old": "Implausible: res.Implausible, ImplausibleM: res.ImplausibleM,",
+    "new": "ImplausibleM: res.ImplausibleM,",
+    "package": ".",
+    "test": "TestAnImplausibleReadingIsCounted"
+  },
+  {
+    "id": "m037",
+    "row": "watchpost R2L-4",
+    "what": "a state whose GIRO part is refused throws the kept mean away too",
+    "file": "state.go",
+    "old": "\tif errF == nil && f.OK {\n\t\tl.solar = f\n\t}\n\terrG := l.giro.Import(g, now)\n",
+    "new": "\terrG := l.giro.Import(g, now)\n\tif errF == nil && errG == nil && f.OK {\n\t\tl.solar = f\n\t}\n",
+    "package": ".",
+    "test": "TestABadStateIsRefused"
+  },
+  {
+    "id": "m038",
+    "row": "watchpost D-280",
+    "what": "a docs-lane refusal before any leg is logged as a run",
+    "file": "scripts/gate",
+    "old": "    exit 1\n  fi\n  if other=",
+    "new": "    log_run 1\n    exit 1\n  fi\n  if other=",
+    "package": ".",
+    "test": "TestADocsLaneRefusalIsNoRun"
+  },
+  {
+    "id": "m039",
+    "row": "watchpost RP-5",
+    "what": "sunAt passes over steps the sun could have risen in",
+    "file": "answers.go",
+    "old": "const sunStepTurn = 0.0437",
+    "new": "const sunStepTurn = 0.01",
+    "package": ".",
+    "test": "TestTheSunsStepsPassedOverChangeNothing"
+  },
+  {
+    "id": "m040",
+    "row": "watchpost RP-5",
+    "what": "the kept year fraction is given for another moment",
+    "file": "internal/magcoords/magcoords.go",
+    "old": "if last := lastYear.Load(); last != nil && last.sec == sec && last.nsec == nsec {",
+    "new": "if last := lastYear.Load(); last != nil && last.sec == sec {",
+    "package": "./internal/magcoords",
+    "test": "TestTheYearFractionIsTheMoments"
+  },
+  {
+    "id": "m041",
+    "row": "watchpost R2C-7",
+    "what": "a grid past its age in the index is fetched to be thrown away",
+    "file": "update.go",
+    "old": "\tif !gridUsable(valid, listed, now) {",
+    "new": "\tif !gridUsable(valid, listed, valid) {",
+    "package": ".",
+    "test": "TestAStaleIndexFetchesNoGrid"
+  },
+  {
+    "id": "m042",
+    "row": "R-3.5 (watchpost R2C-9)",
+    "what": "a path's origin is not checked",
+    "file": "answers.go",
+    "old": "\t\terr = checkPlaces([]LatLon{from})\n",
+    "new": "\t\terr = checkPlaces(nil)\n",
+    "package": ".",
+    "test": "TestTheAnswersRefuseBadInput"
+  },
+  {
+    "id": "m043",
+    "row": "watchpost RL-5: P.533-14 eq. (3)",
+    "what": "the basic MUF's gyrofrequency term is doubled",
+    "file": "internal/limits/muf.go",
+    "old": "+ fH/2*(1-d/dmax) // (3)",
+    "new": "+ fH*(1-d/dmax) // (3)",
+    "package": "./internal/limits",
+    "test": "TestPathMUFFollowsP533"
+  },
+  {
+    "id": "m044",
+    "row": "watchpost RL-5: P.533-14 eq. (6)",
+    "what": "B's seasonal term is ten times its size",
+    "file": "internal/limits/muf.go",
+    "old": "(0.0215+0.005*math.Sin(7.854/x-1.9635))",
+    "new": "(0.0215+0.05*math.Sin(7.854/x-1.9635))",
+    "package": "./internal/limits",
+    "test": "TestPathMUFFollowsP533"
+  },
+  {
+    "id": "m045",
+    "row": "watchpost RL-5: P.1239-4 eq. (18)",
+    "what": "foE's night floor is ten times its size",
+    "file": "internal/limits/foe.go",
+    "old": "floor := 0.004 * math.Pow(1+0.021*flux, 2) // (18)",
+    "new": "floor := 0.04 * math.Pow(1+0.021*flux, 2) // (18)",
+    "package": "./internal/limits",
+    "test": "TestFoEFollowsP1239"
+  },
+  {
+    "id": "m046",
+    "row": "watchpost RL-5: P.1239-4 eq. (15b)",
+    "what": "foE's high-latitude branch starts at 42 degrees",
+    "file": "internal/limits/foe.go",
+    "old": "if math.Abs(lat) >= 32 {",
+    "new": "if math.Abs(lat) >= 42 {",
+    "package": "./internal/limits",
+    "test": "TestFoEFollowsP1239"
+  },
+  {
+    "id": "m047",
+    "row": "watchpost RL-5: P.1239-4 eq. (17d)",
+    "what": "foE decays after sunset at a tenth of the rate",
+    "file": "internal/limits/foe.go",
+    "old": "math.Exp(-1.4*sinceSunset)",
+    "new": "math.Exp(-0.14*sinceSunset)",
+    "package": "./internal/limits",
+    "test": "TestFoEFollowsP1239"
+  },
+  {
+    "id": "m048",
+    "row": "watchpost RL-5: P.533-14 eq. (20)",
+    "what": "the absorption is one hop's whatever the hops",
+    "file": "internal/limits/absorption.go",
+    "old": "return float64(hops) * (1 + r12Absorbed*r12) * meanTerm",
+    "new": "return (1 + r12Absorbed*r12) * meanTerm",
+    "package": "./internal/limits",
+    "test": "TestDaytimeAbsorptionClosesTheLowBands"
+  },
+  {
+    "id": "m049",
+    "row": "watchpost RL-5: P.533-14 eq. (20)",
+    "what": "the absorption's zenith factor is not taken against noon's",
+    "file": "internal/limits/absorption.go",
+    "old": "* f(p.Chi) / f(p.ChiNoon)",
+    "new": "* f(p.Chi)",
+    "package": "./internal/limits",
+    "test": "TestDaytimeAbsorptionClosesTheLowBands"
+  },
+  {
+    "id": "m050",
+    "row": "watchpost RL-5: P.533-14 eq. (16)",
+    "what": "the mirror height's base is 15 km low",
+    "file": "internal/limits/budget.go",
+    "old": "hr = 115 + h*j + u*d // (16)",
+    "new": "hr = 100 + h*j + u*d // (16)",
+    "package": "./internal/limits",
+    "test": "TestTheMirrorHeightFollowsP533"
+  },
+  {
+    "id": "m051",
+    "row": "watchpost RL-5: NmF2 to foF2 (plasma frequency)",
+    "what": "foF2 is read from NmF2 with the wrong constant",
+    "file": "internal/glotec/glotec.go",
+    "old": "return 8.98e-6 * math.Sqrt(nmF2)",
+    "new": "return 8.98e-5 * math.Sqrt(nmF2)",
+    "package": "./internal/glotec",
+    "test": "TestFoF2FromNmF2"
+  },
+  {
+    "id": "m052",
+    "row": "watchpost RL-5: G2.2",
+    "what": "a cell past its bounds is taken unless its foF2 is below zero",
+    "file": "internal/glotec/glotec.go",
+    "old": "\tif !inBounds {\n\t\treturn false\n\t}\n\tg.FoF2[i]",
+    "new": "\tif !inBounds && fo < 0 {\n\t\treturn false\n\t}\n\tg.FoF2[i]",
+    "package": "./internal/glotec",
+    "test": "TestOutOfRangeCellsAreRejectedAndCounted"
+  },
+  {
+    "id": "m053",
+    "row": "watchpost RL-5: G4.2",
+    "what": "a grid stamped up to a day after now is taken from the index",
+    "file": "internal/glotec/index.go",
+    "old": "usable := err == nil && !t.After(latest) && t.After(valid)",
+    "new": "usable := err == nil && !t.After(latest.Add(24*time.Hour)) && t.After(valid)",
+    "package": "./internal/glotec",
+    "test": "TestTheNewestGridIsReadFromTheIndex"
+  },
+  {
+    "id": "m054",
+    "row": "watchpost RL-5: PyIRI 0.1.7 (R-7.3)",
+    "what": "a parameter is read from the wrong end of the solar levels",
+    "file": "internal/climatology/day.go",
+    "old": "return min*(100-index)/100 + max*index/100",
+    "new": "return max*(100-index)/100 + min*index/100",
+    "package": "./internal/climatology",
+    "test": "TestTheClimatologyTakesF107"
+  },
+  {
+    "id": "m055",
+    "row": "watchpost RL-5: PyIRI 0.1.7 (R-7.3)",
+    "what": "R12 is taken from F10.7 by the wrong root",
+    "file": "internal/climatology/day.go",
+    "old": "return (-b + math.Sqrt(disc)) / (2 * a)",
+    "new": "return (-b - math.Sqrt(disc)) / (2 * a)",
+    "package": "./internal/climatology",
+    "test": "TestHighFluxFollowsPyIRI"
+  },
+  {
+    "id": "m056",
+    "row": "watchpost RL-5: PyIRI 0.1.7, real_FS_func",
+    "what": "the Fourier series' sine and cosine are swapped",
+    "file": "internal/climatology/climatology.go",
+    "old": "f[2*k-1], f[2*k] = math.Cos(phase), math.Sin(phase)",
+    "new": "f[2*k-1], f[2*k] = math.Sin(phase), math.Cos(phase)",
+    "package": "./internal/climatology",
+    "test": "TestTheFallbackMatchesPyIRI"
+  },
+  {
+    "id": "m057",
+    "row": "watchpost RL-5: R-2.2",
+    "what": "a band the MUF cuts through is said above the MUF",
+    "file": "answers.go",
+    "old": "\t\t\tif b.LowMHz() < limitMHz {\n\t\t\t\tst.Status = Open",
+    "new": "\t\t\tif b.HighMHz() < limitMHz {\n\t\t\t\tst.Status = Open",
+    "package": ".",
+    "test": "TestEachBandsStatusForAPath"
+  },
+  {
+    "id": "m058",
+    "row": "watchpost RL-5: R-2.5 (watchpost D-24)",
+    "what": "a disturbance closes bands above its frequency too",
+    "file": "answers.go",
+    "old": "if b.Status == Open && b.Band.LowMHz() < mhz {",
+    "new": "if b.Status == Open {",
+    "package": ".",
+    "test": "TestADisturbanceMarksTheBandsItCovers"
+  },
+  {
+    "id": "m059",
+    "row": "watchpost RL-5: R-2.4 (D-70)",
+    "what": "a circuit short of +13 dB for want of absorption alone is said weak",
+    "file": "lower.go",
+    "old": "\tif bare, okB := c.snr(f, false); okB && bare >= limits.RequiredSNR {\n\t\treturn Absorbed",
+    "new": "\tif bare, okB := c.snr(f, true); okB && bare >= limits.RequiredSNR {\n\t\treturn Absorbed",
+    "package": ".",
+    "test": "TestDaytimeAbsorptionClosesTheLowBands"
+  },
+  {
+    "id": "m060",
+    "row": "watchpost RL-5: R-2.9",
+    "what": "the skip zone is measured to the furthest reached cell",
+    "file": "reach.go",
+    "old": "skip = math.Min(skip, limits.Distance(origin.Lat, origin.Lon, lat, lon))",
+    "new": "skip = math.Max(math.Min(skip, 1e9), limits.Distance(origin.Lat, origin.Lon, lat, lon))",
+    "package": ".",
+    "test": "TestTheSkipZoneIsReturned"
+  },
+  {
+    "id": "m061",
+    "row": "watchpost RL-5: R-2.9",
+    "what": "a frequency above a cell's MUF reaches it where the lower limit allows",
+    "file": "reach.go",
+    "old": "\t\tif mhz >= muf {\n\t\t\tcontinue\n\t\t}",
+    "new": "\t\tif mhz >= muf+1e9 {\n\t\t\tcontinue\n\t\t}",
+    "package": ".",
+    "test": "TestAFrequencysReachIsAField"
+  },
+  {
+    "id": "m062",
+    "row": "watchpost RL-5: D-227",
+    "what": "a cell near the +13 dB threshold is decided by the interpolation",
+    "file": "lowergrid.go",
+    "old": "\tif math.Abs(m[0]) < lowerNearDB || (m[0] < 0 && math.Abs(m[1]) < lowerNearDB) {",
+    "new": "\tif math.Abs(m[0]) < 0 || (m[0] < 0 && math.Abs(m[1]) < 0) {",
+    "package": ".",
+    "test": "TestTheReachsLowerLimitIsHeldToTheCircuit"
+  },
+  {
+    "id": "m063",
+    "row": "watchpost D-279",
+    "what": "a reading far past its background's fold, inside 8 MHz, is assimilated",
+    "file": "internal/assimilate/onto.go",
+    "old": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound || !withinFold(x.FoF2, b) {",
+    "new": "\t\tif math.Abs(x.FoF2-b) > FoF2Bound {",
+    "package": "./internal/assimilate",
+    "test": "TestAnImplausibleReadingIsRefused"
+  },
+  {
+    "id": "m064",
+    "row": "watchpost D-279",
+    "what": "a reading far under its background's fold is assimilated",
+    "file": "internal/assimilate/onto.go",
+    "old": "\treturn foF2*FoF2Fold >= background\n}",
+    "new": "\treturn true\n}",
+    "package": "./internal/assimilate",
+    "test": "TestAnImplausibleReadingIsRefused"
+  },
+  {
+    "id": "m065",
+    "row": "watchpost D-285",
+    "what": "a NOAA ask that runs out goes on to the next file",
+    "file": "update.go",
+    "old": "\tif timedOut {\n\t\treturn Response{}, false, true",
+    "new": "\tif false && timedOut {\n\t\treturn Response{}, false, true",
+    "package": ".",
+    "test": "TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked"
+  },
+  {
+    "id": "m066",
+    "row": "watchpost D-285",
+    "what": "a NOAA ask waits on the host's own deadline",
+    "file": "update.go",
+    "old": "\taskCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout)\n\tr, err := l.fetch.Fetch(askCtx, url, v)",
+    "new": "\taskCtx, cancel := context.WithTimeout(ctx, noaaAskTimeout*1e6)\n\tr, err := l.fetch.Fetch(askCtx, url, v)",
+    "package": ".",
+    "test": "TestAStalledNOAAStopsItsRoundAndGIROIsStillAsked"
+  },
+  {
+    "id": "m070",
+    "row": "watchpost D-260, D-270",
+    "what": "an unanswered NOAA ask does not back the next update off",
+    "file": "update.go",
+    "old": "\tl.trouble = l.trouble || err != nil || r.Status == statusRefused || r.Status >= statusServerError\n",
+    "new": "\tl.trouble = l.trouble || r.Status == statusRefused || r.Status >= statusServerError\n",
+    "package": ".",
+    "test": "TestARefusalBacksOff"
+  },
+  {
+    "id": "m071",
+    "row": "watchpost R3L-6, R3C-2",
+    "what": "a refused mean is named as GIRO's part",
+    "file": "state.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: %w (%v)\", ErrBadState, ErrBadMean, errF)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: %w (%v)\", ErrBadState, ErrBadGIROState, errF)\n",
+    "package": ".",
+    "test": "TestABadStateIsRefused"
+  },
+  {
+    "id": "m072",
+    "row": "watchpost D-288",
+    "what": "an exported doc comment carries an ID",
+    "file": "state.go",
+    "old": "// F10.7 mean held comes back with its age.",
+    "new": "// F10.7 mean held comes back with its age (D-213).",
+    "package": ".",
+    "test": "TestNoExportedDocCarriesAnID"
+  },
+  {
+    "id": "m073",
+    "row": "watchpost D-291, D-295",
+    "what": "an ask past the room for a full one keeps the full askTimeout and runs into the host's deadline",
+    "file": "internal/deadline/deadline.go",
+    "old": "\tif left >= need {\n\t\treturn need, true\n",
+    "new": "\tif left >= -time.Hour {\n\t\treturn need, true\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsInsideItsDeadline"
+  },
+  {
+    "id": "m076",
+    "row": "watchpost R4L-3",
+    "what": "the host's client timing out first is taken as a station's other failure",
+    "file": "internal/deadline/deadline.go",
+    "old": "\treturn errors.As(err, &t) && t.Timeout()\n",
+    "new": "\treturn errors.As(err, &t) && t.Timeout() && false\n",
+    "package": ".",
+    "test": "TestNOAAsRoundEndsInsideTheHostsDeadline"
+  },
+  {
+    "id": "m079",
+    "row": "watchpost D-285, D-298",
+    "what": "a NOAA ask starts with no room left in the host's update",
+    "file": "update.go",
+    "old": "\tif limit, _ := deadline.Room(ctx, noaaAskTimeout, noaaAskTimeout); limit == 0 {\n",
+    "new": "\tif limit, _ := deadline.Room(ctx, noaaAskTimeout, noaaAskTimeout); limit < 0 {\n",
+    "package": ".",
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
+  },
+  {
+    "id": "m080",
+    "row": "watchpost R4L-3",
+    "what": "the host's client giving up on a NOAA ask is taken as a failure that stops nothing",
+    "file": "internal/deadline/deadline.go",
+    "old": "\treturn errors.As(err, &t) && t.Timeout()\n",
+    "new": "\treturn errors.As(err, &t) && t.Timeout() && false\n",
+    "package": ".",
+    "test": "TestNOAAsRoundEndsInsideTheHostsDeadline"
+  },
+  {
+    "id": "m081",
+    "row": "watchpost D-285 (R4L-3)",
+    "what": "a NOAA ask outlasts a host's client, so the client's error is no timeout",
+    "file": "update.go",
+    "old": "var noaaAskTimeout = 20 * time.Second\n",
+    "new": "var noaaAskTimeout = 45 * time.Second\n",
+    "package": ".",
+    "test": "TestNOAAsRoundEndsInsideTheHostsDeadline"
+  },
+  {
+    "id": "m082",
+    "row": "watchpost R3L-6 (R4L-6)",
+    "what": "a state whose two parts are both refused names GIRO's alone",
+    "file": "state.go",
+    "old": "\tif errF != nil && errG != nil {\n",
+    "new": "\tif false && errF != nil && errG != nil {\n",
+    "package": ".",
+    "test": "TestABadStateIsRefused"
+  },
+  {
+    "id": "m085",
+    "row": "watchpost D-295",
+    "what": "an ask starts with less than askFloor to give it",
+    "file": "internal/deadline/deadline.go",
+    "old": "\tif left < floor {\n",
+    "new": "\tif left < 0 {\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsInsideItsDeadline"
+  },
+  {
+    "id": "m086",
+    "row": "watchpost D-298",
+    "what": "a burst with no room for its first ask spends the hour",
+    "file": "internal/giro/asker.go",
+    "old": "\ta.thr, a.NoRoom = thr, noRoom\n",
+    "new": "\ta.NoRoom = noRoom\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsInsideItsDeadline"
+  },
+  {
+    "id": "m089",
+    "row": "watchpost D-298",
+    "what": "an update with no room for any ask is answered as NOAA not read",
+    "file": "update.go",
+    "old": "\tif l.noRoom && !l.asked {\n",
+    "new": "\tif false && l.noRoom && !l.asked {\n",
+    "package": ".",
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
+  },
+  {
+    "id": "m090",
+    "row": "watchpost D-298",
+    "what": "a NOAA round with no room left backs NOAA off",
+    "file": "update.go",
+    "old": "\t\tl.noRoom = true\n",
+    "new": "\t\tl.noRoom, l.trouble = true, true\n",
+    "package": ".",
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
+  },
+  {
+    "id": "m091",
+    "row": "watchpost D-298",
+    "what": "a burst with no room for its first ask is taken as made",
+    "file": "update.go",
+    "old": "\t\tif l.giro.NoRoom {\n",
+    "new": "\t\tif false {\n",
+    "package": ".",
+    "test": "TestABurstWithNoRoomIsStillToMake"
+  },
+  {
+    "id": "m093",
+    "row": "watchpost D-301",
+    "what": "an ask keeps no margin after it, running to the update's deadline",
+    "file": "internal/deadline/deadline.go",
+    "old": "\tleft -= Margin\n",
+    "new": "\tleft -= 0\n",
+    "package": "./internal/deadline",
+    "test": "TestRoomKeepsTheMargin"
+  },
+  {
+    "id": "m095",
+    "row": "watchpost D-302",
+    "what": "a burst that asked nothing wipes the last burst's counts",
+    "file": "internal/giro/asker.go",
+    "old": "\ta.Rejected, a.Failed, a.Outcome = c.rejected, c.failed, c.outcome\n",
+    "new": "\t_ = c\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsInsideItsDeadline"
+  },
+  {
+    "id": "m102",
+    "row": "watchpost R6L-6",
+    "what": "a burst keeps the last burst's no room",
+    "file": "internal/giro/asker.go",
+    "old": "\ta.NoRoom = false // this burst's own, whatever ends it\n",
+    "new": "\t// a.NoRoom: the last burst's, kept\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsInsideItsDeadline"
+  },
+  {
+    "id": "m104",
+    "row": "watchpost D-302 (R6T-6 g14)",
+    "what": "the host's cancel during an ask is taken as the station's failure",
+    "file": "internal/giro/asker.go",
+    "old": "\tif ctx.Err() != nil {\n\t\treturn cancelled, \"\"\n\t}\n",
+    "new": "\tif false {\n\t\treturn cancelled, \"\"\n\t}\n",
+    "package": "./internal/giro",
+    "test": "TestABurstStoppedBeforeItsFirstAskSpendsNoHour"
+  },
+  {
+    "id": "m105",
+    "row": "R-3.3 (hosted fuzz, amd64)",
+    "what": "a short path's crossings lie far past its ends, where no place is",
+    "file": "internal/limits/budget.go",
+    "old": "\treturn math.Min(1, math.Max(0, frac))\n",
+    "new": "\treturn frac\n",
+    "package": "./internal/limits",
+    "test": "TestPenetrationsStayOnThePath"
+  },
+  {
+    "id": "m106",
+    "row": "R-3.3, P10-02 (hosted fuzz, amd64)",
+    "what": "the sun track steps on a place that is no number",
+    "file": "answers.go",
+    "old": "\tif math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0) {\n",
+    "new": "\tif false {\n",
+    "package": ".",
+    "test": "TestAPathOfNoLengthIsFinite"
+  },
+  {
+    "id": "m110",
+    "row": "R-3.3, P10-02 (R7C-3)",
+    "what": "the sun track steps on a place at infinity",
+    "file": "answers.go",
+    "old": "math.IsNaN(lat) || math.IsNaN(lon) || math.IsInf(lat, 0) || math.IsInf(lon, 0)",
+    "new": "math.IsNaN(lat) || math.IsNaN(lon)",
+    "package": ".",
+    "test": "TestAPathOfNoLengthIsFinite"
+  },
+  {
+    "id": "m116",
+    "row": "watchpost D-298 (R7L-2 MG)",
+    "what": "the no-room error rounds the time left up toward the minimum",
+    "file": "update.go",
+    "old": "max(left, 0).Truncate(time.Millisecond)",
+    "new": "max(left, 0).Round(time.Millisecond)",
+    "package": ".",
+    "test": "TestADeadlineWithNoRoomBacksNothingOff"
+  },
+  {
+    "id": "m131",
+    "row": "watchpost D-317",
+    "what": "a station is flagged only after more misses than three",
+    "file": "internal/stations/stations.go",
+    "old": "\tif l.misses[code] >= flagAfter {\n",
+    "new": "\tif l.misses[code] > flagAfter {\n",
+    "package": "./internal/stations",
+    "test": "TestAStationIsFlaggedAfterThreeMissesInARow"
+  },
+  {
+    "id": "m132",
+    "row": "watchpost D-317",
+    "what": "a flagged station is asked every hour, not every 6 hours",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tcase now.Sub(l.asked[s.Code]) >= flaggedEvery:\n",
+    "new": "\t\tcase true:\n",
+    "package": "./internal/stations",
+    "test": "TestAFlaggedStationIsAskedEverySixHours"
+  },
+  {
+    "id": "m133",
+    "row": "watchpost D-316, D-317",
+    "what": "a reading clears neither a station's misses nor its flag",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tdelete(l.misses, code)\n",
+    "new": "\t\t_ = code\n",
+    "package": "./internal/stations",
+    "test": "TestAFlaggedStationIsAskedEverySixHours"
+  },
+  {
+    "id": "m134",
+    "row": "D-87; watchpost D-316",
+    "what": "no place is kept for the flagged due, so past the budget none returns",
+    "file": "internal/stations/stations.go",
+    "old": "\t\troom-- // a place kept for the flagged due (D-87)\n",
+    "new": "\t\t_ = room // a place kept for the flagged due (D-87)\n",
+    "package": "./internal/stations",
+    "test": "TestAboveFortyStationsRotate"
+  },
+  {
+    "id": "m135",
+    "row": "watchpost D-316",
+    "what": "codes never heard go before flagged stations that reported",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tif l.reported(a) != l.reported(b) {\n",
+    "new": "\t\tif false {\n",
+    "package": "./internal/stations",
+    "test": "TestAFlaggedStationIsAskedEverySixHours"
+  },
+  {
+    "id": "m136",
+    "row": "watchpost D-316",
+    "what": "a reply with no reading is taken as data",
+    "file": "internal/giro/asker.go",
+    "old": "\tif len(rep.Readings) == 0 {\n\t\treturn false\n",
+    "new": "\tif len(rep.Readings) == 0 {\n\t\treturn true\n",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m137",
+    "row": "watchpost D-247, D-316",
+    "what": "a miss is not counted",
+    "file": "internal/giro/asker.go",
+    "old": "\t\tif res == missed && !flagged {\n\t\t\ta.Failed++",
+    "new": "\t\tif res == missed && !flagged && false {\n\t\t\ta.Failed++",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m138",
+    "row": "watchpost D-316, D-317",
+    "what": "every ask is told to the list as data, so no station is ever flagged",
+    "file": "internal/giro/asker.go",
+    "old": "\t\ta.list.Asked(code, now, res == data)\n",
+    "new": "\t\ta.list.Asked(code, now, true)\n",
+    "package": "./internal/giro",
+    "test": "TestAStationMissingThreeInARowIsAskedLessUntilItReturns"
+  },
+  {
+    "id": "m139",
+    "row": "watchpost D-301, D-316",
+    "what": "an ask starts with less than its whole time and margin left",
+    "file": "internal/giro/asker.go",
+    "old": "\t\tlimit, _ := deadline.Room(ctx, askTimeout, askTimeout) // whole or none\n",
+    "new": "\t\tlimit, _ := deadline.Room(ctx, askTimeout, 0) // whole or none\n",
+    "package": "./internal/giro",
+    "test": "TestABurstEndsInsideItsDeadline"
+  },
+  {
+    "id": "m140",
+    "row": "watchpost D-319",
+    "what": "every reading held counts as recent, however old",
+    "file": "stations.go",
+    "old": "\t\tif now.Sub(h.Reading.At) <= recentWithin {\n",
+    "new": "\t\tif true {\n",
+    "package": ".",
+    "test": "TestTheSnapshotSaysHowRecentTheStationsAre"
+  },
+  {
+    "id": "m141",
+    "row": "watchpost D-213, D-317",
+    "what": "the kept state drops the stations' misses",
+    "file": "state.go",
+    "old": "Heard: fromUnixes(k.Heard), Misses: k.Misses,",
+    "new": "Heard: fromUnixes(k.Heard),",
+    "package": ".",
+    "test": "TestAFlaggedStationStaysFlaggedAcrossARestart"
+  },
+  {
+    "id": "m142",
+    "row": "watchpost D-213, D-317",
+    "what": "the list's record drops the stations' misses",
+    "file": "internal/stations/stations.go",
+    "old": "PollAt: l.pollAt, Misses: maps.Clone(l.misses),",
+    "new": "PollAt: l.pollAt,",
+    "package": "./internal/giro",
+    "test": "TestTheFlagsSurviveARestart"
+  },
+  {
+    "id": "m143",
+    "row": "watchpost D-317",
+    "what": "when a flagged station was asked is not kept, so it is due every hour",
+    "file": "internal/stations/stations.go",
+    "old": "\t\tl.asked[code] = now\n",
+    "new": "\t\t_ = now\n",
+    "package": "./internal/giro",
+    "test": "TestAStationMissingThreeInARowIsAskedLessUntilItReturns"
+  },
+  {
+    "id": "m144",
+    "row": "watchpost D-321",
+    "what": "a flagged station's miss is counted and said",
+    "file": "internal/giro/asker.go",
+    "old": "\t\tif res == missed && !flagged {\n",
+    "new": "\t\tif res == missed && (!flagged || true) {\n",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m145",
+    "row": "watchpost D-316 (R10-7)",
+    "what": "a reply hold refuses - another station's, or one placed elsewhere - is taken as data",
+    "file": "internal/giro/asker.go",
+    "old": "\tif !a.hold(code, rep) {\n",
+    "new": "\tif !a.hold(code, rep) && false {\n",
+    "package": "./internal/giro",
+    "test": "TestAStationThatGivesNoDataIsAMiss"
+  },
+  {
+    "id": "m146",
+    "row": "watchpost D-319 (R10-4)",
+    "what": "a reading counts as recent only up to 2 hours old",
+    "file": "stations.go",
+    "old": "const recentWithin = 3 * time.Hour\n",
+    "new": "const recentWithin = 2 * time.Hour\n",
+    "package": ".",
+    "test": "TestTheSnapshotSaysHowRecentTheStationsAre"
+  },
+  {
+    "id": "m147",
+    "row": "watchpost D-319 (R10-4)",
+    "what": "the newest reading said is the first held, not the newest",
+    "file": "stations.go",
+    "old": "\t\tif h.Reading.At.After(newest) {\n",
+    "new": "\t\tif newest.IsZero() {\n",
+    "package": ".",
+    "test": "TestTheSnapshotSaysHowRecentTheStationsAre"
+  },
+  {
+    "id": "m148",
+    "row": "watchpost D-334",
+    "what": "the box takes none of the climatology: GloTEC's foF2 everywhere",
+    "file": "internal/background/background.go",
+    "old": "\t\t\tw := float32(ClimatologyShare(lat, lon))\n",
+    "new": "\t\t\tw := float32(0)\n",
+    "package": "./internal/background",
+    "test": "TestTheNorthWestPacificTakesTheClimatology"
+  },
+  {
+    "id": "m149",
+    "row": "watchpost D-334",
+    "what": "the box's edge is a seam: the climatology whole inside, none outside",
+    "file": "internal/background/background.go",
+    "old": "\treturn max(0, 1-out/boxEdge)\n",
+    "new": "\treturn float64(map[bool]int{true: 1}[out == 0])\n",
+    "package": "./internal/background",
+    "test": "TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge"
+  },
+  {
+    "id": "m150",
+    "row": "watchpost D-334",
+    "what": "the box is read on longitudes unwrapped, so it ends at the antimeridian",
+    "file": "internal/background/background.go",
+    "old": "\teast := math.Mod(math.Mod(lon, 360)+360, 360) // 0 to 360, so the box's east edge is 180\n",
+    "new": "\teast := lon\n",
+    "package": "./internal/background",
+    "test": "TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge"
+  },
+  {
+    "id": "m151",
+    "row": "watchpost D-334",
+    "what": "a place that is no number takes a NaN share, carried into the field",
+    "file": "internal/background/background.go",
+    "old": "\tnowhere := math.IsNaN(lat) || math.IsNaN(lon)\n",
+    "new": "\tnowhere := false\n",
+    "package": "./internal/background",
+    "test": "TestTheClimatologysShareIsOneInsideAndNoneBeyondTheEdge"
+  },
+  {
+    "id": "m152",
+    "row": "watchpost D-334 (go-ionomaps D-124)",
+    "what": "the live offset counts the stations in the box, against the climatology",
+    "file": "update.go",
+    "old": "\t\tif background.ClimatologyShare(o.Lat, o.Lon) == 0 {\n",
+    "new": "\t\tif true {\n",
+    "package": ".",
+    "test": "TestTheLiveOffsetIsCarried"
+  },
+  {
+    "id": "m153",
+    "row": "watchpost D-334 (go-ionomaps D-124)",
+    "what": "the no-readings correction moves the box's climatology by GloTEC's offset",
+    "file": "update.go",
+    "old": "assimilate.Shifted(res.FoF2, l.offset.mean, gloTECShare)",
+    "new": "assimilate.Shifted(res.FoF2, l.offset.mean, nil)",
+    "package": ".",
+    "test": "TestTheNoReadingsCorrectionIsNamed"
+  },
+  {
+    "id": "m154",
+    "row": "watchpost D-334 (go-ionomaps D-124)",
+    "what": "a shift moves every cell whole, whatever its share",
+    "file": "internal/assimilate/onto.go",
+    "old": "\t\t\tpart = share(grid.Centre(i))\n",
+    "new": "\t\t\tpart = 1\n",
+    "package": "./internal/assimilate",
+    "test": "TestAShiftIsHeldToTheFloor"
+  },
+  {
+    "id": "m155",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check takes a record of any code as this code's",
+    "file": "cost_test.go",
+    "old": "if got := strings.Trim(fields[rowTree], \"`\"); got != tree {",
+    "new": "if got := strings.Trim(fields[rowTree], \"`\"); got == \"\" {",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
+  },
+  {
+    "id": "m156",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check takes a record from any machine",
+    "file": "cost_test.go",
+    "old": "if !strings.Contains(fields[rowMachine], referenceMachine) {",
+    "new": "if fields[rowMachine] == \"\" {",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
+  },
+  {
+    "id": "m157",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check lets a figure run to twice its target",
+    "file": "cost_test.go",
+    "old": "if v > costTargets[r] {",
+    "new": "if v > 2*costTargets[r] {",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
+  },
+  {
+    "id": "m158",
+    "row": "G10.3 (watchpost D-345, D-347)",
+    "what": "the release check never reads the hour ahead",
+    "file": "cost_test.go",
+    "old": "for _, r := range []string{rowOpen, rowAhead, rowRefresh, rowHeap} {\n\t\tfigure",
+    "new": "for _, r := range []string{rowOpen, rowRefresh, rowHeap} {\n\t\tfigure",
+    "package": ".",
+    "test": "TestACostRecordIsRefused"
+  }
+]

@@ -1,0 +1,46 @@
+goos: darwin
+goarch: arm64
+pkg: tmbench
+cpu: Apple M5 Pro
+BenchmarkGlobe/pan/200x56/fill-18         	     898	   2389087 ns/op	  715863 B/op	   10777 allocs/op
+BenchmarkGlobe/pan/200x56/fill-18         	    1014	   2352541 ns/op	  715845 B/op	   10777 allocs/op
+BenchmarkGlobe/pan/200x56/fill-18         	    1018	   2373806 ns/op	  715845 B/op	   10777 allocs/op
+BenchmarkGlobe/pan/200x56/fill-18         	     997	   2422586 ns/op	  715845 B/op	   10777 allocs/op
+BenchmarkGlobe/pan/200x56/fill-18         	    1009	   2360159 ns/op	  715846 B/op	   10777 allocs/op
+BenchmarkGlobe/same/200x56/fill-18        	 2144980	      1187 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill-18        	 2099263	      1133 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill-18        	 2163397	      1091 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill-18        	 2246408	      1076 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill-18        	 2017473	      1140 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/pan/200x56/fill+contours-18         	     422	   5738502 ns/op	  718228 B/op	   10646 allocs/op
+BenchmarkGlobe/pan/200x56/fill+contours-18         	     429	   5604264 ns/op	  718228 B/op	   10646 allocs/op
+BenchmarkGlobe/pan/200x56/fill+contours-18         	     428	   5601988 ns/op	  718230 B/op	   10646 allocs/op
+BenchmarkGlobe/pan/200x56/fill+contours-18         	     420	   5699672 ns/op	  718228 B/op	   10646 allocs/op
+BenchmarkGlobe/pan/200x56/fill+contours-18         	     422	   5704065 ns/op	  718228 B/op	   10646 allocs/op
+BenchmarkGlobe/same/200x56/fill+contours-18        	 2231864	      1075 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill+contours-18        	 2240676	      1086 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill+contours-18        	 2163826	      1144 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill+contours-18        	 2060796	      1184 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/same/200x56/fill+contours-18        	 2105173	      1130 ns/op	    1192 B/op	      23 allocs/op
+BenchmarkGlobe/pan/400x110/fill-18                 	     264	   9050753 ns/op	 2744232 B/op	   39561 allocs/op
+BenchmarkGlobe/pan/400x110/fill-18                 	     260	   9291075 ns/op	 2744229 B/op	   39561 allocs/op
+BenchmarkGlobe/pan/400x110/fill-18                 	     262	   9101965 ns/op	 2744228 B/op	   39561 allocs/op
+BenchmarkGlobe/pan/400x110/fill-18                 	     262	   9008545 ns/op	 2744228 B/op	   39561 allocs/op
+BenchmarkGlobe/pan/400x110/fill-18                 	     268	   8958214 ns/op	 2744227 B/op	   39561 allocs/op
+BenchmarkGlobe/same/400x110/fill-18                	 1000000	      2209 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill-18                	 1000000	      2155 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill-18                	 1000000	      2100 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill-18                	 1000000	      2129 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill-18                	 1000000	      2205 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/pan/400x110/fill+contours-18        	     100	  22571458 ns/op	 2747508 B/op	   39321 allocs/op
+BenchmarkGlobe/pan/400x110/fill+contours-18        	     100	  22948058 ns/op	 2747502 B/op	   39321 allocs/op
+BenchmarkGlobe/pan/400x110/fill+contours-18        	     100	  21857176 ns/op	 2747501 B/op	   39321 allocs/op
+BenchmarkGlobe/pan/400x110/fill+contours-18        	     100	  21662540 ns/op	 2747506 B/op	   39321 allocs/op
+BenchmarkGlobe/pan/400x110/fill+contours-18        	     100	  22193978 ns/op	 2747503 B/op	   39321 allocs/op
+BenchmarkGlobe/same/400x110/fill+contours-18       	 1000000	      2210 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill+contours-18       	 1000000	      2114 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill+contours-18       	 1000000	      2221 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill+contours-18       	 1000000	      2120 ns/op	    5184 B/op	      46 allocs/op
+BenchmarkGlobe/same/400x110/fill+contours-18       	 1000000	      2128 ns/op	    5184 B/op	      46 allocs/op
+PASS
+ok  	tmbench	93.335s

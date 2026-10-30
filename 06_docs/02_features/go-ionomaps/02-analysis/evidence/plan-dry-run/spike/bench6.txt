@@ -1,0 +1,46 @@
+goos: darwin
+goarch: arm64
+pkg: spike
+cpu: Apple M5 Pro
+BenchmarkClimDay25/2deg/naive-18         	       1	3382671250 ns/op	7555432320 B/op	 1638218 allocs/op
+BenchmarkClimDay25/2deg/naive-18         	       1	3380069417 ns/op	7555431744 B/op	 1638212 allocs/op
+BenchmarkClimDay25/2deg/naive-18         	       1	3394193292 ns/op	7555432080 B/op	 1638215 allocs/op
+BenchmarkClimDay25/2deg/naive-18         	       1	3424791667 ns/op	7555437432 B/op	 1638223 allocs/op
+BenchmarkClimDay25/2deg/naive-18         	       1	3401900791 ns/op	7555432416 B/op	 1638218 allocs/op
+BenchmarkClimDay25/2deg/fast-qdonly-18   	       7	 333915202 ns/op	 6946944 B/op	      54 allocs/op
+BenchmarkClimDay25/2deg/fast-qdonly-18   	       7	 331255030 ns/op	 6946944 B/op	      54 allocs/op
+BenchmarkClimDay25/2deg/fast-qdonly-18   	       7	 339267220 ns/op	 6946944 B/op	      54 allocs/op
+BenchmarkClimDay25/2deg/fast-qdonly-18   	       7	 351462566 ns/op	 6946944 B/op	      54 allocs/op
+BenchmarkClimDay25/2deg/fast-qdonly-18   	       7	 334093649 ns/op	 6946944 B/op	      54 allocs/op
+BenchmarkClimDay25/2deg/fast-leg64-18    	      12	 191450694 ns/op	67887233 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg64-18    	      12	 191345538 ns/op	67887232 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg64-18    	      12	 191518045 ns/op	67887233 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg64-18    	      12	 192395344 ns/op	67887241 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg64-18    	      12	 190712139 ns/op	67887233 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg32-18    	       9	 243711018 ns/op	37421185 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg32-18    	       9	 251722116 ns/op	37421185 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg32-18    	       9	 247705134 ns/op	37421184 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg32-18    	       9	 242097134 ns/op	37421185 B/op	      55 allocs/op
+BenchmarkClimDay25/2deg/fast-leg32-18    	       9	 247142398 ns/op	37421184 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/naive-18         	       1	13710986959 ns/op	30052920912 B/op	 6516251 allocs/op
+BenchmarkClimDay25/1deg/naive-18         	       1	13904798375 ns/op	30052923376 B/op	 6516273 allocs/op
+BenchmarkClimDay25/1deg/naive-18         	       1	13425275167 ns/op	30052921024 B/op	 6516252 allocs/op
+BenchmarkClimDay25/1deg/naive-18         	       1	13146880750 ns/op	30052919344 B/op	 6516237 allocs/op
+BenchmarkClimDay25/1deg/naive-18         	       1	13381096708 ns/op	30052923264 B/op	 6516272 allocs/op
+BenchmarkClimDay25/1deg/fast-qdonly-18   	       2	1308047916 ns/op	27787392 B/op	      54 allocs/op
+BenchmarkClimDay25/1deg/fast-qdonly-18   	       2	1294440625 ns/op	27787448 B/op	      54 allocs/op
+BenchmarkClimDay25/1deg/fast-qdonly-18   	       2	1293193292 ns/op	27787392 B/op	      54 allocs/op
+BenchmarkClimDay25/1deg/fast-qdonly-18   	       2	1293048875 ns/op	27787392 B/op	      54 allocs/op
+BenchmarkClimDay25/1deg/fast-qdonly-18   	       2	1296555354 ns/op	27787392 B/op	      54 allocs/op
+BenchmarkClimDay25/1deg/fast-leg64-18    	       3	 780270986 ns/op	270188672 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg64-18    	       3	 738015750 ns/op	270188672 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg64-18    	       3	 736525903 ns/op	270188672 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg64-18    	       3	 736006292 ns/op	270188672 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg64-18    	       3	 736991930 ns/op	270188672 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg32-18    	       3	 948069653 ns/op	148988032 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg32-18    	       3	 943621736 ns/op	148988032 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg32-18    	       3	1010213625 ns/op	148988032 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg32-18    	       3	 981978542 ns/op	148988032 B/op	      55 allocs/op
+BenchmarkClimDay25/1deg/fast-leg32-18    	       3	 953228639 ns/op	148988032 B/op	      55 allocs/op
+PASS
+ok  	spike	158.481s

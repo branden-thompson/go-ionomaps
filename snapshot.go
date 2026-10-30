@@ -1,0 +1,248 @@
+package ionomaps
+
+import (
+	"math"
+	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/scales"
+)
+
+// A Snapshot is one hour's fields and what they were made from, and answers
+// for that hour. It is immutable: every update returns fresh slices.
+// An update's snapshot is now; Ahead gives an hour ahead as a snapshot of
+// its own, typical.
+type Snapshot struct {
+	Computed        time.Time    // the age is the host's clock minus this
+	Now             Hour         // the hour it answers for: now, or from Ahead an hour ahead
+	NearestKm       []float32    // per cell: distance to the nearest assimilated station; measured within 500 km
+	NearestUnscored Bitset       // per cell: whether that nearest station's readings are unscored - verify on air
+	Background      Backgrounds  // per field
+	Inputs          Inputs       // what fed it, and when
+	Reason          Reason       // why this is not from new data
+	Scales          Scales       // NOAA's space-weather levels
+	Offset          Offset       // stations against GloTEC
+	Disturbance     Field        // D-RAP's highest frequency absorbed by 1 dB, MHz a cell; no cells without D-RAP
+	Noise           Noise        // the man-made noise the reference circuit hears, as the update asked
+	TypicalError    TypicalError // the hours ahead's error, with its basis
+
+	typical *typicalDays // the library's typical days, which the answers and the hours ahead share (P-4, R-8.1); none for a snapshot made by hand
+}
+
+// Hour is one hour's fields, for the moment At.
+type Hour struct {
+	At      time.Time
+	MUF3000 Field
+	FoF2    Field
+	Typical bool // an hour ahead: the climatology's, typical, never a forecast
+}
+
+// Field is a value a cell over a box: rows from the north, each west to east,
+// Cols times Rows of them, every one finite. A cell with no known
+// value is marked in NoData; its value is then not to be read.
+type Field struct {
+	West, South, East, North float64
+	Cols, Rows               int
+	Values                   []float32
+	NoData                   Bitset
+}
+
+// WithNoData is a copy of the field with the cells given marked as having
+// no data; a cell outside the field is passed over. The field itself is
+// unchanged: a host's tests mark cells this way.
+//
+// Source: this library.
+func (f Field) WithNoData(cells ...int) Field {
+	c := f.owned()
+	for _, i := range cells {
+		c.NoData.set(i)
+	}
+	return c
+}
+
+// Bitset is a set of cells by index.
+type Bitset struct {
+	bits []uint64
+	n    int
+}
+
+func newBitset(n int) Bitset { return Bitset{bits: make([]uint64, (n+63)/64), n: n} }
+
+// Len is how many cells the set covers.
+//
+// Source: this library.
+func (b Bitset) Len() int { return b.n }
+
+// Has reports whether cell i is in the set; a cell outside it never is.
+//
+// Source: this library.
+func (b Bitset) Has(i int) bool {
+	if i < 0 || i >= b.n {
+		return false
+	}
+	return b.bits[i/64]&(1<<(i%64)) != 0
+}
+
+// set puts cell i in the set; a cell outside it is passed over.
+func (b Bitset) set(i int) {
+	if i < 0 || i >= b.n {
+		return
+	}
+	b.bits[i/64] |= 1 << (i % 64)
+}
+
+// Background is what a field's background was made from.
+type Background uint8
+
+// The backgrounds.
+const (
+	NoBackground Background = iota // nothing yet
+	GloTEC                         // NOAA SWPC's GloTEC, foF2 from NmF2
+	Climatology                    // the climatology, the PyIRI method
+)
+
+// String names a background.
+//
+// Source: this library.
+func (b Background) String() string {
+	switch b {
+	case GloTEC:
+		return "GloTEC"
+	case Climatology:
+		return "climatology"
+	}
+	return "none"
+}
+
+// Backgrounds are each field's background: foF2 over GloTEC, else the
+// climatology; M(3000)F2 over the climatology.
+type Backgrounds struct{ FoF2, M3000 Background }
+
+// The names Inputs.Unread gives NOAA's inputs.
+const (
+	UnreadGloTEC = "GloTEC" // GloTEC's index, or the newest grid it names
+	UnreadSolar  = "solar"  // the daily solar file, for the F10.7 mean
+	UnreadDRAP   = "D-RAP"  // D-RAP's table
+	UnreadScales = "scales" // NOAA's scales file
+)
+
+// Inputs are what fed a snapshot, and when.
+type Inputs struct {
+	Stations, Rejected int           // readings used, and the last burst's rows refused: past range checks, or from a station placed over 50 km from where it is
+	Implausible        int           // readings refused whole this build, their foF2 past its residual's bound, or its fold, against the background
+	ImplausibleM       int           // readings whose M(3000)F2 alone was refused this build, past its bound; their foF2 was used
+	GloTECValid        time.Time     // the grid's own valid time; zero when GloTEC was missing
+	OldestReading      time.Time     // the oldest GIRO reading assimilated
+	DRAPValid          time.Time     // zero when D-RAP was missing: no "disturbed" state
+	F107Mean           float32       // the 30-day mean used
+	F107Days           int           // observed days in it
+	F107Age            time.Duration // since the solar file was last fetched
+	CoordsExtrapolated bool          // past IGRF-14's last year
+	NoStations         bool          // the host asked for no stations (UpdateOptions.NoStations): GIRO not asked, no reading on the field
+	GloTECFilled       int           // cells GloTEC gave no value for, filled from the climatology, when GloTEC is the background
+	GIRO               GIROOutcome   // how the last burst ended, carried until the next
+	StationsFailed     int           // stations not flagged that gave no data in the last burst - a server error, a 404, no answer, an ask run out, a reply with no reading - the burst going on
+	StationsHeld       int           // stations whose latest reading is held - one taken within the last 72 hours: the stations reporting
+	StationsRecent     int           // of those, the ones whose reading was taken within the last 3 hours
+	NewestReading      time.Time     // the newest reading held; zero when none is
+	Unread             []string      // NOAA's inputs the snapshot lacks, by the Unread names: a file this update asked for and could not read - unanswered, refused or unreadable - one not asked, as no grid, D-RAP or scales is fetched without a usable F10.7 mean, or one held past its age; the one held used instead where one is usable, its age saying so; Background says what foF2 was drawn from
+}
+
+// GIROOutcome is how GIRO's last burst ended, carried in
+// every snapshot until the next burst, so the hour between says it too.
+type GIROOutcome uint8
+
+// The outcomes.
+const (
+	GIROAnswered    GIROOutcome = iota // the burst ran, or none has been made; Inputs.StationsFailed counts the stations that gave no data
+	GIROUnavailable                    // GIRO refused the burst - a 429 - and is backing off
+	GIRODenied                         // GIRO refused this host - a 401 or 403 - and is left alone for a day
+)
+
+// String names an outcome.
+//
+// Source: this library.
+func (g GIROOutcome) String() string {
+	switch g {
+	case GIROUnavailable:
+		return "unavailable"
+	case GIRODenied:
+		return "denied"
+	}
+	return "answered"
+}
+
+// Reason is why a snapshot is not from new data.
+type Reason uint8
+
+// The reasons.
+const (
+	Fresh        Reason = iota // from new data
+	TooSoon                    // asked within ten minutes of NOAA's last ask, or while it backs off: the last snapshot, nothing asked
+	GIROPaused                 // GIRO is backing off, or left alone after a denial: Inputs.GIRO says which
+	Offline                    // no NOAA file came back and GIRO was not due: built from what is held; with ErrNoField, there is nothing yet to build from
+	StationsNext               // NOAA's fields, GIRO due: update again at once for the stations
+	Unfinished                 // the update stopped before every file arrived - the host cancelled it, or its deadline left no room for any ask (ErrNoRoom) - so it is built from what is held; NOAA may be asked again at once
+	Partial                    // some of NOAA's files did not come back - Inputs.Unread names each - and what is held, or the climatology, stands in for them; the rest is new
+)
+
+// TypicalError is the hours ahead's error by distance to the nearest
+// reporting station, and where and when it was measured: Basis in words a
+// listener can be told, Source the citation for a developer.
+type TypicalError struct {
+	Bands         []BandError
+	Basis, Source string
+}
+
+// BandError is the typical error up to a distance: 500, 1000, 2000 km, then
+// no limit.
+type BandError struct {
+	UpToKm              float32
+	FoF2MHz, MUF3000MHz float32
+}
+
+// Scales are NOAA's space-weather levels now and their outlook - today and
+// the next two days - as published; Valid is zero when the feed is missing,
+// and a level or probability NOAA leaves null is ScaleUnset: neither is
+// ever read as level 0.
+type Scales struct {
+	R, S, G int // 0 to 5, or ScaleUnset
+	Outlook []DayScale
+	Valid   time.Time
+}
+
+// ScaleUnset is a level or probability NOAA's file gives none for: -1,
+// never read as level 0.
+const ScaleUnset = scales.None
+
+// DayScale is one day of NOAA's outlook: R's minor and major probabilities
+// and S's, in percent, and the G level; each ScaleUnset where none is given.
+type DayScale struct {
+	Day                        time.Time
+	RMinorPct, RMajorPct, SPct int
+	G                          int
+}
+
+// Offset is the stations' foF2 against GloTEC's:
+// the live offset, this update's, when measured; the typical offset and its
+// spread (one standard deviation), seeded from GIRO's readings over the
+// week of 2026-09-29 to 10-05 and learned from this library's own updates; whether the no-readings correction moved
+// GloTEC's foF2 by the typical offset; and where the seed was measured.
+type Offset struct {
+	LiveMHz, TypicalMHz, SpreadMHz float32
+	Measured                       bool   // a live offset: GloTEC the background, five or more readings assimilated
+	Corrected                      bool   // the no-readings correction is in use
+	Basis                          string // where the seed was measured, in words a listener can be told
+	Source                         string // the seed's citation, for a developer
+}
+
+// Apart is whether the live offset is more than two spreads from the
+// typical: the host's status says so; false when no live offset is
+// measured.
+//
+// Source: this library (06_docs/02_features/go-ionomaps/02-analysis/evidence/offset.py).
+func (o Offset) Apart() bool {
+	if !o.Measured {
+		return false
+	}
+	return math.Abs(float64(o.LiveMHz-o.TypicalMHz)) > 2*float64(o.SpreadMHz)
+}

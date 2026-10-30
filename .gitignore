@@ -1,8 +1,9 @@
 # Build output - every binary goes to ./dist/
 dist/
 
-# Logs
+# Logs; the evidence's request logs are records, kept (watchpost H-5)
 *.log
+!06_docs/**/*.log
 
 # Go workspace, test and profiling output
 go.work

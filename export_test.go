@@ -1,0 +1,60 @@
+package ionomaps
+
+import (
+	"time"
+
+	"github.com/branden-thompson/go-ionomaps/internal/deadline"
+)
+
+// HeldReadings is what the library holds from GIRO, for the tests: how many
+// stations' readings, and the oldest - held, whether or not the field
+// assimilates them.
+func HeldReadings(l *Library) (n int, oldest time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, h := range l.giro.Readings() {
+		if oldest.IsZero() || h.Reading.At.Before(oldest) {
+			oldest = h.Reading.At
+		}
+	}
+	return len(l.giro.Readings()), oldest
+}
+
+// Built is how many typical cells and backgrounds the library has worked
+// out, for the tests of what it keeps (R-8.1).
+func Built(l *Library) (cells, backgrounds int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.typical.mu.Lock()
+	defer l.typical.mu.Unlock()
+	for _, d := range l.typical.days {
+		cells += int(d.filled.Load())
+	}
+	return cells, l.bg.built
+}
+
+// ReachExact is a reach whose every cell takes its own circuit, the
+// measure the polar grid is held to (watchpost D-227).
+func ReachExact(s Snapshot, origin LatLon, mhz float64) (ReachField, error) {
+	return s.reach(origin, mhz, false)
+}
+
+// SetNOAAAskTimeout sets how long one of NOAA's asks may take, for the tests
+// of a stalled host, and is what puts it back.
+func SetNOAAAskTimeout(d time.Duration) (restore func()) {
+	was := noaaAskTimeout
+	noaaAskTimeout = d
+	return func() { noaaAskTimeout = was }
+}
+
+// NOAAAskTimeout is how long one of NOAA's asks may take, for the test that
+// holds it under a host's budget.
+func NOAAAskTimeout() time.Duration { return noaaAskTimeout }
+
+// SetDeadlineMargin sets the margin every ask leaves the host's update, for
+// a test that scales the asks; the function it returns puts it back.
+func SetDeadlineMargin(d time.Duration) func() {
+	was := deadline.Margin
+	deadline.Margin = d
+	return func() { deadline.Margin = was }
+}

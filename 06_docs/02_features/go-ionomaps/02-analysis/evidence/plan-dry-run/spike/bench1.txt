@@ -1,0 +1,76 @@
+goos: darwin
+goarch: arm64
+pkg: spike
+cpu: Apple M5 Pro
+BenchmarkPrecompute/2deg-18 	 2179724	      1102 ns/op	    4608 B/op	       4 allocs/op
+BenchmarkPrecompute/2deg-18 	 2096439	      1124 ns/op	    4608 B/op	       4 allocs/op
+BenchmarkPrecompute/2deg-18 	 2132305	      1184 ns/op	    4608 B/op	       4 allocs/op
+BenchmarkPrecompute/2deg-18 	 1887128	      1221 ns/op	    4608 B/op	       4 allocs/op
+BenchmarkPrecompute/2deg-18 	 2102578	      1136 ns/op	    4608 B/op	       4 allocs/op
+BenchmarkPrecompute/1deg-18 	 1000000	      2015 ns/op	    9216 B/op	       4 allocs/op
+BenchmarkPrecompute/1deg-18 	 1000000	      2010 ns/op	    9216 B/op	       4 allocs/op
+BenchmarkPrecompute/1deg-18 	 1000000	      2008 ns/op	    9216 B/op	       4 allocs/op
+BenchmarkPrecompute/1deg-18 	 1000000	      2122 ns/op	    9216 B/op	       4 allocs/op
+BenchmarkPrecompute/1deg-18 	 1000000	      2011 ns/op	    9216 B/op	       4 allocs/op
+BenchmarkReach/2deg/naive-18         	     433	   5480069 ns/op	 1281792 B/op	   16381 allocs/op
+BenchmarkReach/2deg/naive-18         	     429	   5671893 ns/op	 1281792 B/op	   16381 allocs/op
+BenchmarkReach/2deg/naive-18         	     434	   5485224 ns/op	 1281792 B/op	   16381 allocs/op
+BenchmarkReach/2deg/naive-18         	     433	   5547485 ns/op	 1281792 B/op	   16381 allocs/op
+BenchmarkReach/2deg/naive-18         	     432	   5475152 ns/op	 1281792 B/op	   16381 allocs/op
+BenchmarkReach/2deg/fast-18          	     696	   3467440 ns/op	      23 B/op	       0 allocs/op
+BenchmarkReach/2deg/fast-18          	     584	   3722740 ns/op	      28 B/op	       0 allocs/op
+BenchmarkReach/2deg/fast-18          	     693	   3469954 ns/op	      23 B/op	       0 allocs/op
+BenchmarkReach/2deg/fast-18          	     684	   3464169 ns/op	      23 B/op	       0 allocs/op
+BenchmarkReach/2deg/fast-18          	     693	   3490349 ns/op	      23 B/op	       0 allocs/op
+BenchmarkReach/1deg/naive-18         	     111	  21352401 ns/op	 5098368 B/op	   65161 allocs/op
+BenchmarkReach/1deg/naive-18         	     100	  21229369 ns/op	 5098368 B/op	   65161 allocs/op
+BenchmarkReach/1deg/naive-18         	     100	  21225745 ns/op	 5098370 B/op	   65161 allocs/op
+BenchmarkReach/1deg/naive-18         	     100	  21210031 ns/op	 5098370 B/op	   65161 allocs/op
+BenchmarkReach/1deg/naive-18         	     100	  21200731 ns/op	 5098369 B/op	   65161 allocs/op
+BenchmarkReach/1deg/fast-18          	     180	  13296410 ns/op	     364 B/op	       0 allocs/op
+BenchmarkReach/1deg/fast-18          	     181	  13391999 ns/op	     362 B/op	       0 allocs/op
+BenchmarkReach/1deg/fast-18          	     180	  13280980 ns/op	     364 B/op	       0 allocs/op
+BenchmarkReach/1deg/fast-18          	     180	  13560886 ns/op	     364 B/op	       0 allocs/op
+BenchmarkReach/1deg/fast-18          	     169	  13854106 ns/op	     387 B/op	       0 allocs/op
+BenchmarkBandsAreaNow/naive-18       	   10000	    226836 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaNow/naive-18       	   10000	    223417 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaNow/naive-18       	   10000	    223489 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaNow/naive-18       	   10000	    225502 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaNow/naive-18       	   10000	    226633 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaNow/fast-18        	  253102	      9462 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaNow/fast-18        	  254948	      9442 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaNow/fast-18        	  248628	      9665 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaNow/fast-18        	  254415	      9424 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaNow/fast-18        	  256059	      9465 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaDay/naive-18       	     438	   5475219 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaDay/naive-18       	     439	   5487997 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaDay/naive-18       	     368	   5815354 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaDay/naive-18       	     435	   5486668 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaDay/naive-18       	     438	   5450777 ns/op	    2032 B/op	       7 allocs/op
+BenchmarkBandsAreaDay/fast-18        	   13898	    171805 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaDay/fast-18        	   14216	    168912 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaDay/fast-18        	   14244	    168461 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaDay/fast-18        	   14221	    170023 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBandsAreaDay/fast-18        	   14008	    170380 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPathDay/naive-18            	    3996	    579495 ns/op	  126720 B/op	    1680 allocs/op
+BenchmarkPathDay/naive-18            	    4154	    586541 ns/op	  126720 B/op	    1680 allocs/op
+BenchmarkPathDay/naive-18            	    4066	    605391 ns/op	  126720 B/op	    1680 allocs/op
+BenchmarkPathDay/naive-18            	    3979	    583076 ns/op	  126720 B/op	    1680 allocs/op
+BenchmarkPathDay/naive-18            	    4144	    607116 ns/op	  126720 B/op	    1680 allocs/op
+BenchmarkPathDay/fast-18             	   64945	     39592 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPathDay/fast-18             	   66228	     35862 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPathDay/fast-18             	   66897	     35833 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPathDay/fast-18             	   67059	     35962 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPathDay/fast-18             	   66775	     36478 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCentre/naive-18             	   19912	    120725 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCentre/naive-18             	   19731	    120740 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCentre/naive-18             	   20209	    119343 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCentre/naive-18             	   19975	    120221 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCentre/naive-18             	   20124	    119400 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCentre/fast-18              	  665086	      3625 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCentre/fast-18              	  654050	      3653 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCentre/fast-18              	  651050	      3902 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCentre/fast-18              	  644458	      3652 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCentre/fast-18              	  669654	      3675 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	spike	164.437s

@@ -1,0 +1,21 @@
+set timeout -1
+set home [lindex $argv 0]
+set bin [lindex $argv 1]
+set secs [lindex $argv 2]
+set pidfile [lindex $argv 3]
+set env(HOME) $home
+set env(XDG_CONFIG_HOME) "$home/.config"
+set env(XDG_DATA_HOME) "$home/.local/share"
+set env(XDG_CACHE_HOME) "$home/.cache"
+set env(TERM) "xterm-256color"
+foreach v {http_proxy https_proxy HTTP_PROXY HTTPS_PROXY} { set env($v) "http://127.0.0.1:9" }
+set stty_init "rows 44 cols 133"
+spawn /usr/bin/sandbox-exec -p {(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip "localhost:*"))} $bin
+set fh [open $pidfile w]; puts $fh [exp_pid]; close $fh
+# drain the screen so the pty never fills; stop after the given seconds
+set timeout $secs
+expect { -re ".+" { exp_continue } timeout { } eof { } }
+# end by signal, not a keypress: q can open a confirmation and hang the run
+catch { exec kill -TERM [exp_pid] }
+set timeout 10
+expect { eof { } timeout { catch { exec kill -KILL [exp_pid] } } }

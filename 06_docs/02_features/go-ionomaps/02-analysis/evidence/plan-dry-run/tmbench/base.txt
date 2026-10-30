@@ -1,0 +1,16 @@
+goos: darwin
+goarch: arm64
+pkg: tmbench
+cpu: Apple M5 Pro
+BenchmarkEmptyPan/200x56-18         	   17304	    135783 ns/op	    1342 B/op	      23 allocs/op
+BenchmarkEmptyPan/200x56-18         	   17809	    133826 ns/op	    1342 B/op	      23 allocs/op
+BenchmarkEmptyPan/200x56-18         	   18058	    132732 ns/op	    1342 B/op	      23 allocs/op
+BenchmarkEmptyPan/200x56-18         	   17308	    137435 ns/op	    1342 B/op	      23 allocs/op
+BenchmarkEmptyPan/200x56-18         	   17559	    136387 ns/op	    1342 B/op	      23 allocs/op
+BenchmarkEmptyPan/400x110-18        	    4680	    514082 ns/op	    5567 B/op	      46 allocs/op
+BenchmarkEmptyPan/400x110-18        	    4612	    516827 ns/op	    5568 B/op	      46 allocs/op
+BenchmarkEmptyPan/400x110-18        	    4729	    506756 ns/op	    5566 B/op	      46 allocs/op
+BenchmarkEmptyPan/400x110-18        	    4712	    507940 ns/op	    5566 B/op	      46 allocs/op
+BenchmarkEmptyPan/400x110-18        	    3900	    514420 ns/op	    5583 B/op	      46 allocs/op
+PASS
+ok  	tmbench	23.876s
