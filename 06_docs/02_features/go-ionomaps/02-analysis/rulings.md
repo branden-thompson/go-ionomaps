@@ -146,6 +146,7 @@ restated here; this log holds go-giro-data's own.
 | D-125 | 2026-10-30 | Restates watchpost D-345: G10.3's release step | see watchpost D-345 ("Build the release step") | **G10.3 is built before v0.1.0: a release-step measure of G-G1 on the reference machine writes its record - the machine model, the Go version, the commit and the figures - and `scripts/gate --release` refuses a record that is missing, names another commit, or misses a target.** |
 | D-126 | 2026-10-30 | Restates watchpost D-346: the A-rows never put for veto | see watchpost D-346 ("They stand (Rec.)") | **A-1 to A-6, A-28, A-30 to A-38 and A-40 stand as recorded (A-30 (1) vetoed by D-103); A-37 (3) and A-39 stand under watchpost D-325. Every A-row has been put to the HUM LEAD for veto.** |
 | D-127 | 2026-10-30 | Restates watchpost D-347: G-G1 as built | see watchpost D-347 ("Amend to as-built (Rec.)") | **Amends D-30 and D-39: a cold open is the hour now, at most 0.5 s of CPU; each hour ahead at most 50 ms; a refresh at most 100 ms; the live heap with 24 hours ahead held at most 15 MB, on an Apple M5 Pro. The refresh's cost a known limit; a faster refresh a v0.1.1 follow-up.** |
+| D-128 | 2026-10-30 | Restates watchpost D-349: v0.1.0's tag | see watchpost D-349 ("Approve the release (Rec.)") | **`release/v0.1.0` from `0df7ce4`, the release gate on it, the PR to `main`, the hosted gates; on green, squash-merged, `v0.1.0` tagged on the merge commit and the GitHub Release published from the release notes.** |
 
 ## Agent decisions (A-n, watchpost D-13)
 
