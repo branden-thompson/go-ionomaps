@@ -4,7 +4,7 @@ Up: [plan](../04-development/implementation-plan.md) · [API review](../03-archi
 
 | Field | Value |
 |---|---|
-| Status | **Ready for the tag.** Sections 0 to 2 ticked with their evidence (watchpost D-344); v0.1.0 is cut from `release/v0.1.0` on the HUM LEAD's approval. Candidates `v0.1.0-rc.1` to `v0.1.0-rc.17`, the last at `37b7d42`; watchpost 0.19.0 pins the final tag (row 3.3) |
+| Status | **Released.** v0.1.0 tagged on `ad90647` on 2026-10-30 (watchpost D-349), every row ticked with its evidence; watchpost 0.19.0 shipped on it (watchpost D-352). Candidates `v0.1.0-rc.1` to `v0.1.0-rc.17`, the last at `37b7d42` |
 | Who runs it | The coordinator prepares each row and shows its evidence; the HUM LEAD approves the tag |
 | The machine check | `scripts/gate --release`: the full gate and the release steps (row 0.5). The other rows are ticked by hand with their evidence. A release candidate, `v0.1.0-rc.N`, is not held to the rows |
 | How a row is ticked | Its last cell becomes `[x]`, in the commit that holds its evidence, with the evidence named in the row |
@@ -43,9 +43,9 @@ Up: [plan](../04-development/implementation-plan.md) · [API review](../03-archi
 
 | # | Check | Evidence | Done |
 |---|---|---|---|
-| 3.1 | `release/v0.1.0` squash-merged to `main` from `feature/discover` | | [ ] |
-| 3.2 | `v0.1.0` at the root | | [ ] |
-| 3.3 | watchpost 0.19.0 pins `v0.1.0` and its gate is green on it | | [ ] |
+| 3.1 | `release/v0.1.0` squash-merged to `main` from `feature/discover` | PR #1 squash-merged to `main` as `ad90647` on a fully green run: the push and pull-request gates and the dispatched full gate (run 41124692551) at `b0bb0ac` | [x] |
+| 3.2 | `v0.1.0` at the root | `v0.1.0` on `ad90647`, the GitHub Release published from `release-notes.md`; the gate green on `main` at it (runs 41129253842 and 41215696382) | [x] |
+| 3.3 | watchpost 0.19.0 pins `v0.1.0` and its gate is green on it | watchpost batch 83 (`2fd0e49d`) pins `v0.1.0`: `make verify` green and the hosted CI on Linux and macOS (run 41169528949); watchpost v0.19.0 released on it (PR #31, D-352) | [x] |
 
 ## Ruled exceptions to the vulnerability scan
 
