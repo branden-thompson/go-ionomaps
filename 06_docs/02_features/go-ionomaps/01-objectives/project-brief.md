@@ -99,7 +99,7 @@ distribution, so its Fortran is never ported; NASA's PyIRI is MIT and is the ref
 raw CCIR/URSI tables are not shipped; NRL's refits are, behind a swappable seam (watchpost D-43).
 
 ### GC-4 — Go, beside its hosts
-watchpost and go-tuiMaps are `go 1.26.10` (watchpost D-244, after GO-2026-6809; D-152 before it), and so is this module (`go.mod`). Module path:
+watchpost is `go 1.26.10` (watchpost D-244, after GO-2026-6809; D-152 before it), and so is this module (`go.mod`). go-tuiMaps' `main` is `go 1.26.11`, after GO-2026-6859 in `net/http` (watchpost 0.19.5 D-57); this module's floor scan passes at 1.26.10, the library importing `net/http` only in a test (D-129). Module path:
 `github.com/branden-thompson/go-ionomaps` (renamed at watchpost D-56).
 
 ### GC-5 — Gates do not exist yet
